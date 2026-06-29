@@ -1,0 +1,8 @@
+apiVersion: v2
+name: rtdwh-mgmt
+description: Real-time Data Warehouse Management Platform - Flink 2.x + Paimon + Spring Boot + Ant Design Pro
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+maintainers:
+  - name: rtdwh-team

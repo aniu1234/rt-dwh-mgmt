@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>实时数仓管理系统 - API 设计文档</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; color: #333; }
+  .header { background: linear-gradient(135deg, #1a73e8, #4285f4); color: #fff; padding: 24px 32px; }
+  .header h1 { font-size: 24px; margin-bottom: 8px; }
+  .header p { font-size: 14px; opacity: 0.85; }
+  .container { padding: 24px 32px; max-width: 1200px; }
+  .api-group { margin-bottom: 32px; }
+  .api-group h2 { font-size: 18px; color: #1a73e8; margin-bottom: 16px; border-bottom: 2px solid #1a73e8; padding-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+  .api-group h2 .tag { font-size: 11px; padding: 2px 8px; border-radius: 4px; background: #e8f0fe; color: #1a73e8; }
+  .endpoint { background: #fff; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 12px; overflow: hidden; }
+  .endpoint-header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; cursor: pointer; }
+  .method { font-size: 13px; font-weight: 700; padding: 4px 10px; border-radius: 4px; color: #fff; min-width: 60px; text-align: center; }
+  .method.get { background: #34a853; }
+  .method.post { background: #1a73e8; }
+  .method.put { background: #fbbc04; color: #333; }
+  .method.delete { background: #ea4335; }
+  .method.patch { background: #9c27b0; }
+  .path { font-size: 14px; font-weight: 500; }
+  .desc { font-size: 13px; color: #666; }
+  .endpoint-body { padding: 0 16px 16px; border-top: 1px solid #eee; }
+  .param-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 12px; }
+  .param-table th { background: #f5f7fa; padding: 8px 12px; text-align: left; font-weight: 600; }
+  .param-table td { padding: 8px 12px; border-bottom: 1px solid #eee; }
+  .param-table .req { color: #ea4335; font-weight: 600; }
+  .param-table .opt { color: #34a853; }
+  .response-block { background: #f5f7fa; border-radius: 6px; padding: 12px 16px; font-size: 13px; }
+  .response-block h4 { font-size: 13px; margin-bottom: 8px; color: #1a73e8; }
+  .code { background: #263238; color: #aed581; padding: 12px; border-radius: 6px; font-family: 'Courier New', monospace; font-size: 12px; white-space: pre-wrap; overflow-x: auto; }
+  .status-badge { font-size: 11px; padding: 2px 6px; border-radius: 3px; }
+  .status-200 { background: #e6f4ea; color: #34a853; }
+  .status-400 { background: #fef7e0; color: #fbbc04; }
+  .status-401 { background: #fce8e6; color: #ea4335; }
+  .status-404 { background: #fce8e6; color: #ea4335; }
+  .base-url { background: #e8f0fe; padding: 12px 16px; border-radius: 8px; margin-bottom: 24px; font-size: 14px; }
+  .base-url code { font-weight: 600; color: #1a73e8; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>实时数仓管理系统 — RESTful API 设计</h1>
+  <p>Spring Boot 3.x · Flink 2.x + Paimon · Ant Design Pro v6</p>
+</div>
+<div class="container">
+
+<div class="base-url">
+  Base URL: <code>http://{host}:8080/api/v1</code> &nbsp;|&nbsp; 认证方式: <code>Bearer JWT</code> &nbsp;|&nbsp; 响应格式: <code>application/json</code>
+</div>
+
+<!-- 1. 认证与权限 -->
+<div class="api-group">
+  <h2>1. 认证与权限 <span class="tag">Auth & RBAC</span></h2>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method post">POST</span>
+      <span class="path">/auth/login</span>
+      <span class="desc">用户登录，获取 JWT Token</span>
+    </div>
+    <div class="endpoint-body">
+      <table class="param-table">
+        <tr><th>参数</th><th>类型</th><th>必填</th><th>说明</th></tr>
+        <tr><td>username</td><td>String</td><td class="req">必填</td><td>用户名</td></tr>
+        <tr><td>password</td><td>String</td><td class="req">必填</td><td>密码</td></tr>
+      </table>
+      <div class="response-block">
+        <h4><span class="status-badge status-200">200 OK</span></h4>
+        <div class="code">{ "token": "eyJhbG...", "expiresIn": 86400, "user": { "id": 1, "username": "admin", "realName": "管理员", "roles": ["ADMIN"] } }</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method post">POST</span>
+      <span class="path">/auth/logout</span>
+      <span class="desc">用户登出</span>
+    </div>
+    <div class="endpoint-body">
+      <div class="response-block">
+        <h4><span class="status-badge status-200">200 OK</span></h4>
+        <div class="code">{ "message": "Logged out successfully" }</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method get">GET</span>
+      <span class="path">/auth/current-user</span>
+      <span class="desc">获取当前登录用户信息及权限</span>
+    </div>
+    <div class="endpoint-body">
+      <div class="response-block">
+        <h4><span class="status-badge status-200">200 OK</span></h4>
+        <div class="code">{ "id": 1, "username": "admin", "roles": ["ADMIN"], "permissions": ["task:create", "task:delete", "query:adhoc", ...] }</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method get">GET</span>
+      <span class="path">/users</span>
+      <span class="desc">用户列表（分页）</span>
+    </div>
+    <div class="endpoint-body">
+      <table class="param-table">
+        <tr><th>参数</th><th>类型</th><th>必填</th><th>说明</th></tr>
+        <tr><td>page</td><td>Integer</td><td class="opt">可选</td><td>页码，默认 1</td></tr>
+        <tr><td>size</td><td>Integer</td><td class="opt">可选</td><td>每页数量，默认 20</td></tr>
+        <tr><td>keyword</td><td>String</td><td class="opt">可选</td><td>搜索关键词</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method post">POST</span>
+      <span class="path">/users</span>
+      <span class="desc">创建用户</span>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method put">PUT</span>
+      <span class="path">/users/{id}</span>
+      <span class="desc">更新用户信息</span>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method delete">DELETE</span>
+      <span class="path">/users/{id}</span>
+      <span class="desc">删除用户（软删除）</span>
+    </div>
+  </div>
+</div>
+
+<!-- 2. 数据源配置 -->
+<div class="api-group">
+  <h2>2. 数据源配置 <span class="tag">Datasource</span></h2>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method get">GET</span>
+      <span class="path">/datasources</span>
+      <span class="desc">数据源配置列表</span>
+    </div>
+    <div class="endpoint-body">
+      <table class="param-table">
+        <tr><th>参数</th><th>类型</th><th>必填</th><th>说明</th></tr>
+        <tr><td>dbType</td><td>String</td><td class="opt">可选</td><td>按类型筛选：mysql / postgresql / paimon</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method post">POST</span>
+      <span class="path">/datasources</span>
+      <span class="desc">创建数据源配置</span>
+    </div>
+    <div class="endpoint-body">
+      <table class="param-table">
+        <tr><th>参数</th><th>类型</th><th>必填</th><th>说明</th></tr>
+        <tr><td>configName</td><td>String</td><td class="req">必填</td><td>配置名称</td></tr>
+        <tr><td>dbType</td><td>String</td><td class="req">必填</td><td>数据库类型</td></tr>
+        <tr><td>host</td><td>String</td><td class="req">必填</td><td>主机地址</td></tr>
+        <tr><td>port</td><td>Integer</td><td class="req">必填</td><td>端口</td></tr>
+        <tr><td>database</td><td>String</td><td class="req">必填</td><td>库名</td></tr>
+        <tr><td>username</td><td>String</td><td class="req">必填</td><td>用户名</td></tr>
+        <tr><td>password</td><td>String</td><td class="req">必填</td><td>密码（传输后加密存储）</td></tr>
+        <tr><td>extraParams</td><td>Object</td><td class="opt">可选</td><td>额外参数 JSON</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method get">GET</span>
+      <span class="path">/datasources/{id}/test-connection</span>
+      <span class="desc">测试数据源连接是否可用</span>
+    </div>
+    <div class="endpoint-body">
+      <div class="response-block">
+        <h4><span class="status-badge status-200">200 OK</span></h4>
+        <div class="code">{ "success": true, "message": "Connection established", "dbVersion": "MySQL 5.7.38" }</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method get">GET</span>
+      <span class="path">/datasources/{id}/tables</span>
+      <span class="desc">获取数据源下的表列表（用于任务配置映射）</span>
+    </div>
+  </div>
+</div>
+
+<!-- 3. 同步任务管理 -->
+<div class="api-group">
+  <h2>3. 同步任务管理 <span class="tag">Sync Task — 核心</span></h2>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method get">GET</span>
+      <span class="path">/sync-tasks</span>
+      <span class="desc">同步任务列表（分页+筛选）</span>
+    </div>
+    <div class="endpoint-body">
+      <table class="param-table">
+        <tr><th>参数</th><th>类型</th><th>必填</th><th>说明</th></tr>
+        <tr><td>page</td><td>Integer</td><td class="opt">可选</td><td>页码</td></tr>
+        <tr><td>size</td><td>Integer</td><td class="opt">可选</td><td>每页数量</td></tr>
+        <tr><td>status</td><td>String</td><td class="opt">可选</td><td>按状态筛选：draft/running/paused/failed/finished</td></tr>
+        <tr><td>taskType</td><td>String</td><td class="opt">可选</td><td>按类型筛选</td></tr>
+        <tr><td>keyword</td><td>String</td><td class="opt">可选</td><td>名称搜索</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method post">POST</span>
+      <span class="path">/sync-tasks</span>
+      <span class="desc">创建同步任务</span>
+    </div>
+    <div class="endpoint-body">
+      <table class="param-table">
+        <tr><th>参数</th><th>类型</th><th>必填</th><th>说明</th></tr>
+        <tr><td>taskName</td><td>String</td><td class="req">必填</td><td>任务名称</td></tr>
+        <tr><td>taskType</td><td>String</td><td class="req">必填</td><td>任务类型：cdc_sync / etl / materialized</td></tr>
+        <tr><td>sourceConfigId</td><td>Long</td><td class="req">必填</td><td>源数据源配置 ID</td></tr>
+        <tr><td>targetConfigId</td><td>Long</td><td class="req">必填</td><td>目标数据源配置 ID</td></tr>
+        <tr><td>flinkSql</td><td>String</td><td class="req">必填</td><td>Flink SQL 语句（CDC → Paimon 的完整定义）</td></tr>
+        <tr><td>syncStrategy</td><td>String</td><td class="req">必填</td><td>同步策略</td></tr>
+        <tr><td>tableMappings</td><td>Object</td><td class="opt">可选</td><td>表映射配置 JSON</td></tr>
+      </table>
+      <div class="response-block">
+        <h4><span class="status-badge status-200">200 OK</span></h4>
+        <div class="code">{ "id": 101, "taskName": "mysql_orders_cdc", "status": "draft", "createdAt": "2026-06-26T10:00:00" }</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method put">PUT</span>
+      <span class="path">/sync-tasks/{id}</span>
+      <span class="desc">更新任务配置（仅 draft 状态可编辑）</span>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method post">POST</span>
+      <span class="path">/sync-tasks/{id}/start</span>
+      <span class="desc">启动任务（提交至 Flink 集群）</span>
+    </div>
+    <div class="endpoint-body">
+      <div class="response-block">
+        <h4><span class="status-badge status-200">200 OK</span></h4>
+        <div class="code">{ "status": "running", "flinkJobId": "a1b2c3d4e5f6", "message": "Task submitted to Flink cluster" }</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method post">POST</span>
+      <span class="path">/sync-tasks/{id}/pause</span>
+      <span class="desc">暂停任务（触发 Flink stop-with-savepoint）</span>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method post">POST</span>
+      <span class="path">/sync-tasks/{id}/resume</span>
+      <span class="desc">恢复任务（从 savepoint 恢复提交）</span>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method post">POST</span>
+      <span class="path">/sync-tasks/{id}/stop</span>
+      <span class="desc">停止任务（cancel Flink job）</span>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method delete">DELETE</span>
+      <span class="path">/sync-tasks/{id}</span>
+      <span class="desc">删除任务（仅 draft/finished 状态可删）</span>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method get">GET</span>
+      <span class="path">/sync-tasks/{id}/status</span>
+      <span class="desc">获取任务实时状态（含 Lag、QPS、Checkpoint）</span>
+    </div>
+    <div class="endpoint-body">
+      <div class="response-block">
+        <h4><span class="status-badge status-200">200 OK</span></h4>
+        <div class="code">{
+  "status": "running",
+  "flinkJobId": "a1b2c3d4e5f6",
+  "currentLagMs": 1520,
+  "throughputQps": 2350.5,
+  "checkpointInfo": {
+    "latestCheckpointId": 4826,
+    "latestCheckpointTime": "2026-06-26T16:30:00",
+    "checkpointIntervalMs": 30000,
+    "stateSizeBytes": 52428800
+  },
+  "lastErrorMsg": null
+}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method get">GET</span>
+      <span class="path">/sync-tasks/{id}/logs</span>
+      <span class="desc">获取任务日志（TaskManager / JobManager）</span>
+    </div>
+    <div class="endpoint-body">
+      <table class="param-table">
+        <tr><th>参数</th><th>类型</th><th>必填</th><th>说明</th></tr>
+        <tr><td>type</td><td>String</td><td class="opt">可选</td><td>jobmanager / taskmanager</td></tr>
+        <tr><td>taskId</td><td>String</td><td class="opt">可选</td><td>Flink subtask ID</td></tr>
+        <tr><td>lines</td><td>Integer</td><td class="opt">可选</td><td>返回行数，默认 200</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- 4. 数仓元数据 -->
+<div class="api-group">
+  <h2>4. 数仓表与元数据 <span class="tag">DWH Metadata</span></h2>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method get">GET</span>
+      <span class="path">/dwh/tables</span>
+      <span class="desc">获取 Paimon 中所有库表列表</span>
+    </div>
+    <div class="endpoint-body">
+      <table class="param-table">
+        <tr><th>参数</th><th>类型</th><th>必填</th><th>说明</th></tr>
+        <tr><td>layer</td><td>String</td><td class="opt">可选</td><td>按分层筛选：ods/dwd/dws/ads</td></tr>
+        <tr><td>database</td><td>String</td><td class="opt">可选</td><td>按库名筛选</td></tr>
+        <tr><td>keyword</td><td>String</td><td class="opt">可选</td><td>表名搜索</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method get">GET</span>
+      <span class="path">/dwh/tables/{id}</span>
+      <span class="desc">获取表详情（结构、分区、快照、文件统计）</span>
+    </div>
+    <div class="endpoint-body">
+      <div class="response-block">
+        <h4><span class="status-badge status-200">200 OK</span></h4>
+        <div class="code">{
+  "id": 5, "paimonDb": "dwd", "paimonTable": "dwd_order_detail",
+  "layer": "dwd", "businessDesc": "订单明细宽表",
+  "schema": [
+    { "name": "order_id", "type": "BIGINT", "isPk": true },
+    { "name": "user_id", "type": "BIGINT" },
+    { "name": "order_time", "type": "TIMESTAMP" },
+    ...
+  ],
+  "partitionKeys": ["order_date"],
+  "primaryKeys": ["order_id"],
+  "snapshotCount": 128,
+  "latestSnapshotId": 1024,
+  "fileCount": 56, "totalSizeBytes": 1073741824
+}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method get">GET</span>
+      <span class="path">/dwh/tables/{id}/snapshots</span>
+      <span class="desc">获取表快照历史列表</span>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method get">GET</span>
+      <span class="path">/dwh/tables/{id}/schema-history</span>
+      <span class="desc">获取表结构变更历史</span>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method put">PUT</span>
+      <span class="path">/dwh/tables/{id}/metadata</span>
+      <span class="desc">更新表业务描述 / 字段注释</span>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method get">GET</span>
+      <span class="path">/dwh/lineage</span>
+      <span class="desc">获取数据血缘关系图</span>
+    </div>
+    <div class="endpoint-body">
+      <table class="param-table">
+        <tr><th>参数</th><th>类型</th><th>必填</th><th>说明</th></tr>
+        <tr><td>tableId</td><td>Long</td><td class="opt">可选</td><td>指定表 ID 查上下游</td></tr>
+        <tr><td>layer</td><td>String</td><td class="opt">可选</td><td>按分层查看</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- 5. 表维护 -->
+<div class="api-group">
+  <h2>5. 表维护操作 <span class="tag">Maintenance</span></h2>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method post">POST</span>
+      <span class="path">/dwh/tables/{id}/compact</span>
+      <span class="desc">手动触发 Compact 优化</span>
+    </div>
+    <div class="endpoint-body">
+      <table class="param-table">
+        <tr><th>参数</th><th>类型</th><th>必填</th><th>说明</th></tr>
+        <tr><td>compactStrategy</td><td>String</td><td class="opt">可选</td><td>full / minor，默认 minor</td></tr>
+      </table>
+      <div class="response-block">
+        <h4><span class="status-badge status-200">200 OK</span></h4>
+        <div class="code">{ "operationId": 201, "status": "running", "message": "Compact triggered" }</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method post">POST</span>
+      <span class="path">/dwh/tables/{id}/expire-snapshots</span>
+      <span class="desc">手动触发快照过期清理</span>
+    </div>
+    <div class="endpoint-body">
+      <table class="param-table">
+        <tr><th>参数</th><th>类型</th><th>必填</th><th>说明</th></tr>
+        <tr><td>retainLast</td><td>Integer</td><td class="req">必填</td><td>保留最近 N 个快照</td></tr>
+        <tr><td>retainMaxAge</td><td>String</td><td class="opt">可选</td><td>最大保留时长如 "7d"</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method post">POST</span>
+      <span class="path">/dwh/tables/{id}/orphan-cleanup</span>
+      <span class="desc">清理孤立文件</span>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method get">GET</span>
+      <span class="path">/dwh/tables/{id}/maintenance-logs</span>
+      <span class="desc">获取表维护操作日志列表</span>
+    </div>
+  </div>
+</div>
+
+<!-- 6. 数据质量 -->
+<div class="api-group">
+  <h2>6. 数据质量监控 <span class="tag">Quality</span></h2>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method get">GET</span>
+      <span class="path">/quality/rules</span>
+      <span class="desc">质量规则列表</span>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method post">POST</span>
+      <span class="path">/quality/rules</span>
+      <span class="desc">创建质量规则</span>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method post">POST</span>
+      <span class="path">/quality/rules/{id}/check</span>
+      <span class="desc">手动触发质量检测</span>
+    </div>
+    <div class="endpoint-body">
+      <div class="response-block">
+        <h4><span class="status-badge status-200">200 OK</span></h4>
+        <div class="code">{ "resultId": 301, "actualValue": 0.02, "thresholdValue": 0.05, "isPass": true, "detail": "Null rate: 2% (threshold: 5%)" }</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method get">GET</span>
+      <span class="path">/quality/results</span>
+      <span class="desc">检测结果列表（分页+筛选）</span>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method get">GET</span>
+      <span class="path">/quality/dashboard</span>
+      <span class="desc">质量概览看板数据</span>
+    </div>
+    <div class="endpoint-body">
+      <div class="response-block">
+        <h4><span class="status-badge status-200">200 OK</span></h4>
+        <div class="code">{ "totalRules": 15, "passRate": 0.93, "failAlerts": 2, "recentResults": [...], "trend": [...] }</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 7. 数据查询 -->
+<div class="api-group">
+  <h2>7. 即席查询 <span class="tag">Ad-hoc Query</span></h2>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method post">POST</span>
+      <span class="path">/query/execute</span>
+      <span class="desc">执行 SQL 查询（通过 Flink SQL Gateway 或 JDBC）</span>
+    </div>
+    <div class="endpoint-body">
+      <table class="param-table">
+        <tr><th>参数</th><th>类型</th><th>必填</th><th>说明</th></tr>
+        <tr><td>sql</td><td>String</td><td class="req">必填</td><td>SQL 语句</td></tr>
+        <tr><td>maxRows</td><td>Integer</td><td class="opt">可选</td><td>最大返回行数，默认 1000，上限 5000</td></tr>
+        <tr><td>timeoutSeconds</td><td>Integer</td><td class="opt">可选</td><td>超时时间，默认 60s</td></tr>
+      </table>
+      <div class="response-block">
+        <h4><span class="status-badge status-200">200 OK</span></h4>
+        <div class="code">{ "columns": ["order_id", "user_id", "amount"], "rows": [[1, 101, 99.9], [2, 102, 150.0]], "rowCount": 2, "durationMs": 320 }</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method post">POST</span>
+      <span class="path">/query/execute/export</span>
+      <span class="desc">执行查询并导出结果为 CSV/Excel</span>
+    </div>
+    <div class="endpoint-body">
+      <table class="param-table">
+        <tr><th>参数</th><th>类型</th><th>必填</th><th>说明</th></tr>
+        <tr><td>sql</td><td>String</td><td class="req">必填</td><td>SQL 语句</td></tr>
+        <tr><td>format</td><td>String</td><td class="req">必填</td><td>导出格式：csv / xlsx</td></tr>
+        <tr><td>maxRows</td><td>Integer</td><td class="opt">可选</td><td>最大行数，上限 50000</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method get">GET</span>
+      <span class="path">/query/history</span>
+      <span class="desc">查询历史记录</span>
+    </div>
+  </div>
+</div>
+
+<!-- 8. 报表管理 -->
+<div class="api-group">
+  <h2>8. 报表管理 <span class="tag">Report</span></h2>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method get">GET</span>
+      <span class="path">/reports</span>
+      <span class="desc">报表模板列表</span>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method post">POST</span>
+      <span class="path">/reports</span>
+      <span class="desc">创建报表模板</span>
+    </div>
+    <div class="endpoint-body">
+      <table class="param-table">
+        <tr><th>参数</th><th>类型</th><th>必填</th><th>说明</th></tr>
+        <tr><td>reportName</td><td>String</td><td class="req">必填</td><td>报表名称</td></tr>
+        <tr><td>reportType</td><td>String</td><td class="req">必填</td><td>图表类型：line/bar/pie/table/mixed</td></tr>
+        <tr><td>sqlQuery</td><td>String</td><td class="req">必填</td><td>SQL 查询语句</td></tr>
+        <tr><td>chartConfig</td><td>Object</td><td class="opt">可选</td><td>ECharts 配置 JSON</td></tr>
+        <tr><td>filterConfig</td><td>Object</td><td class="opt">可选</td><td>筛选条件配置</td></tr>
+        <tr><td>scheduleConfig</td><td>Object</td><td class="opt">可选</td><td>定时发送配置</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method get">GET</span>
+      <span class="path">/reports/{id}/data</span>
+      <span class="desc">获取报表数据（按筛选条件执行 SQL）</span>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method post">POST</span>
+      <span class="path">/reports/{id}/send</span>
+      <span class="desc">手动发送报表（邮件/IM）</span>
+    </div>
+  </div>
+</div>
+
+<!-- 9. 告警 -->
+<div class="api-group">
+  <h2>9. 告警管理 <span class="tag">Alert</span></h2>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method get">GET</span>
+      <span class="path">/alerts/configs</span>
+      <span class="desc">告警配置列表</span>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method post">POST</span>
+      <span class="path">/alerts/configs</span>
+      <span class="desc">创建告警配置</span>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method get">GET</span>
+      <span class="path">/alerts/records</span>
+      <span class="desc">告警记录列表</span>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method post">POST</span>
+      <span class="path">/alerts/records/{id}/resolve</span>
+      <span class="desc">标记告警已解决</span>
+    </div>
+  </div>
+</div>
+
+<!-- 10. 系统设置 -->
+<div class="api-group">
+  <h2>10. 系统设置 <span class="tag">Settings</span></h2>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method get">GET</span>
+      <span class="path">/settings/flink-cluster</span>
+      <span class="desc">获取 Flink 集群连接配置</span>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method put">PUT</span>
+      <span class="path">/settings/flink-cluster</span>
+      <span class="desc">更新 Flink 集群连接配置（REST API 地址、模式等）</span>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method get">GET</span>
+      <span class="path">/settings/health-check</span>
+      <span class="desc">一键健康检查（Flink / Paimon / MySQL 连通性）</span>
+    </div>
+    <div class="endpoint-body">
+      <div class="response-block">
+        <h4><span class="status-badge status-200">200 OK</span></h4>
+        <div class="code">{
+  "flink": { "status": "healthy", "version": "2.2.0", "runningJobs": 5, "taskSlotsAvailable": 12 },
+  "paimon": { "status": "healthy", "warehousePath": "/data/paimon", "tableCount": 23 },
+  "mysql": { "status": "healthy", "connectionPoolActive": 8 },
+  "overall": "healthy"
+}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div>
+</body>
+</html>

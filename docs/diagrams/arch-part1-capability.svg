@@ -1,0 +1,204 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 700" width="960" height="700">
+<style>
+  text { font-family: "Helvetica Neue", Helvetica, Arial, "PingFang SC", "Microsoft YaHei", "Microsoft JhengHei", "SimHei", sans-serif; }
+</style>
+<defs>
+  <marker id="arrow-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+    <polygon points="0 0, 10 3.5, 0 7" fill="#2563eb"/>
+  </marker>
+  <marker id="arrow-gray" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+    <polygon points="0 0, 10 3.5, 0 7" fill="#9ca3af"/>
+  </marker>
+  <filter id="shadow" x="-5%" y="-5%" width="115%" height="115%">
+    <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000000" flood-opacity="0.06"/>
+  </filter>
+</defs>
+
+<rect width="960" height="700" fill="#ffffff"/>
+
+<!-- Title -->
+<text x="480" y="36" text-anchor="middle" fill="#111827" font-size="20" font-weight="700">RT-DWH 系统能力全景图</text>
+<text x="480" y="56" text-anchor="middle" fill="#9ca3af" font-size="12">—— 上篇：背景与核心能力</text>
+
+<!-- ===== USER ROLES (left column) ===== -->
+<rect x="24" y="80" width="120" height="580" rx="8" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1.5" stroke-dasharray="6,3"/>
+<text x="84" y="102" text-anchor="middle" fill="#6b7280" font-size="10" font-weight="600" letter-spacing="0.06em">用户角色</text>
+
+<!-- User 1: 数仓运维 -->
+<rect x="40" y="120" width="88" height="52" rx="8" fill="#dbeafe" stroke="#93c5fd" stroke-width="1.2" filter="url(#shadow)"/>
+<text x="84" y="142" text-anchor="middle" fill="#1d4ed8" font-size="12" font-weight="600">数仓运维</text>
+<text x="84" y="160" text-anchor="middle" fill="#6b7280" font-size="10">管作业/监控</text>
+
+<!-- User 2: 数据开发 -->
+<rect x="40" y="190" width="88" height="52" rx="8" fill="#dcfce7" stroke="#86efac" stroke-width="1.2" filter="url(#shadow)"/>
+<text x="84" y="212" text-anchor="middle" fill="#15803d" font-size="12" font-weight="600">数据开发</text>
+<text x="84" y="230" text-anchor="middle" fill="#6b7280" font-size="10">建任务/SQL</text>
+
+<!-- User 3: 数据分析 -->
+<rect x="40" y="260" width="88" height="52" rx="8" fill="#fef3c7" stroke="#fcd34d" stroke-width="1.2" filter="url(#shadow)"/>
+<text x="84" y="282" text-anchor="middle" fill="#b45309" font-size="12" font-weight="600">数据分析</text>
+<text x="84" y="300" text-anchor="middle" fill="#6b7280" font-size="10">查数据/报表</text>
+
+<!-- User 4: 负责人 -->
+<rect x="40" y="330" width="88" height="52" rx="8" fill="#f3e8ff" stroke="#c4b5fd" stroke-width="1.2" filter="url(#shadow)"/>
+<text x="84" y="352" text-anchor="middle" fill="#6d28d9" font-size="12" font-weight="600">负责人</text>
+<text x="84" y="370" text-anchor="middle" fill="#6b7280" font-size="10">看Dashboard</text>
+
+<!-- Arrows from users to frontend -->
+<line x1="128" y1="146" x2="172" y2="146" stroke="#2563eb" stroke-width="1.2" stroke-dasharray="4,2" marker-end="url(#arrow-blue)"/>
+<line x1="128" y1="216" x2="172" y2="216" stroke="#2563eb" stroke-width="1.2" stroke-dasharray="4,2" marker-end="url(#arrow-blue)"/>
+<line x1="128" y1="286" x2="172" y2="286" stroke="#2563eb" stroke-width="1.2" stroke-dasharray="4,2" marker-end="url(#arrow-blue)"/>
+<line x1="128" y1="356" x2="172" y2="356" stroke="#2563eb" stroke-width="1.2" stroke-dasharray="4,2" marker-end="url(#arrow-blue)"/>
+
+<!-- ===== FRONTEND LAYER ===== -->
+<rect x="180" y="80" width="740" height="80" rx="10" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.8" filter="url(#shadow)"/>
+<text x="200" y="103" fill="#1d4ed8" font-size="11" font-weight="700" letter-spacing="0.06em">前端展示层</text>
+<rect x="240" y="118" width="130" height="28" rx="6" fill="#dbeafe" stroke="#93c5fd" stroke-width="1"/>
+<text x="305" y="137" text-anchor="middle" fill="#1e40af" font-size="11" font-weight="600">React 18 + Umi Max</text>
+<rect x="385" y="118" width="130" height="28" rx="6" fill="#dbeafe" stroke="#93c5fd" stroke-width="1"/>
+<text x="450" y="137" text-anchor="middle" fill="#1e40af" font-size="11" font-weight="600">Ant Design Pro</text>
+<rect x="530" y="118" width="100" height="28" rx="6" fill="#dbeafe" stroke="#93c5fd" stroke-width="1"/>
+<text x="580" y="137" text-anchor="middle" fill="#1e40af" font-size="11" font-weight="600">ECharts</text>
+<rect x="645" y="118" width="100" height="28" rx="6" fill="#dbeafe" stroke="#93c5fd" stroke-width="1"/>
+<text x="695" y="137" text-anchor="middle" fill="#1e40af" font-size="11" font-weight="600">JWT 认证</text>
+<rect x="760" y="118" width="100" height="28" rx="6" fill="#dbeafe" stroke="#93c5fd" stroke-width="1"/>
+<text x="810" y="137" text-anchor="middle" fill="#1e40af" font-size="11" font-weight="600">路由守卫</text>
+
+<!-- ===== BACKEND SERVICE LAYER ===== -->
+<rect x="180" y="180" width="740" height="280" rx="10" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="1.8" filter="url(#shadow)"/>
+<text x="200" y="203" fill="#15803d" font-size="11" font-weight="700" letter-spacing="0.06em">后端服务层 — Spring Boot 3.3 + JPA + Spring Security</text>
+
+<!-- Row 1: 4 services -->
+<!-- SyncTaskService -->
+<rect x="200" y="220" width="160" height="72" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.2"/>
+<rect x="200" y="220" width="160" height="24" rx="8" fill="#2563eb"/>
+<rect x="200" y="236" width="160" height="8" fill="#2563eb"/>
+<text x="280" y="237" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="600">同步任务管理</text>
+<text x="280" y="262" text-anchor="middle" fill="#6b7280" font-size="10">CDC / ETL / 物化视图</text>
+<text x="280" y="278" text-anchor="middle" fill="#6b7280" font-size="10">状态机 / Savepoint</text>
+
+<!-- DwhMetaService -->
+<rect x="380" y="220" width="160" height="72" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.2"/>
+<rect x="380" y="220" width="160" height="24" rx="8" fill="#059669"/>
+<rect x="380" y="236" width="160" height="8" fill="#059669"/>
+<text x="460" y="237" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="600">元数据管理</text>
+<text x="460" y="262" text-anchor="middle" fill="#6b7280" font-size="10">Paimon 元数据同步</text>
+<text x="460" y="278" text-anchor="middle" fill="#6b7280" font-size="10">分层推断 / 注释</text>
+
+<!-- QueryService -->
+<rect x="560" y="220" width="160" height="72" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.2"/>
+<rect x="560" y="220" width="160" height="24" rx="8" fill="#7c3aed"/>
+<rect x="560" y="236" width="160" height="8" fill="#7c3aed"/>
+<text x="640" y="237" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="600">即席查询</text>
+<text x="640" y="262" text-anchor="middle" fill="#6b7280" font-size="10">SQL 编辑器 / 白名单</text>
+<text x="640" y="278" text-anchor="middle" fill="#6b7280" font-size="10">结果导出 Excel</text>
+
+<!-- DatasourceService -->
+<rect x="740" y="220" width="160" height="72" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.2"/>
+<rect x="740" y="220" width="160" height="24" rx="8" fill="#0891b2"/>
+<rect x="740" y="236" width="160" height="8" fill="#0891b2"/>
+<text x="820" y="237" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="600">数据源管理</text>
+<text x="820" y="262" text-anchor="middle" fill="#6b7280" font-size="10">连接测试 / 表探查</text>
+<text x="820" y="278" text-anchor="middle" fill="#6b7280" font-size="10">AES-GCM 加密</text>
+
+<!-- Row 2: 4 services -->
+<!-- QualityCheckService -->
+<rect x="200" y="310" width="160" height="72" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.2"/>
+<rect x="200" y="310" width="160" height="24" rx="8" fill="#ea580c"/>
+<rect x="200" y="326" width="160" height="8" fill="#ea580c"/>
+<text x="280" y="327" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="600">数据质量</text>
+<text x="280" y="352" text-anchor="middle" fill="#6b7280" font-size="10">空值 / 唯一性 / 行数</text>
+<text x="280" y="368" text-anchor="middle" fill="#6b7280" font-size="10">值域 / 新鲜度</text>
+
+<!-- AlertNotifyService -->
+<rect x="380" y="310" width="160" height="72" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.2"/>
+<rect x="380" y="310" width="160" height="24" rx="8" fill="#dc2626"/>
+<rect x="380" y="326" width="160" height="8" fill="#dc2626"/>
+<text x="460" y="327" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="600">告警通知</text>
+<text x="460" y="352" text-anchor="middle" fill="#6b7280" font-size="10">钉钉 / 企微 / 邮件</text>
+<text x="460" y="368" text-anchor="middle" fill="#6b7280" font-size="10">策略可配</text>
+
+<!-- Maintenance (Table) -->
+<rect x="560" y="310" width="160" height="72" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.2"/>
+<rect x="560" y="310" width="160" height="24" rx="8" fill="#d97706"/>
+<rect x="560" y="326" width="160" height="8" fill="#d97706"/>
+<text x="640" y="327" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="600">表维护</text>
+<text x="640" y="352" text-anchor="middle" fill="#6b7280" font-size="10">Compact / 快照清理</text>
+<text x="640" y="368" text-anchor="middle" fill="#6b7280" font-size="10">孤立文件回收</text>
+
+<!-- ReportService -->
+<rect x="740" y="310" width="160" height="72" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.2"/>
+<rect x="740" y="310" width="160" height="24" rx="8" fill="#4f46e5"/>
+<rect x="740" y="326" width="160" height="8" fill="#4f46e5"/>
+<text x="820" y="327" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="600">报表看板</text>
+<text x="820" y="352" text-anchor="middle" fill="#6b7280" font-size="10">数据可视化</text>
+<text x="820" y="368" text-anchor="middle" fill="#6b7280" font-size="10">定时刷新</text>
+
+<!-- ===== Frontend → Backend arrow ===== -->
+<line x1="480" y1="160" x2="480" y2="176" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow-blue)"/>
+<text x="490" y="173" fill="#2563eb" font-size="10">REST API (JWT)</text>
+
+<!-- ===== INFRASTRUCTURE LAYER ===== -->
+<rect x="180" y="480" width="740" height="170" rx="10" fill="#fef2f2" stroke="#fecaca" stroke-width="1.8" filter="url(#shadow)"/>
+<text x="200" y="503" fill="#dc2626" font-size="11" font-weight="700" letter-spacing="0.06em">基础设施层</text>
+
+<!-- Flink Cluster -->
+<rect x="200" y="520" width="210" height="70" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.2"/>
+<rect x="200" y="520" width="210" height="24" rx="8" fill="#e11d48"/>
+<rect x="200" y="536" width="210" height="8" fill="#e11d48"/>
+<text x="305" y="537" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="600">Apache Flink 集群</text>
+<text x="305" y="562" text-anchor="middle" fill="#6b7280" font-size="10">CDC / ETL 计算引擎</text>
+<text x="305" y="578" text-anchor="middle" fill="#6b7280" font-size="10">REST API :8081</text>
+
+<!-- Paimon -->
+<rect x="430" y="520" width="210" height="70" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.2"/>
+<rect x="430" y="520" width="210" height="24" rx="8" fill="#0d9488"/>
+<rect x="430" y="536" width="210" height="8" fill="#0d9488"/>
+<text x="535" y="537" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="600">Apache Paimon 湖仓</text>
+<text x="535" y="562" text-anchor="middle" fill="#6b7280" font-size="10">ODS / DWD / DWS / ADS</text>
+<text x="535" y="578" text-anchor="middle" fill="#6b7280" font-size="10">JDBC Metastore (MySQL)</text>
+
+<!-- MySQL -->
+<rect x="660" y="520" width="210" height="70" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.2"/>
+<rect x="660" y="520" width="210" height="24" rx="8" fill="#1e40af"/>
+<rect x="660" y="536" width="210" height="8" fill="#1e40af"/>
+<text x="765" y="537" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="600">MySQL 8.0 管理库</text>
+<text x="765" y="562" text-anchor="middle" fill="#6b7280" font-size="10">任务 / 元数据 / 告警</text>
+<text x="765" y="578" text-anchor="middle" fill="#6b7280" font-size="10">Quartz 定时调度</text>
+
+<!-- Backend → Infra arrows -->
+<path d="M 305 382 L 305 516" stroke="#dc2626" stroke-width="1.5" fill="none" marker-end="url(#arrow-blue)"/>
+<path d="M 535 382 L 535 516" stroke="#dc2626" stroke-width="1.5" fill="none" marker-end="url(#arrow-blue)"/>
+<path d="M 765 382 L 765 516" stroke="#dc2626" stroke-width="1.5" fill="none" marker-end="url(#arrow-blue)"/>
+
+<!-- Capability labels -->
+<text x="210" y="410" fill="#15803d" font-size="10" font-weight="600">核心能力：</text>
+<rect x="290" y="398" width="72" height="18" rx="4" fill="#dcfce7" stroke="#86efac" stroke-width="0.8"/>
+<text x="326" y="411" text-anchor="middle" fill="#15803d" font-size="9" font-weight="600">任务编排</text>
+<rect x="370" y="398" width="72" height="18" rx="4" fill="#dcfce7" stroke="#86efac" stroke-width="0.8"/>
+<text x="406" y="411" text-anchor="middle" fill="#15803d" font-size="9" font-weight="600">元数据同步</text>
+<rect x="450" y="398" width="72" height="18" rx="4" fill="#dcfce7" stroke="#86efac" stroke-width="0.8"/>
+<text x="486" y="411" text-anchor="middle" fill="#15803d" font-size="9" font-weight="600">安全查询</text>
+<rect x="530" y="398" width="72" height="18" rx="4" fill="#dcfce7" stroke="#86efac" stroke-width="0.8"/>
+<text x="566" y="411" text-anchor="middle" fill="#15803d" font-size="9" font-weight="600">质量检查</text>
+<rect x="610" y="398" width="72" height="18" rx="4" fill="#dcfce7" stroke="#86efac" stroke-width="0.8"/>
+<text x="646" y="411" text-anchor="middle" fill="#15803d" font-size="9" font-weight="600">多渠道告警</text>
+<rect x="690" y="398" width="72" height="18" rx="4" fill="#dcfce7" stroke="#86efac" stroke-width="0.8"/>
+<text x="726" y="411" text-anchor="middle" fill="#15803d" font-size="9" font-weight="600">表维护</text>
+<rect x="770" y="398" width="72" height="18" rx="4" fill="#dcfce7" stroke="#86efac" stroke-width="0.8"/>
+<text x="806" y="411" text-anchor="middle" fill="#15803d" font-size="9" font-weight="600">报表看板</text>
+
+<!-- Legend -->
+<rect x="24" y="500" width="120" height="100" rx="6" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1"/>
+<text x="84" y="520" text-anchor="middle" fill="#6b7280" font-size="10" font-weight="600">图例</text>
+<line x1="36" y1="536" x2="66" y2="536" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+<text x="74" y="540" fill="#6b7280" font-size="9">请求流</text>
+<line x1="36" y1="556" x2="66" y2="556" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4,2" marker-end="url(#arrow-gray)"/>
+<text x="74" y="560" fill="#6b7280" font-size="9">认证/推送</text>
+<line x1="36" y1="576" x2="66" y2="576" stroke="#dc2626" stroke-width="1.5"/>
+<text x="74" y="580" fill="#6b7280" font-size="9">数据读写</text>
+
+<!-- Footer -->
+<text x="480" y="690" text-anchor="middle" fill="#d1d5db" font-size="10">RT-DWH — 中小团队 Flink + Paimon 实时数仓管理平台</text>
+
+</svg>

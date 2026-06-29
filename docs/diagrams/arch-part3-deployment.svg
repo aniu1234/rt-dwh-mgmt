@@ -1,0 +1,155 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 720" width="960" height="720">
+<style>
+  text { font-family: "Helvetica Neue", Helvetica, Arial, "PingFang SC", "Microsoft YaHei", "Microsoft JhengHei", "SimHei", sans-serif; }
+</style>
+<defs>
+  <marker id="arrow-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#2563eb"/></marker>
+  <marker id="arrow-gray" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#9ca3af"/></marker>
+  <marker id="arrow-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#059669"/></marker>
+  <filter id="shadow" x="-5%" y="-5%" width="115%" height="115%"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.06"/></filter>
+</defs>
+<rect width="960" height="720" fill="#ffffff"/>
+
+<!-- Title -->
+<text x="480" y="32" text-anchor="middle" fill="#111827" font-size="20" font-weight="700">RT-DWH 部署架构</text>
+<text x="480" y="52" text-anchor="middle" fill="#9ca3af" font-size="12">—— 下篇：Docker Compose 编排 · 端口规划 · 生产部署</text>
+
+<!-- ===== EXTERNAL ZONE ===== -->
+<rect x="20" y="72" width="920" height="110" rx="8" fill="#fef2f2" stroke="#fca5a5" stroke-width="1.5" stroke-dasharray="6,3"/>
+<text x="40" y="96" fill="#dc2626" font-size="10" font-weight="700" letter-spacing="0.06em">外部访问区</text>
+
+<!-- User Browser -->
+<rect x="60" y="108" width="160" height="52" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.2" filter="url(#shadow)"/>
+<text x="140" y="132" text-anchor="middle" fill="#374151" font-size="12" font-weight="600">🌐 用户浏览器</text>
+<text x="140" y="150" text-anchor="middle" fill="#9ca3af" font-size="9">任意终端设备</text>
+
+<!-- Nginx -->
+<rect x="310" y="108" width="200" height="52" rx="8" fill="#ffffff" stroke="#22c55e" stroke-width="2" filter="url(#shadow)"/>
+<rect x="310" y="108" width="200" height="22" rx="8" fill="#16a34a"/>
+<rect x="310" y="122" width="200" height="8" fill="#16a34a"/>
+<text x="410" y="124" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="700">Nginx 反向代理</text>
+<text x="410" y="148" text-anchor="middle" fill="#6b7280" font-size="9">:80 (HTTP)  :443 (HTTPS)</text>
+
+<!-- Flink Web UI -->
+<rect x="620" y="108" width="160" height="52" rx="8" fill="#ffffff" stroke="#fbbf24" stroke-width="2" filter="url(#shadow)"/>
+<rect x="620" y="108" width="160" height="22" rx="8" fill="#d97706"/>
+<rect x="620" y="122" width="160" height="8" fill="#d97706"/>
+<text x="700" y="124" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="700">Flink Web UI</text>
+<text x="700" y="148" text-anchor="middle" fill="#6b7280" font-size="9">:8081 直接暴露</text>
+
+<!-- External arrows -->
+<line x1="220" y1="134" x2="306" y2="134" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+<text x="264" y="126" fill="#2563eb" font-size="9">https://</text>
+<line x1="510" y1="134" x2="616" y2="134" stroke="#ea580c" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+<text x="564" y="126" fill="#ea580c" font-size="9">:8081</text>
+
+<!-- ===== INTERNAL ZONE ===== -->
+<rect x="20" y="200" width="920" height="360" rx="8" fill="#f0fdf4" stroke="#86efac" stroke-width="1.5" filter="url(#shadow)"/>
+<text x="40" y="224" fill="#15803d" font-size="10" font-weight="700" letter-spacing="0.06em">内部服务区（Docker Compose · 127.0.0.1 绑定）</text>
+
+<!-- Nginx internal arrow -->
+<path d="M 410 160 L 410 210 L 480 210 L 480 232" stroke="#2563eb" stroke-width="1.8" fill="none" marker-end="url(#arrow-blue)"/>
+<text x="445" y="203" fill="#2563eb" font-size="9">/api/* → :8080</text>
+
+<!-- Spring Boot -->
+<rect x="310" y="240" width="200" height="80" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.2" filter="url(#shadow)"/>
+<rect x="310" y="240" width="200" height="24" rx="8" fill="#2563eb"/>
+<rect x="310" y="256" width="200" height="8" fill="#2563eb"/>
+<text x="410" y="258" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="700">Spring Boot 后端</text>
+<text x="410" y="284" text-anchor="middle" fill="#6b7280" font-size="9">Java 17 · :8080</text>
+<text x="410" y="300" text-anchor="middle" fill="#6b7280" font-size="9">JPA + Security + Quartz</text>
+<text x="410" y="314" text-anchor="middle" fill="#6b7280" font-size="9">JWT Secret 环境变量注入</text>
+
+<!-- MySQL -->
+<rect x="560" y="240" width="180" height="80" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.2" filter="url(#shadow)"/>
+<rect x="560" y="240" width="180" height="24" rx="8" fill="#1e40af"/>
+<rect x="560" y="256" width="180" height="8" fill="#1e40af"/>
+<text x="650" y="258" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="700">MySQL 8.0 管理库</text>
+<text x="650" y="284" text-anchor="middle" fill="#6b7280" font-size="9">127.0.0.1:3306</text>
+<text x="650" y="300" text-anchor="middle" fill="#6b7280" font-size="9">管理元数据持久化</text>
+<text x="650" y="314" text-anchor="middle" fill="#6b7280" font-size="9">+ init-mysql.sql 初始化</text>
+
+<!-- Paimon Metastore -->
+<rect x="60" y="240" width="200" height="80" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.2" filter="url(#shadow)"/>
+<rect x="60" y="240" width="200" height="24" rx="8" fill="#0d9488"/>
+<rect x="60" y="256" width="200" height="8" fill="#0d9488"/>
+<text x="160" y="258" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="700">Paimon JDBC Metastore</text>
+<text x="160" y="284" text-anchor="middle" fill="#6b7280" font-size="9">127.0.0.1:3306 (同实例)</text>
+<text x="160" y="300" text-anchor="middle" fill="#6b7280" font-size="9">paimon_catalog_* 系统表</text>
+<text x="160" y="314" text-anchor="middle" fill="#6b7280" font-size="9">ODS/DWD/DWS/ADS 分库</text>
+
+<!-- PostgreSQL Source -->
+<rect x="310" y="340" width="200" height="60" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.2"/>
+<rect x="310" y="340" width="200" height="22" rx="8" fill="#2563eb" opacity="0.7"/>
+<rect x="310" y="354" width="200" height="8" fill="#2563eb" opacity="0.7"/>
+<text x="410" y="358" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="600">PostgreSQL Demo 源库</text>
+<text x="410" y="380" text-anchor="middle" fill="#6b7280" font-size="9">127.0.0.1:5432 · 示例CDC源</text>
+<text x="410" y="394" text-anchor="middle" fill="#9ca3af" font-size="8">可选：无需源库也能运行平台</text>
+
+<!-- Flink JM+TM -->
+<rect x="60" y="340" width="200" height="60" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.2" filter="url(#shadow)"/>
+<rect x="60" y="340" width="200" height="22" rx="8" fill="#e11d48"/>
+<rect x="60" y="354" width="200" height="8" fill="#e11d48"/>
+<text x="160" y="358" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="700">Apache Flink 集群</text>
+<text x="160" y="380" text-anchor="middle" fill="#6b7280" font-size="9">JobManager :8081</text>
+<text x="160" y="394" text-anchor="middle" fill="#6b7280" font-size="9">TaskManager :6121-6123</text>
+
+<!-- Monitoring stack -->
+<rect x="560" y="340" width="200" height="60" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.2"/>
+<text x="660" y="360" text-anchor="middle" fill="#374151" font-size="10" font-weight="600">监控可观测</text>
+<rect x="575" y="370" width="80" height="22" rx="4" fill="#fff7ed" stroke="#fed7aa" stroke-width="0.8"/>
+<text x="615" y="385" text-anchor="middle" fill="#c2410c" font-size="9" font-weight="600">Prometheus</text>
+<rect x="665" y="370" width="80" height="22" rx="4" fill="#fff7ed" stroke="#fed7aa" stroke-width="0.8"/>
+<text x="705" y="385" text-anchor="middle" fill="#c2410c" font-size="9" font-weight="600">Grafana :3001</text>
+
+<!-- Nginx static files -->
+<text x="510" y="218" fill="#9ca3af" font-size="8">前端静态文件由 Nginx 直接托管</text>
+
+<!-- Internal connections -->
+<line x1="510" y1="280" x2="556" y2="280" stroke="#dc2626" stroke-width="1.2" marker-end="url(#arrow-blue)"/>
+<text x="534" y="272" fill="#dc2626" font-size="8">JDBC</text>
+<line x1="260" y1="280" x2="306" y2="280" stroke="#059669" stroke-width="1.2" marker-end="url(#arrow-green)"/>
+<text x="284" y="272" fill="#059669" font-size="8">JDBC读</text>
+<line x1="260" y1="370" x2="306" y2="370" stroke="#ea580c" stroke-width="1.2" marker-end="url(#arrow-blue)"/>
+<text x="284" y="362" fill="#ea580c" font-size="8">REST</text>
+
+<!-- ===== DATA FLOW BOX ===== -->
+<rect x="20" y="580" width="920" height="55" rx="8" fill="#fffbeb" stroke="#fcd34d" stroke-width="1" stroke-dasharray="4,2"/>
+<text x="40" y="600" fill="#b45309" font-size="10" font-weight="700">生产部署 Checklist：</text>
+<rect x="195" y="586" width="90" height="22" rx="4" fill="#fef3c7" stroke="#fcd34d" stroke-width="0.8"/>
+<text x="240" y="602" text-anchor="middle" fill="#92400e" font-size="9">🔑 所有密码走.env</text>
+<rect x="295" y="586" width="105" height="22" rx="4" fill="#fef3c7" stroke="#fcd34d" stroke-width="0.8"/>
+<text x="347" y="602" text-anchor="middle" fill="#92400e" font-size="9">🔒 Nginx SSL证书</text>
+<rect x="410" y="586" width="95" height="22" rx="4" fill="#fef3c7" stroke="#fcd34d" stroke-width="0.8"/>
+<text x="457" y="602" text-anchor="middle" fill="#92400e" font-size="9">🔐 JWT Secret生成</text>
+<rect x="515" y="586" width="90" height="22" rx="4" fill="#fef3c7" stroke="#fcd34d" stroke-width="0.8"/>
+<text x="560" y="602" text-anchor="middle" fill="#92400e" font-size="9">🗄️ MySQL定期备份</text>
+<rect x="615" y="586" width="120" height="22" rx="4" fill="#fef3c7" stroke="#fcd34d" stroke-width="0.8"/>
+<text x="675" y="602" text-anchor="middle" fill="#92400e" font-size="9">⚙️ Flink TM资源调优</text>
+<rect x="745" y="586" width="95" height="22" rx="4" fill="#fef3c7" stroke="#fcd34d" stroke-width="0.8"/>
+<text x="792" y="602" text-anchor="middle" fill="#92400e" font-size="9">👤 INIT_USERS=false</text>
+<text x="40" y="626" fill="#9ca3af" font-size="9">Docker 20.10+ · Compose v2 · ≥8GB RAM · docker compose up -d</text>
+
+<!-- ===== DEPLOYMENT COMMAND ===== -->
+<rect x="20" y="648" width="920" height="50" rx="8" fill="#111827" stroke="#374151" stroke-width="1.5"/>
+<text x="40" y="668" fill="#22c55e" font-size="11" font-family="Menlo, Monaco, monospace" font-weight="600">$</text>
+<text x="60" y="668" fill="#e5e7eb" font-size="11" font-family="Menlo, Monaco, monospace">cd rt-dwh-mgmt/deploy</text>
+<text x="280" y="668" fill="#6b7280" font-size="11" font-family="Menlo, Monaco, monospace">&amp;&amp;</text>
+<text x="300" y="668" fill="#e5e7eb" font-size="11" font-family="Menlo, Monaco, monospace">cp .env.example .env</text>
+<text x="490" y="668" fill="#6b7280" font-size="11" font-family="Menlo, Monaco, monospace">&amp;&amp;</text>
+<text x="510" y="668" fill="#e5e7eb" font-size="11" font-family="Menlo, Monaco, monospace">docker compose up -d</text>
+<text x="40" y="690" fill="#9ca3af" font-size="10" font-family="Menlo, Monaco, monospace">前端 http://localhost · 后端 http://localhost/api/v1 · Flink UI http://localhost:8081</text>
+
+<!-- Legend -->
+<rect x="810" y="72" width="120" height="95" rx="6" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1"/>
+<text x="870" y="92" text-anchor="middle" fill="#6b7280" font-size="9" font-weight="600">图例</text>
+<line x1="822" y1="108" x2="852" y2="108" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+<text x="858" y="112" fill="#6b7280" font-size="8">HTTP请求流</text>
+<line x1="822" y1="124" x2="852" y2="124" stroke="#dc2626" stroke-width="1.2"/>
+<text x="858" y="128" fill="#6b7280" font-size="8">JDBC/内部连接</text>
+<line x1="822" y1="140" x2="852" y2="140" stroke="#ea580c" stroke-width="1.2"/>
+<text x="858" y="144" fill="#6b7280" font-size="8">Flink REST API</text>
+<rect x="822" y="148" width="30" height="8" rx="2" fill="#fef2f2" stroke="#fca5a5" stroke-width="0.8"/>
+<text x="858" y="156" fill="#6b7280" font-size="8">外部可访问</text>
+
+</svg>

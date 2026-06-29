@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>实时数仓管理系统 - ER 图</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; color: #333; }
+  .header { background: linear-gradient(135deg, #1a73e8, #4285f4); color: #fff; padding: 24px 32px; }
+  .header h1 { font-size: 24px; margin-bottom: 8px; }
+  .header p { font-size: 14px; opacity: 0.85; }
+  .container { padding: 24px 32px; max-width: 1200px; }
+  .er-section { margin-bottom: 32px; }
+  .er-section h2 { font-size: 18px; color: #1a73e8; margin-bottom: 16px; border-bottom: 2px solid #1a73e8; padding-bottom: 8px; }
+  .table-card { background: #fff; border-radius: 8px; border: 2px solid #ddd; margin-bottom: 16px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); position: relative; }
+  .table-card.primary { border-color: #1a73e8; }
+  .table-card.secondary { border-color: #34a853; }
+  .table-card.tertiary { border-color: #fbbc04; }
+  .table-card.auxiliary { border-color: #ea4335; }
+  .table-name { font-size: 16px; font-weight: 600; color: #1a73e8; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+  .table-name .badge { font-size: 11px; padding: 2px 8px; border-radius: 4px; color: #fff; }
+  .table-name .badge.p { background: #1a73e8; }
+  .table-name .badge.s { background: #34a853; }
+  .table-name .badge.t { background: #fbbc04; color: #333; }
+  .table-name .badge.a { background: #ea4335; }
+  .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; }
+  .field { font-size: 13px; padding: 4px 8px; border-radius: 4px; display: flex; align-items: center; gap: 6px; }
+  .field.pk { background: #e8f0fe; font-weight: 600; }
+  .field.fk { background: #fef7e0; }
+  .field.uk { background: #e6f4ea; }
+  .field .name { flex: 1; }
+  .field .type { color: #666; font-size: 12px; }
+  .field .icon { font-size: 11px; }
+  .pk-icon { color: #1a73e8; }
+  .fk-icon { color: #fbbc04; }
+  .uk-icon { color: #34a853; }
+  .relations { background: #fff; border-radius: 8px; padding: 16px; margin-top: 16px; }
+  .relations h3 { font-size: 15px; margin-bottom: 12px; color: #333; }
+  .relation-item { font-size: 13px; padding: 6px 0; border-bottom: 1px solid #eee; display: flex; align-items: center; gap: 8px; }
+  .relation-item:last-child { border-bottom: none; }
+  .rel-arrow { color: #ea4335; font-weight: bold; }
+  .legend { background: #fff; border-radius: 8px; padding: 16px; margin-top: 24px; display: flex; gap: 24px; }
+  .legend-item { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .legend-color { width: 16px; height: 16px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>实时数仓管理系统 — 数据库 ER 图</h1>
+  <p>MySQL / PostgreSQL 元数据存储 · Flink 2.x + Paimon + Spring Boot 3.x</p>
+</div>
+<div class="container">
+
+<!-- 核心业务表 -->
+<div class="er-section">
+  <h2>一、核心业务表（Primary — 蓝色边框）</h2>
+
+  <div class="table-card primary">
+    <div class="table-name">
+      <span>sys_user</span><span class="badge p">用户表</span>
+    </div>
+    <div class="fields">
+      <div class="field pk"><span class="icon pk-icon">🔑</span><span class="name">id</span><span class="type">BIGINT AUTO_INC</span></div>
+      <div class="field"><span class="name">username</span><span class="type">VARCHAR(64) UK</span></div>
+      <div class="field"><span class="name">password_hash</span><span class="type">VARCHAR(256)</span></div>
+      <div class="field"><span class="name">real_name</span><span class="type">VARCHAR(64)</span></div>
+      <div class="field"><span class="name">email</span><span class="type">VARCHAR(128)</span></div>
+      <div class="field"><span class="name">phone</span><span class="type">VARCHAR(20)</span></div>
+      <div class="field"><span class="name">avatar_url</span><span class="type">VARCHAR(256)</span></div>
+      <div class="field"><span class="name">status</span><span class="type">ENUM(active,disabled)</span></div>
+      <div class="field"><span class="name">created_at</span><span class="type">TIMESTAMP</span></div>
+      <div class="field"><span class="name">updated_at</span><span class="type">TIMESTAMP</span></div>
+    </div>
+  </div>
+
+  <div class="table-card primary">
+    <div class="table-name">
+      <span>sys_role</span><span class="badge p">角色表</span>
+    </div>
+    <div class="fields">
+      <div class="field pk"><span class="icon pk-icon">🔑</span><span class="name">id</span><span class="type">BIGINT AUTO_INC</span></div>
+      <div class="field"><span class="name">role_code</span><span class="type">VARCHAR(32) UK</span></div>
+      <div class="field"><span class="name">role_name</span><span class="type">VARCHAR(64)</span></div>
+      <div class="field"><span class="name">description</span><span class="type">VARCHAR(256)</span></div>
+      <div class="field"><span class="name">created_at</span><span class="type">TIMESTAMP</span></div>
+      <div class="field"><span class="name">updated_at</span><span class="type">TIMESTAMP</span></div>
+    </div>
+  </div>
+
+  <div class="table-card primary">
+    <div class="table-name">
+      <span>sys_permission</span><span class="badge p">权限表</span>
+    </div>
+    <div class="fields">
+      <div class="field pk"><span class="icon pk-icon">🔑</span><span class="name">id</span><span class="type">BIGINT AUTO_INC</span></div>
+      <div class="field"><span class="name">perm_code</span><span class="type">VARCHAR(64) UK</span></div>
+      <div class="field"><span class="name">perm_name</span><span class="type">VARCHAR(64)</span></div>
+      <div class="field"><span class="name">resource_type</span><span class="type">ENUM(menu,button,api)</span></div>
+      <div class="field"><span class="name">parent_id</span><span class="type">BIGINT FK→self</span></div>
+      <div class="field"><span class="name">sort_order</span><span class="type">INT</span></div>
+    </div>
+  </div>
+
+  <div class="table-card primary">
+    <div class="table-name">
+      <span>sync_task</span><span class="badge p">同步任务表</span>
+    </div>
+    <div class="fields">
+      <div class="field pk"><span class="icon pk-icon">🔑</span><span class="name">id</span><span class="type">BIGINT AUTO_INC</span></div>
+      <div class="field fk"><span class="icon fk-icon">🔗</span><span class="name">creator_id</span><span class="type">BIGINT FK→sys_user</span></div>
+      <div class="field"><span class="name">task_name</span><span class="type">VARCHAR(128)</span></div>
+      <div class="field"><span class="name">task_type</span><span class="type">ENUM(cdc_sync,etl,materialized)</span></div>
+      <div class="field fk"><span class="icon fk-icon">🔗</span><span class="name">source_config_id</span><span class="type">BIGINT FK→datasource_config</span></div>
+      <div class="field fk"><span class="icon fk-icon">🔗</span><span class="name">target_config_id</span><span class="type">BIGINT FK→datasource_config</span></div>
+      <div class="field"><span class="name">flink_sql</span><span class="type">TEXT</span></div>
+      <div class="field"><span class="name">sync_strategy</span><span class="type">ENUM(full_then_incremental,incremental_only)</span></div>
+      <div class="field"><span class="name">table_mappings</span><span class="type">JSON</span></div>
+      <div class="field"><span class="name">status</span><span class="type">ENUM(draft,running,paused,failed,finished)</span></div>
+      <div class="field"><span class="name">flink_job_id</span><span class="type">VARCHAR(64)</span></div>
+      <div class="field"><span class="name">checkpoint_info</span><span class="type">JSON</span></div>
+      <div class="field"><span class="name">current_lag_ms</span><span class="type">BIGINT</span></div>
+      <div class="field"><span class="name">throughput_qps</span><span class="type">DOUBLE</span></div>
+      <div class="field"><span class="name">last_error_msg</span><span class="type">TEXT</span></div>
+      <div class="field"><span class="name">created_at</span><span class="type">TIMESTAMP</span></div>
+      <div class="field"><span class="name">updated_at</span><span class="type">TIMESTAMP</span></div>
+    </div>
+  </div>
+
+  <div class="table-card primary">
+    <div class="table-name">
+      <span>datasource_config</span><span class="badge p">数据源配置表</span>
+    </div>
+    <div class="fields">
+      <div class="field pk"><span class="icon pk-icon">🔑</span><span class="name">id</span><span class="type">BIGINT AUTO_INC</span></div>
+      <div class="field fk"><span class="icon fk-icon">🔗</span><span class="name">creator_id</span><span class="type">BIGINT FK→sys_user</span></div>
+      <div class="field"><span class="name">config_name</span><span class="type">VARCHAR(128)</span></div>
+      <div class="field"><span class="name">db_type</span><span class="type">ENUM(mysql,postgresql,paimon)</span></div>
+      <div class="field"><span class="name">host</span><span class="type">VARCHAR(128)</span></div>
+      <div class="field"><span class="name">port</span><span class="type">INT</span></div>
+      <div class="field"><span class="name">database</span><span class="type">VARCHAR(128)</span></div>
+      <div class="field"><span class="name">username</span><span class="type">VARCHAR(64)</span></div>
+      <div class="field"><span class="name">password_encrypted</span><span class="type">VARCHAR(256)</span></div>
+      <div class="field"><span class="name">extra_params</span><span class="type">JSON</span></div>
+      <div class="field"><span class="name">created_at</span><span class="type">TIMESTAMP</span></div>
+      <div class="field"><span class="name">updated_at</span><span class="type">TIMESTAMP</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- 数据仓库元数据表 -->
+<div class="er-section">
+  <h2>二、数据仓库元数据表（Secondary — 绿色边框）</h2>
+
+  <div class="table-card secondary">
+    <div class="table-name">
+      <span>dwh_table_meta</span><span class="badge s">数仓表元数据</span>
+    </div>
+    <div class="fields">
+      <div class="field pk"><span class="icon pk-icon">🔑</span><span class="name">id</span><span class="type">BIGINT AUTO_INC</span></div>
+      <div class="field"><span class="name">paimon_db</span><span class="type">VARCHAR(64)</span></div>
+      <div class="field"><span class="name">paimon_table</span><span class="type">VARCHAR(128)</span></div>
+      <div class="field"><span class="name">layer</span><span class="type">ENUM(ods,dwd,dws,ads)</span></div>
+      <div class="field"><span class="name">business_desc</span><span class="type">TEXT</span></div>
+      <div class="field"><span class="name">schema_json</span><span class="type">JSON</span></div>
+      <div class="field"><span class="name">partition_keys</span><span class="type">VARCHAR(256)</span></div>
+      <div class="field"><span class="name">primary_keys</span><span class="type">VARCHAR(256)</span></div>
+      <div class="field"><span class="name">snapshot_count</span><span class="type">INT</span></div>
+      <div class="field"><span class="name">latest_snapshot_id</span><span class="type">BIGINT</span></div>
+      <div class="field"><span class="name">latest_commit_time</span><span class="type">TIMESTAMP</span></div>
+      <div class="field"><span class="name">file_count</span><span class="type">INT</span></div>
+      <div class="field"><span class="name">total_size_bytes</span><span class="type">BIGINT</span></div>
+      <div class="field"><span class="name">created_at</span><span class="type">TIMESTAMP</span></div>
+      <div class="field"><span class="name">updated_at</span><span class="type">TIMESTAMP</span></div>
+    </div>
+  </div>
+
+  <div class="table-card secondary">
+    <div class="table-name">
+      <span>dwh_column_meta</span><span class="badge s">字段元数据</span>
+    </div>
+    <div class="fields">
+      <div class="field pk"><span class="icon pk-icon">🔑</span><span class="name">id</span><span class="type">BIGINT AUTO_INC</span></div>
+      <div class="field fk"><span class="icon fk-icon">🔗</span><span class="name">table_meta_id</span><span class="type">BIGINT FK→dwh_table_meta</span></div>
+      <div class="field"><span class="name">column_name</span><span class="type">VARCHAR(128)</span></div>
+      <div class="field"><span class="name">column_type</span><span class="type">VARCHAR(64)</span></div>
+      <div class="field"><span class="name">business_comment</span><span class="type">VARCHAR(512)</span></div>
+      <div class="field"><span class="name">is_pk</span><span class="type">BOOLEAN</span></div>
+      <div class="field"><span class="name">is_nullable</span><span class="type">BOOLEAN</span></div>
+      <div class="field"><span class="name">default_value</span><span class="type">VARCHAR(128)</span></div>
+      <div class="field"><span class="name">source_column</span><span class="type">VARCHAR(128)</span></div>
+      <div class="field"><span class="name">sort_order</span><span class="type">INT</span></div>
+    </div>
+  </div>
+
+  <div class="table-card secondary">
+    <div class="table-name">
+      <span>dwh_schema_history</span><span class="badge s">表结构变更历史</span>
+    </div>
+    <div class="fields">
+      <div class="field pk"><span class="icon pk-icon">🔑</span><span class="name">id</span><span class="type">BIGINT AUTO_INC</span></div>
+      <div class="field fk"><span class="icon fk-icon">🔗</span><span class="name">table_meta_id</span><span class="type">BIGINT FK→dwh_table_meta</span></div>
+      <div class="field"><span class="name">change_type</span><span class="type">ENUM(add_column,drop_column,rename_column,alter_type)</span></div>
+      <div class="field"><span class="name">before_schema</span><span class="type">JSON</span></div>
+      <div class="field"><span class="name">after_schema</span><span class="type">JSON</span></div>
+      <div class="field"><span class="name">change_detail</span><span class="type">TEXT</span></div>
+      <div class="field"><span class="name">detected_at</span><span class="type">TIMESTAMP</span></div>
+    </div>
+  </div>
+
+  <div class="table-card secondary">
+    <div class="table-name">
+      <span>dwh_data_lineage</span><span class="badge s">数据血缘关系</span>
+    </div>
+    <div class="fields">
+      <div class="field pk"><span class="icon pk-icon">🔑</span><span class="name">id</span><span class="type">BIGINT AUTO_INC</span></div>
+      <div class="field fk"><span class="icon fk-icon">🔗</span><span class="name">source_table_id</span><span class="type">BIGINT FK→dwh_table_meta</span></div>
+      <div class="field fk"><span class="icon fk-icon">🔗</span><span class="name">target_table_id</span><span class="type">BIGINT FK→dwh_table_meta</span></div>
+      <div class="field fk"><span class="icon fk-icon">🔗</span><span class="name">sync_task_id</span><span class="type">BIGINT FK→sync_task</span></div>
+      <div class="field"><span class="name">lineage_type</span><span class="type">ENUM(cdc_sync,etl_transform,materialized)</span></div>
+      <div class="field"><span class="name">transform_logic</span><span class="type">TEXT</span></div>
+      <div class="field"><span class="name">created_at</span><span class="type">TIMESTAMP</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- 运维与质量表 -->
+<div class="er-section">
+  <h2>三、运维与质量监控表（Tertiary — 黄色边框）</h2>
+
+  <div class="table-card tertiary">
+    <div class="table-name">
+      <span>table_maintenance_log</span><span class="badge t">表维护日志</span>
+    </div>
+    <div class="fields">
+      <div class="field pk"><span class="icon pk-icon">🔑</span><span class="name">id</span><span class="type">BIGINT AUTO_INC</span></div>
+      <div class="field fk"><span class="icon fk-icon">🔗</span><span class="name">table_meta_id</span><span class="type">BIGINT FK→dwh_table_meta</span></div>
+      <div class="field"><span class="name">operation</span><span class="type">ENUM(compact,expire_snapshots,orphan_cleanup)</span></div>
+      <div class="field"><span class="name">trigger_type</span><span class="type">ENUM(manual,scheduled)</span></div>
+      <div class="field"><span class="name">status</span><span class="type">ENUM(success,failed,running)</span></div>
+      <div class="field"><span class="name">before_metrics</span><span class="type">JSON</span></div>
+      <div class="field"><span class="name">after_metrics</span><span class="type">JSON</span></div>
+      <div class="field"><span class="name">duration_ms</span><span class="type">BIGINT</span></div>
+      <div class="field"><span class="name">error_msg</span><span class="type">TEXT</span></div>
+      <div class="field"><span class="name">started_at</span><span class="type">TIMESTAMP</span></div>
+      <div class="field"><span class="name">finished_at</span><span class="type">TIMESTAMP</span></div>
+    </div>
+  </div>
+
+  <div class="table-card tertiary">
+    <div class="table-name">
+      <span>data_quality_rule</span><span class="badge t">数据质量规则</span>
+    </div>
+    <div class="fields">
+      <div class="field pk"><span class="icon pk-icon">🔑</span><span class="name">id</span><span class="type">BIGINT AUTO_INC</span></div>
+      <div class="field fk"><span class="icon fk-icon">🔗</span><span class="name">table_meta_id</span><span class="type">BIGINT FK→dwh_table_meta</span></div>
+      <div class="field"><span class="name">rule_name</span><span class="type">VARCHAR(128)</span></div>
+      <div class="field"><span class="name">rule_type</span><span class="type">ENUM(null_rate,uniqueness,volume_compare,range_check)</span></div>
+      <div class="field"><span class="name">rule_config</span><span class="type">JSON</span></div>
+      <div class="field"><span class="name">threshold</span><span class="type">DOUBLE</span></div>
+      <div class="field"><span class="name">is_enabled</span><span class="type">BOOLEAN</span></div>
+      <div class="field"><span class="name">created_at</span><span class="type">TIMESTAMP</span></div>
+    </div>
+  </div>
+
+  <div class="table-card tertiary">
+    <div class="table-name">
+      <span>data_quality_result</span><span class="badge t">数据质量检测结果</span>
+    </div>
+    <div class="fields">
+      <div class="field pk"><span class="icon pk-icon">🔑</span><span class="name">id</span><span class="type">BIGINT AUTO_INC</span></div>
+      <div class="field fk"><span class="icon fk-icon">🔗</span><span class="name">rule_id</span><span class="type">BIGINT FK→data_quality_rule</span></div>
+      <div class="field"><span class="name">actual_value</span><span class="type">DOUBLE</span></div>
+      <div class="field"><span class="name">threshold_value</span><span class="type">DOUBLE</span></div>
+      <div class="field"><span class="name">is_pass</span><span class="type">BOOLEAN</span></div>
+      <div class="field"><span class="name">detail</span><span class="type">TEXT</span></div>
+      <div class="field"><span class="name">checked_at</span><span class="type">TIMESTAMP</span></div>
+    </div>
+  </div>
+
+  <div class="table-card tertiary">
+    <div class="table-name">
+      <span>alert_config</span><span class="badge t">告警配置</span>
+    </div>
+    <div class="fields">
+      <div class="field pk"><span class="icon pk-icon">🔑</span><span class="name">id</span><span class="type">BIGINT AUTO_INC</span></div>
+      <div class="field"><span class="name">alert_name</span><span class="type">VARCHAR(128)</span></div>
+      <div class="field"><span class="name">alert_type</span><span class="type">ENUM(task_failed,lag_exceeded,quality_fail,maintenance_fail)</span></div>
+      <div class="field"><span class="name">notify_channel</span><span class="type">ENUM(email,dingtalk,wecom)</span></div>
+      <div class="field"><span class="name">notify_config</span><span class="type">JSON</span></div>
+      <div class="field"><span class="name">threshold</span><span class="type">DOUBLE</span></div>
+      <div class="field"><span class="name">is_enabled</span><span class="type">BOOLEAN</span></div>
+      <div class="field"><span class="name">created_at</span><span class="type">TIMESTAMP</span></div>
+    </div>
+  </div>
+
+  <div class="table-card tertiary">
+    <div class="table-name">
+      <span>alert_record</span><span class="badge t">告警记录</span>
+    </div>
+    <div class="fields">
+      <div class="field pk"><span class="icon pk-icon">🔑</span><span class="name">id</span><span class="type">BIGINT AUTO_INC</span></div>
+      <div class="field fk"><span class="icon fk-icon">🔗</span><span class="name">alert_config_id</span><span class="type">BIGINT FK→alert_config</span></div>
+      <div class="field"><span class="name">alert_content</span><span class="type">TEXT</span></div>
+      <div class="field"><span class="name">severity</span><span class="type">ENUM(info,warning,critical)</span></div>
+      <div class="field"><span class="name">is_resolved</span><span class="type">BOOLEAN</span></div>
+      <div class="field"><span class="name">resolved_by</span><span class="type">VARCHAR(64)</span></div>
+      <div class="field"><span class="name">created_at</span><span class="type">TIMESTAMP</span></div>
+      <div class="field"><span class="name">resolved_at</span><span class="type">TIMESTAMP</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- 查询与报表表 -->
+<div class="er-section">
+  <h2>四、查询与报表表（Auxiliary — 红色边框）</h2>
+
+  <div class="table-card auxiliary">
+    <div class="table-name">
+      <span>report_template</span><span class="badge a">报表模板</span>
+    </div>
+    <div class="fields">
+      <div class="field pk"><span class="icon pk-icon">🔑</span><span class="name">id</span><span class="type">BIGINT AUTO_INC</span></div>
+      <div class="field fk"><span class="icon fk-icon">🔗</span><span class="name">creator_id</span><span class="type">BIGINT FK→sys_user</span></div>
+      <div class="field"><span class="name">report_name</span><span class="type">VARCHAR(128)</span></div>
+      <div class="field"><span class="name">report_type</span><span class="type">ENUM(line,bar,pie,table,mixed)</span></div>
+      <div class="field"><span class="name">sql_query</span><span class="type">TEXT</span></div>
+      <div class="field"><span class="name">chart_config</span><span class="type">JSON</span></div>
+      <div class="field"><span class="name">filter_config</span><span class="type">JSON</span></div>
+      <div class="field"><span class="name">schedule_config</span><span class="type">JSON</span></div>
+      <div class="field"><span class="name">is_published</span><span class="type">BOOLEAN</span></div>
+      <div class="field"><span class="name">created_at</span><span class="type">TIMESTAMP</span></div>
+      <div class="field"><span class="name">updated_at</span><span class="type">TIMESTAMP</span></div>
+    </div>
+  </div>
+
+  <div class="table-card auxiliary">
+    <div class="table-name">
+      <span>query_history</span><span class="badge a">查询历史</span>
+    </div>
+    <div class="fields">
+      <div class="field pk"><span class="icon pk-icon">🔑</span><span class="name">id</span><span class="type">BIGINT AUTO_INC</span></div>
+      <div class="field fk"><span class="icon fk-icon">🔗</span><span class="name">user_id</span><span class="type">BIGINT FK→sys_user</span></div>
+      <div class="field"><span class="name">sql_text</span><span class="type">TEXT</span></div>
+      <div class="field"><span class="name">query_type</span><span class="type">ENUM(adhoc,report)</span></div>
+      <div class="field"><span class="name">result_row_count</span><span class="type">INT</span></div>
+      <div class="field"><span class="name">duration_ms</span><span class="type">BIGINT</span></div>
+      <div class="field"><span class="name">status</span><span class="type">ENUM(success,failed,cancelled)</span></div>
+      <div class="field"><span class="name">error_msg</span><span class="type">TEXT</span></div>
+      <div class="field"><span class="name">created_at</span><span class="type">TIMESTAMP</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- 关系说明 -->
+<div class="relations">
+  <h3>核心关系映射</h3>
+  <div class="relation-item">sys_user <span class="rel-arrow">1:N</span> sync_task（用户创建同步任务）</div>
+  <div class="relation-item">sys_user <span class="rel-arrow">1:N</span> datasource_config（用户配置数据源）</div>
+  <div class="relation-item">datasource_config <span class="rel-arrow">1:N</span> sync_task（源库/目标库配置）</div>
+  <div class="relation-item">sync_task <span class="rel-arrow">1:N</span> dwh_data_lineage（任务产生血缘关系）</div>
+  <div class="relation-item">dwh_table_meta <span class="rel-arrow">1:N</span> dwh_column_meta（表包含字段）</div>
+  <div class="relation-item">dwh_table_meta <span class="rel-arrow">1:N</span> dwh_schema_history（表结构变更记录）</div>
+  <div class="relation-item">dwh_table_meta <span class="rel-arrow">1:N</span> table_maintenance_log（表维护操作）</div>
+  <div class="relation-item">dwh_table_meta <span class="rel-arrow">1:N</span> data_quality_rule（表关联质量规则）</div>
+  <div class="relation-item">data_quality_rule <span class="rel-arrow">1:N</span> data_quality_result（规则产出检测结果）</div>
+  <div class="relation-item">sys_role <span class="rel-arrow">N:N</span> sys_permission（角色权限关联表 sys_role_permission）</div>
+  <div class="relation-item">sys_user <span class="rel-arrow">N:N</span> sys_role（用户角色关联表 sys_user_role）</div>
+</div>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-color" style="background:#1a73e8"></div>Primary 核心业务表</div>
+  <div class="legend-item"><div class="legend-color" style="background:#34a853"></div>Secondary 数仓元数据表</div>
+  <div class="legend-item"><div class="legend-color" style="background:#fbbc04"></div>Tertiary 运维质量监控表</div>
+  <div class="legend-item"><div class="legend-color" style="background:#ea4335"></div>Auxiliary 查询报表表</div>
+</div>
+
+</div>
+</body>
+</html>

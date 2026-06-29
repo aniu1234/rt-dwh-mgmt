@@ -1,0 +1,68 @@
+package com.rtdwh.controller;
+
+import com.rtdwh.dto.ApiResponse;
+import com.rtdwh.entity.AlertRule;
+import com.rtdwh.entity.AlertRecord;
+import com.rtdwh.service.AlertNotifyService;
+import com.rtdwh.service.AlertService;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@Slf4j
+@RestController
+@RequestMapping("/alert")
+@RequiredArgsConstructor
+public class AlertController {
+
+    private final AlertService alertService;
+    private final AlertNotifyService alertNotifyService;
+
+    @GetMapping("/rules")
+    public ApiResponse<List<AlertRule>> getRules() {
+        return ApiResponse.success(alertService.listRules());
+    }
+
+    @PostMapping("/rules")
+    public ApiResponse<AlertRule> createRule(@RequestBody AlertRule rule) {
+        return ApiResponse.success("规则创建成功", alertService.createRule(rule));
+    }
+
+    @PutMapping("/rules/{id}")
+    public ApiResponse<AlertRule> updateRule(@PathVariable Long id, @RequestBody AlertRule rule) {
+        return ApiResponse.success("规则已更新", alertService.updateRule(id, rule));
+    }
+
+    @DeleteMapping("/rules/{id}")
+    public ApiResponse<Void> deleteRule(@PathVariable Long id) {
+        alertService.deleteRule(id);
+        return ApiResponse.success("规则已删除", null);
+    }
+
+    @PostMapping("/rules/{id}/toggle")
+    public ApiResponse<Void> toggleRule(@PathVariable Long id) {
+        alertService.toggleRule(id);
+        return ApiResponse.success("状态已切换", null);
+    }
+
+    @GetMapping("/records")
+    public ApiResponse<List<AlertRecord>> getRecords(
+            @RequestParam(required = false) String level,
+            @RequestParam(required = false) Boolean resolved) {
+        return ApiResponse.success(alertService.listRecords(level, resolved));
+    }
+
+    @PostMapping("/records/{id}/resolve")
+    public ApiResponse<Void> resolveRecord(@PathVariable Long id) {
+        alertService.resolveRecord(id);
+        return ApiResponse.success("已标记为解决", null);
+    }
+
+    @PostMapping("/test-notify")
+    public ApiResponse<Void> testNotify(@RequestBody AlertRule rule) {
+        alertNotifyService.sendAlert(rule, "这是一条测试告警消息", "info");
+        return ApiResponse.success("测试通知已发送", null);
+    }
+}

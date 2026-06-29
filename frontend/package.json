@@ -1,0 +1,47 @@
+{
+  "name": "rtdwh-management-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Real-time Data Warehouse Management Platform - Ant Design Pro v6",
+  "scripts": {
+    "dev": "max dev",
+    "build": "max build",
+    "postinstall": "max setup",
+    "preview": "max preview",
+    "lint": "eslint --fix src/"
+  },
+  "dependencies": {
+    "@ant-design/icons": "^5.3.0",
+    "@ant-design/pro-components": "^2.7.0",
+    "@ant-design/pro-layout": "^7.21.0",
+    "@ant-design/charts": "^2.2.0",
+    "antd": "^5.21.0",
+    "classnames": "^2.5.0",
+    "dayjs": "^1.11.0",
+    "lodash": "^4.17.0",
+    "moment": "^2.30.0",
+    "numeral": "^2.0.6",
+    "omit.js": "^2.0.2",
+    "qs": "^6.13.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "react-helmet-async": "^2.0.0",
+    "umi-request": "^1.4.0",
+    "@umijs/max": "^4.4.0"
+  },
+  "devDependencies": {
+    "@types/lodash": "^4.17.0",
+    "@types/qs": "^6.9.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "@umijs/lint": "^4.4.0",
+    "eslint": "^8.57.0",
+    "prettier": "^3.3.0",
+    "typescript": "^5.5.0"
+  },
+  "browserslist": [
+    "last 2 versions",
+    "> 1%",
+    "not dead"
+  ]
+}

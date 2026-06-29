@@ -1,0 +1,262 @@
+package com.rtdwh.service;
+
+import com.rtdwh.entity.AlertRule;
+import com.rtdwh.entity.QualityRule;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.*;
+import org.springframework.mail.SimpleMailMessage;
+import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
+
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class AlertNotifyService {
+
+    private final JavaMailSender mailSender;
+    private final RestTemplate restTemplate;
+
+    @Value("${alert.dingtalk-webhook:}")
+    private String dingtalkWebhook;
+
+    @Value("${alert.wecom-webhook:}")
+    private String wecomWebhook;
+
+    @Value("${alert.email-recipients:admin@example.com}")
+    private String emailRecipients;
+
+    @Value("${alert.email-from:rtdwh-alert@example.com}")
+    private String emailFrom;
+
+    @Value("${spring.mail.host:}")
+    private String mailHost;
+
+    /**
+     * Send an alert notification based on AlertRule's notify channel.
+     * This is called when a task fails, data lag exceeds threshold, etc.
+     */
+    public void sendAlert(AlertRule rule, String message, String level) {
+        String channel = rule.getNotifyChannel();
+        if (channel == null || channel.isEmpty()) {
+            log.warn("Alert rule [{}] has no notify channel configured, skipping notification", rule.getRuleName());
+            return;
+        }
+
+        String formattedMessage = formatAlertMessage(rule.getRuleName(), rule.getRuleType(), message, level);
+
+        switch (channel.toLowerCase()) {
+            case "dingtalk" -> sendDingtalk(formattedMessage, level);
+            case "wecom" -> sendWecom(formattedMessage, level);
+            case "email" -> sendEmail(formattedMessage, level, rule.getRuleName());
+            default -> log.warn("Unknown notify channel: {}", channel);
+        }
+    }
+
+    /**
+     * Send a quality check alert notification.
+     * Uses the quality rule's target table/column info to build the message.
+     */
+    public void sendQualityAlert(QualityRule rule, double actualValue, double thresholdValue, String message) {
+        // Determine which channels to send to based on available configuration
+        // Quality alerts go to all configured channels
+        String formattedMessage = formatQualityAlertMessage(rule, actualValue, thresholdValue, message);
+
+        if (!dingtalkWebhook.isEmpty()) {
+            sendDingtalk(formattedMessage, "warn");
+        }
+        if (!wecomWebhook.isEmpty()) {
+            sendWecom(formattedMessage, "warn");
+        }
+        if (!mailHost.isEmpty()) {
+            sendEmail(formattedMessage, "warn", "质量检查异常: " + rule.getTargetTable());
+        }
+    }
+
+    /**
+     * Send a task failure alert.
+     * Called from SyncTaskService when a Flink job fails.
+     */
+    public void sendTaskFailureAlert(String taskName, String errorMsg) {
+        String message = String.format("【实时数仓告警】同步任务失败\n" +
+                "任务: %s\n时间: %s\n错误: %s",
+                taskName,
+                LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")),
+                errorMsg != null ? errorMsg : "未知错误");
+
+        if (!dingtalkWebhook.isEmpty()) {
+            sendDingtalk(message, "error");
+        }
+        if (!wecomWebhook.isEmpty()) {
+            sendWecom(message, "error");
+        }
+        if (!mailHost.isEmpty()) {
+            sendEmail(message, "error", "同步任务失败: " + taskName);
+        }
+    }
+
+    /**
+     * Send a data lag exceeded alert.
+     */
+    public void sendLagAlert(String taskName, long lagMs, long thresholdMs) {
+        String message = String.format("【实时数仓告警】数据延迟超标\n" +
+                "任务: %s\n当前延迟: %d ms\n阈值: %d ms\n时间: %s",
+                taskName, lagMs, thresholdMs,
+                LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+
+        if (!dingtalkWebhook.isEmpty()) {
+            sendDingtalk(message, "warn");
+        }
+        if (!wecomWebhook.isEmpty()) {
+            sendWecom(message, "warn");
+        }
+        if (!mailHost.isEmpty()) {
+            sendEmail(message, "warn", "数据延迟超标: " + taskName);
+        }
+    }
+
+    // ========================================================================
+    // Notification Channels
+    // ========================================================================
+
+    /**
+     * Send DingTalk (钉钉) webhook notification.
+     * DingTalk API: POST webhook URL with JSON body.
+     */
+    private void sendDingtalk(String message, String level) {
+        if (dingtalkWebhook.isEmpty()) {
+            log.debug("DingTalk webhook not configured, skipping");
+            return;
+        }
+
+        try {
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("msgtype", "markdown");
+
+            String title = "实时数仓告警";
+            String markdownText = String.format("# %s\n\n%s\n\n> 级别: %s | 时间: %s",
+                    title, message, level,
+                    LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+
+            body.put("markdown", Map.of("title", title, "text", markdownText));
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
+
+            ResponseEntity<String> response = restTemplate.postForEntity(dingtalkWebhook, request, String.class);
+
+            if (response.getStatusCode().is2xxSuccessful()) {
+                log.info("DingTalk alert sent successfully");
+            } else {
+                log.warn("DingTalk alert failed: HTTP {}", response.getStatusCode());
+            }
+        } catch (Exception e) {
+            log.error("DingTalk notification error: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Send WeCom (企微) webhook notification.
+     * WeCom API: POST webhook URL with JSON body (similar to DingTalk).
+     */
+    private void sendWecom(String message, String level) {
+        if (wecomWebhook.isEmpty()) {
+            log.debug("WeCom webhook not configured, skipping");
+            return;
+        }
+
+        try {
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("msgtype", "markdown");
+
+            String markdownContent = String.format("【实时数仓告警】\n> 级别: <font color=\"%s\">%s</font>\n\n%s\n\n时间: %s",
+                    levelColor(level), level, message,
+                    LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+
+            body.put("markdown", Map.of("content", markdownContent));
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
+
+            ResponseEntity<String> response = restTemplate.postForEntity(wecomWebhook, request, String.class);
+
+            if (response.getStatusCode().is2xxSuccessful()) {
+                log.info("WeCom alert sent successfully");
+            } else {
+                log.warn("WeCom alert failed: HTTP {}", response.getStatusCode());
+            }
+        } catch (Exception e) {
+            log.error("WeCom notification error: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Send email notification.
+     */
+    private void sendEmail(String message, String level, String subject) {
+        if (mailHost.isEmpty()) {
+            log.debug("Email not configured, skipping");
+            return;
+        }
+
+        try {
+            SimpleMailMessage mailMessage = new SimpleMailMessage();
+            mailMessage.setFrom(emailFrom);
+            mailMessage.setTo(emailRecipients.split("\\s*,\\s*"));
+            mailMessage.setSubject("[实时数仓" + levelLabel(level) + "] " + subject);
+            mailMessage.setText(message);
+
+            mailSender.send(mailMessage);
+            log.info("Email alert sent successfully: {}", subject);
+        } catch (Exception e) {
+            log.error("Email notification error: {}", e.getMessage());
+        }
+    }
+
+    // ========================================================================
+    // Utility
+    // ========================================================================
+
+    private String formatAlertMessage(String ruleName, String ruleType, String detail, String level) {
+        return String.format("【实时数仓告警】\n规则: %s\n类型: %s\n级别: %s\n详情: %s\n时间: %s",
+                ruleName, ruleType, levelLabel(level), detail,
+                LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+    }
+
+    private String formatQualityAlertMessage(QualityRule rule, double actual, double threshold, String message) {
+        return String.format("【质量检查告警】\n规则: %s\n类型: %s\n表: %s\n列: %s\n实际值: %.4f\n阈值: %.4f\n详情: %s\n时间: %s",
+                rule.getRuleName(),
+                rule.getRuleType(),
+                rule.getTargetTable(),
+                rule.getTargetColumn() != null ? rule.getTargetColumn() : "(全表)",
+                actual,
+                threshold,
+                message,
+                LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+    }
+
+    private String levelColor(String level) {
+        return switch (level) {
+            case "error", "critical" -> "warning";
+            case "warn" -> "info";
+            default -> "comment";
+        };
+    }
+
+    private String levelLabel(String level) {
+        return switch (level) {
+            case "error", "critical" -> "严重告警";
+            case "warn" -> "警告";
+            case "info" -> "信息";
+            default -> level;
+        };
+    }
+}

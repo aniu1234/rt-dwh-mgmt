@@ -1,0 +1,39 @@
+# Build outputs
+backend/target/
+frontend/dist/
+
+# Umi auto-generated
+frontend/src/.umi/
+frontend/src/.umi-production/
+
+# Node
+frontend/node_modules/
+node_modules/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Environment
+*.env
+*.env.local
+
+# Java
+*.class
+*.jar
+*.war
+
+# Temp
+tmp/
+temp/

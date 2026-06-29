@@ -1,0 +1,231 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 780" width="960" height="780">
+<style>
+  text { font-family: "Helvetica Neue", Helvetica, Arial, "PingFang SC", "Microsoft YaHei", "Microsoft JhengHei", "SimHei", sans-serif; }
+</style>
+<defs>
+  <marker id="arrow-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#2563eb"/></marker>
+  <marker id="arrow-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#059669"/></marker>
+  <marker id="arrow-orange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#ea580c"/></marker>
+  <marker id="arrow-purple" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#7c3aed"/></marker>
+  <marker id="arrow-red" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#dc2626"/></marker>
+  <filter id="shadow" x="-5%" y="-5%" width="115%" height="115%"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.06"/></filter>
+</defs>
+<rect width="960" height="780" fill="#ffffff"/>
+
+<!-- Title -->
+<text x="480" y="32" text-anchor="middle" fill="#111827" font-size="20" font-weight="700">RT-DWH 技术架构与核心链路</text>
+<text x="480" y="52" text-anchor="middle" fill="#9ca3af" font-size="12">—— 中篇：Service 分层 · Flink 双模式 · 元数据同步 · 安全体系</text>
+
+<!-- ===== FRONTEND LAYER ===== -->
+<rect x="40" y="70" width="880" height="60" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5" filter="url(#shadow)"/>
+<text x="60" y="92" fill="#1d4ed8" font-size="10" font-weight="700" letter-spacing="0.05em">前端展示层</text>
+<rect x="150" y="80" width="140" height="26" rx="5" fill="#dbeafe" stroke="#93c5fd" stroke-width="0.8"/>
+<text x="220" y="98" text-anchor="middle" fill="#1e40af" font-size="11" font-weight="600">React 18 + Umi Max</text>
+<rect x="310" y="80" width="120" height="26" rx="5" fill="#dbeafe" stroke="#93c5fd" stroke-width="0.8"/>
+<text x="370" y="98" text-anchor="middle" fill="#1e40af" font-size="11" font-weight="600">Ant Design Pro</text>
+<rect x="450" y="80" width="110" height="26" rx="5" fill="#dbeafe" stroke="#93c5fd" stroke-width="0.8"/>
+<text x="505" y="98" text-anchor="middle" fill="#1e40af" font-size="11" font-weight="600">路由守卫</text>
+<rect x="580" y="80" width="110" height="26" rx="5" fill="#dbeafe" stroke="#93c5fd" stroke-width="0.8"/>
+<text x="635" y="98" text-anchor="middle" fill="#1e40af" font-size="11" font-weight="600">角色过滤</text>
+<rect x="710" y="80" width="100" height="26" rx="5" fill="#dbeafe" stroke="#93c5fd" stroke-width="0.8"/>
+<text x="760" y="98" text-anchor="middle" fill="#1e40af" font-size="11" font-weight="600">ECharts</text>
+
+<!-- Frontend → Backend arrow -->
+<line x1="480" y1="130" x2="480" y2="152" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow-blue)"/>
+<text x="492" y="148" fill="#2563eb" font-size="10">HTTP REST · Bearer Token</text>
+
+<!-- ===== CONTROLLER LAYER ===== -->
+<rect x="40" y="160" width="880" height="40" rx="8" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1.2"/>
+<text x="60" y="185" fill="#64748b" font-size="10" font-weight="700" letter-spacing="0.05em">Controller 层</text>
+<rect x="160" y="168" width="80" height="24" rx="4" fill="#e2e8f0" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="200" y="185" text-anchor="middle" fill="#475569" font-size="10">AuthCtrl</text>
+<rect x="255" y="168" width="80" height="24" rx="4" fill="#e2e8f0" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="295" y="185" text-anchor="middle" fill="#475569" font-size="10">SyncTaskCtrl</text>
+<rect x="350" y="168" width="80" height="24" rx="4" fill="#e2e8f0" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="390" y="185" text-anchor="middle" fill="#475569" font-size="10">DwhMetaCtrl</text>
+<rect x="445" y="168" width="70" height="24" rx="4" fill="#e2e8f0" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="480" y="185" text-anchor="middle" fill="#475569" font-size="10">QueryCtrl</text>
+<rect x="530" y="168" width="75" height="24" rx="4" fill="#e2e8f0" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="567" y="185" text-anchor="middle" fill="#475569" font-size="10">QualityCtrl</text>
+<rect x="620" y="168" width="70" height="24" rx="4" fill="#e2e8f0" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="655" y="185" text-anchor="middle" fill="#475569" font-size="10">AlertCtrl</text>
+<rect x="705" y="168" width="75" height="24" rx="4" fill="#e2e8f0" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="742" y="185" text-anchor="middle" fill="#475569" font-size="10">ReportCtrl</text>
+<rect x="795" y="168" width="65" height="24" rx="4" fill="#e2e8f0" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="827" y="185" text-anchor="middle" fill="#475569" font-size="10">SetCtrl</text>
+
+<!-- Controller → Service arrow -->
+<line x1="480" y1="200" x2="480" y2="222" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+
+<!-- ===== SERVICE LAYER ===== -->
+<rect x="40" y="230" width="880" height="280" rx="8" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="1.5" filter="url(#shadow)"/>
+<text x="60" y="253" fill="#15803d" font-size="10" font-weight="700" letter-spacing="0.05em">Service 业务层（@Transactional · 横切逻辑统一）</text>
+
+<!-- Row 1: Core services -->
+<!-- SyncTaskService -->
+<rect x="55" y="268" width="155" height="78" rx="7" fill="#ffffff" stroke="#d1d5db" stroke-width="1.2"/>
+<rect x="55" y="268" width="155" height="22" rx="7" fill="#2563eb"/>
+<rect x="55" y="282" width="155" height="8" fill="#2563eb"/>
+<text x="132" y="284" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="600">SyncTaskService</text>
+<text x="132" y="308" text-anchor="middle" fill="#6b7280" font-size="9">任务生命周期管理</text>
+<text x="132" y="324" text-anchor="middle" fill="#6b7280" font-size="9">Draft→Running→Paused</text>
+<text x="132" y="340" text-anchor="middle" fill="#6b7280" font-size="9">失败自动告警联动</text>
+
+<!-- FlinkClusterService (highlighted) -->
+<rect x="225" y="268" width="230" height="78" rx="7" fill="#fef3c7" stroke="#fcd34d" stroke-width="1.8" filter="url(#shadow)"/>
+<rect x="225" y="268" width="230" height="22" rx="7" fill="#d97706"/>
+<rect x="225" y="282" width="230" height="8" fill="#d97706"/>
+<text x="340" y="284" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="700">FlinkClusterService ★</text>
+<text x="340" y="308" text-anchor="middle" fill="#92400e" font-size="9">双模式提交：REST API JAR 上传</text>
+<text x="340" y="324" text-anchor="middle" fill="#92400e" font-size="9">+ SQL Gateway 纯SQL</text>
+<text x="340" y="340" text-anchor="middle" fill="#92400e" font-size="9">轮询状态 · Savepoint · 健康检查</text>
+
+<!-- DwhMetaService -->
+<rect x="470" y="268" width="155" height="78" rx="7" fill="#ffffff" stroke="#d1d5db" stroke-width="1.2"/>
+<rect x="470" y="268" width="155" height="22" rx="7" fill="#059669"/>
+<rect x="470" y="282" width="155" height="8" fill="#059669"/>
+<text x="547" y="284" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="600">DwhMetaService</text>
+<text x="547" y="308" text-anchor="middle" fill="#6b7280" font-size="9">Paimon元数据同步</text>
+<text x="547" y="324" text-anchor="middle" fill="#6b7280" font-size="9">分层推断 ODS→ADS</text>
+<text x="547" y="340" text-anchor="middle" fill="#6b7280" font-size="9">Compact / Expire</text>
+
+<!-- QueryService -->
+<rect x="640" y="268" width="140" height="78" rx="7" fill="#ffffff" stroke="#d1d5db" stroke-width="1.2"/>
+<rect x="640" y="268" width="140" height="22" rx="7" fill="#7c3aed"/>
+<rect x="640" y="282" width="140" height="8" fill="#7c3aed"/>
+<text x="710" y="284" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="600">QueryService</text>
+<text x="710" y="308" text-anchor="middle" fill="#6b7280" font-size="9">SQL白名单校验</text>
+<text x="710" y="324" text-anchor="middle" fill="#6b7280" font-size="9">SQL Gateway执行</text>
+<text x="710" y="340" text-anchor="middle" fill="#6b7280" font-size="9">历史记录保留</text>
+
+<!-- Row 2: Supporting services -->
+<!-- DatasourceService -->
+<rect x="55" y="362" width="155" height="65" rx="7" fill="#ffffff" stroke="#d1d5db" stroke-width="1.2"/>
+<rect x="55" y="362" width="155" height="22" rx="7" fill="#0891b2"/>
+<rect x="55" y="376" width="155" height="8" fill="#0891b2"/>
+<text x="132" y="378" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="600">DatasourceService</text>
+<text x="132" y="400" text-anchor="middle" fill="#6b7280" font-size="9">连接测试 · 表探查</text>
+<text x="132" y="416" text-anchor="middle" fill="#6b7280" font-size="9">AES-256-GCM加密</text>
+
+<!-- QualityCheckService -->
+<rect x="225" y="362" width="155" height="65" rx="7" fill="#ffffff" stroke="#d1d5db" stroke-width="1.2"/>
+<rect x="225" y="362" width="155" height="22" rx="7" fill="#ea580c"/>
+<rect x="225" y="376" width="155" height="8" fill="#ea580c"/>
+<text x="302" y="378" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="600">QualityCheckService</text>
+<text x="302" y="400" text-anchor="middle" fill="#6b7280" font-size="9">5类规则检查执行</text>
+<text x="302" y="416" text-anchor="middle" fill="#6b7280" font-size="9">阈值判断 · 告警联动</text>
+
+<!-- AlertNotifyService -->
+<rect x="395" y="362" width="155" height="65" rx="7" fill="#ffffff" stroke="#d1d5db" stroke-width="1.2"/>
+<rect x="395" y="362" width="155" height="22" rx="7" fill="#dc2626"/>
+<rect x="395" y="376" width="155" height="8" fill="#dc2626"/>
+<text x="472" y="378" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="600">AlertNotifyService</text>
+<text x="472" y="400" text-anchor="middle" fill="#6b7280" font-size="9">钉钉Webhook</text>
+<text x="472" y="416" text-anchor="middle" fill="#6b7280" font-size="9">企微 · 邮件SMTP</text>
+
+<!-- ReportService -->
+<rect x="565" y="362" width="140" height="65" rx="7" fill="#ffffff" stroke="#d1d5db" stroke-width="1.2"/>
+<rect x="565" y="362" width="140" height="22" rx="7" fill="#4f46e5"/>
+<rect x="565" y="376" width="140" height="8" fill="#4f46e5"/>
+<text x="635" y="378" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="600">ReportService</text>
+<text x="635" y="400" text-anchor="middle" fill="#6b7280" font-size="9">报表模板管理</text>
+<text x="635" y="416" text-anchor="middle" fill="#6b7280" font-size="9">图表数据查询</text>
+
+<!-- Service interconnections -->
+<line x1="210" y1="290" x2="221" y2="290" stroke="#ea580c" stroke-width="1.2" marker-end="url(#arrow-orange)"/>
+<line x1="455" y1="307" x2="466" y2="307" stroke="#059669" stroke-width="1.2" marker-end="url(#arrow-green)"/>
+<line x1="302" y1="400" x2="391" y2="395" stroke="#dc2626" stroke-width="1.2" marker-end="url(#arrow-red)"/>
+
+<!-- Service inter-connection labels -->
+<text x="218" y="283" fill="#ea580c" font-size="8">启停</text>
+<text x="462" y="300" fill="#059669" font-size="8">维护SQL</text>
+<text x="348" y="388" fill="#dc2626" font-size="8">超标告警</text>
+
+<!-- ===== CROSS-CUTTING LAYER ===== -->
+<rect x="40" y="530" width="880" height="80" rx="8" fill="#faf5ff" stroke="#e9d5ff" stroke-width="1.5" filter="url(#shadow)"/>
+<text x="60" y="553" fill="#7c3aed" font-size="10" font-weight="700" letter-spacing="0.05em">横切安全层</text>
+
+<rect x="55" y="562" width="135" height="32" rx="6" fill="#ede9fe" stroke="#c4b5fd" stroke-width="1"/>
+<text x="122" y="583" text-anchor="middle" fill="#6d28d9" font-size="10" font-weight="600">JWT 无状态认证</text>
+<rect x="205" y="562" width="155" height="32" rx="6" fill="#ede9fe" stroke="#c4b5fd" stroke-width="1"/>
+<text x="282" y="583" text-anchor="middle" fill="#6d28d9" font-size="10" font-weight="600">SQL注入多层防护</text>
+<rect x="375" y="562" width="155" height="32" rx="6" fill="#ede9fe" stroke="#c4b5fd" stroke-width="1"/>
+<text x="452" y="583" text-anchor="middle" fill="#6d28d9" font-size="10" font-weight="600">AES-256-GCM加密</text>
+<rect x="545" y="562" width="155" height="32" rx="6" fill="#ede9fe" stroke="#c4b5fd" stroke-width="1"/>
+<text x="622" y="583" text-anchor="middle" fill="#6d28d9" font-size="10" font-weight="600">角色权限分级</text>
+<rect x="715" y="562" width="100" height="32" rx="6" fill="#ede9fe" stroke="#c4b5fd" stroke-width="1"/>
+<text x="765" y="583" text-anchor="middle" fill="#6d28d9" font-size="10" font-weight="600">Quartz调度</text>
+<rect x="830" y="562" width="75" height="32" rx="6" fill="#fef3c7" stroke="#fcd34d" stroke-width="1"/>
+<text x="867" y="583" text-anchor="middle" fill="#b45309" font-size="10" font-weight="600">健康检查</text>
+
+<!-- ===== INFRASTRUCTURE LAYER ===== -->
+<rect x="40" y="630" width="880" height="130" rx="8" fill="#fef2f2" stroke="#fecaca" stroke-width="1.5" filter="url(#shadow)"/>
+<text x="60" y="653" fill="#dc2626" font-size="10" font-weight="700" letter-spacing="0.05em">基础设施层</text>
+
+<!-- Flink Cluster -->
+<rect x="55" y="665" width="260" height="78" rx="7" fill="#ffffff" stroke="#d1d5db" stroke-width="1.2"/>
+<rect x="55" y="665" width="260" height="22" rx="7" fill="#e11d48"/>
+<rect x="55" y="679" width="260" height="8" fill="#e11d48"/>
+<text x="185" y="681" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="600">Apache Flink 集群 · REST API :8081</text>
+<text x="185" y="703" text-anchor="middle" fill="#6b7280" font-size="9">模式① JAR上传：CDC Connector JAR → /jars/{id}/run</text>
+<text x="185" y="719" text-anchor="middle" fill="#6b7280" font-size="9">模式② SQL Gateway：HiveServer2 → Session → 提交SQL</text>
+<text x="185" y="735" text-anchor="middle" fill="#6b7280" font-size="9">轮询监控：/jobs/overview · 每30s更新状态</text>
+
+<!-- Paimon -->
+<rect x="335" y="665" width="280" height="78" rx="7" fill="#ffffff" stroke="#d1d5db" stroke-width="1.2"/>
+<rect x="335" y="665" width="280" height="22" rx="7" fill="#0d9488"/>
+<rect x="335" y="679" width="280" height="8" fill="#0d9488"/>
+<text x="475" y="681" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="600">Apache Paimon 湖仓 · JDBC Metastore</text>
+<text x="475" y="703" text-anchor="middle" fill="#6b7280" font-size="9">元数据同步：paimon_catalog_* → dwh_table_meta</text>
+<text x="475" y="719" text-anchor="middle" fill="#6b7280" font-size="9">分层推断：ods_*→ODS dwd_*→DWD dws_*→DWS ads_*→ADS</text>
+<text x="475" y="735" text-anchor="middle" fill="#6b7280" font-size="9">表维护：CALL sys.compact / expire_snapshots</text>
+
+<!-- MySQL -->
+<rect x="635" y="665" width="270" height="78" rx="7" fill="#ffffff" stroke="#d1d5db" stroke-width="1.2"/>
+<rect x="635" y="665" width="270" height="22" rx="7" fill="#1e40af"/>
+<rect x="635" y="679" width="270" height="8" fill="#1e40af"/>
+<text x="770" y="681" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="600">MySQL 8.0 · 管理库</text>
+<text x="770" y="703" text-anchor="middle" fill="#6b7280" font-size="9">sync_task / datasource / dwh_table_meta</text>
+<text x="770" y="719" text-anchor="middle" fill="#6b7280" font-size="9">quality_rule / quality_alert / alert_rule</text>
+<text x="770" y="735" text-anchor="middle" fill="#6b7280" font-size="9">Quartz 任务 · 所有配置持久化</text>
+
+<!-- Arrows from services to infra -->
+<path d="M 185 346 L 185 661" stroke="#dc2626" stroke-width="1.5" fill="none" stroke-dasharray="6,3" marker-end="url(#arrow-red)"/>
+<path d="M 547 346 L 547 661" stroke="#dc2626" stroke-width="1.5" fill="none" stroke-dasharray="6,3" marker-end="url(#arrow-red)"/>
+<path d="M 770 427 L 770 661" stroke="#dc2626" stroke-width="1.5" fill="none" stroke-dasharray="6,3" marker-end="url(#arrow-red)"/>
+
+<!-- CDC Task Lifecycle Flow (bottom area) -->
+<rect x="55" y="458" width="865" height="55" rx="7" fill="#fff7ed" stroke="#fed7aa" stroke-width="1" stroke-dasharray="4,2"/>
+<text x="75" y="478" fill="#ea580c" font-size="10" font-weight="700">CDC任务核心链路：</text>
+<rect x="195" y="463" width="80" height="24" rx="4" fill="#ffffff" stroke="#d1d5db" stroke-width="1"/>
+<text x="235" y="480" text-anchor="middle" fill="#374151" font-size="9">① 注册数据源</text>
+<line x1="275" y1="475" x2="300" y2="475" stroke="#ea580c" stroke-width="1.2" marker-end="url(#arrow-orange)"/>
+<rect x="305" y="463" width="80" height="24" rx="4" fill="#ffffff" stroke="#d1d5db" stroke-width="1"/>
+<text x="345" y="480" text-anchor="middle" fill="#374151" font-size="9">② 创建任务</text>
+<line x1="385" y1="475" x2="410" y2="475" stroke="#ea580c" stroke-width="1.2" marker-end="url(#arrow-orange)"/>
+<rect x="415" y="463" width="95" height="24" rx="4" fill="#ffffff" stroke="#d1d5db" stroke-width="1"/>
+<text x="462" y="480" text-anchor="middle" fill="#374151" font-size="9">③ JAR上传→提交</text>
+<line x1="510" y1="475" x2="535" y2="475" stroke="#ea580c" stroke-width="1.2" marker-end="url(#arrow-orange)"/>
+<rect x="540" y="463" width="80" height="24" rx="4" fill="#ffffff" stroke="#d1d5db" stroke-width="1"/>
+<text x="580" y="480" text-anchor="middle" fill="#374151" font-size="9">④ 轮询状态</text>
+<line x1="620" y1="475" x2="645" y2="475" stroke="#ea580c" stroke-width="1.2" marker-end="url(#arrow-orange)"/>
+<rect x="650" y="463" width="95" height="24" rx="4" fill="#ffffff" stroke="#d1d5db" stroke-width="1"/>
+<text x="697" y="480" text-anchor="middle" fill="#374151" font-size="9">⑤ 暂停→Savepoint</text>
+<line x1="745" y1="475" x2="770" y2="475" stroke="#ea580c" stroke-width="1.2" marker-end="url(#arrow-orange)"/>
+<rect x="775" y="463" width="80" height="24" rx="4" fill="#ffffff" stroke="#d1d5db" stroke-width="1"/>
+<text x="815" y="480" text-anchor="middle" fill="#374151" font-size="9">⑥ 恢复运行</text>
+<text x="75" y="504" fill="#9ca3af" font-size="9">Draft → Submitting → Running → Paused · 失败自动告警 · Exactly-Once保证</text>
+
+<!-- Legend -->
+<rect x="800" y="30" width="140" height="85" rx="6" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1"/>
+<text x="870" y="48" text-anchor="middle" fill="#6b7280" font-size="9" font-weight="600">箭头图例</text>
+<line x1="812" y1="60" x2="842" y2="60" stroke="#2563eb" stroke-width="1.2" marker-end="url(#arrow-blue)"/>
+<text x="848" y="64" fill="#6b7280" font-size="8">主请求流</text>
+<line x1="812" y1="76" x2="842" y2="76" stroke="#ea580c" stroke-width="1.2" marker-end="url(#arrow-orange)"/>
+<text x="848" y="80" fill="#6b7280" font-size="8">任务调度/启停</text>
+<line x1="812" y1="92" x2="842" y2="92" stroke="#dc2626" stroke-width="1.2" stroke-dasharray="4,2"/>
+<text x="848" y="96" fill="#6b7280" font-size="8">数据读写/告警</text>
+<line x1="812" y1="108" x2="842" y2="108" stroke="#059669" stroke-width="1.2"/>
+<text x="848" y="112" fill="#6b7280" font-size="8">元数据同步</text>
+
+</svg>

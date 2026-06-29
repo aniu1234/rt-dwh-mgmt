@@ -1,0 +1,93 @@
+package com.rtdwh.controller;
+
+import com.rtdwh.config.JwtUtil;
+import com.rtdwh.dto.ApiResponse;
+import com.rtdwh.dto.LoginRequest;
+import com.rtdwh.dto.LoginResponse;
+import com.rtdwh.security.CustomUserDetailsService;
+import com.rtdwh.entity.SysUser;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.web.bind.annotation.*;
+
+import jakarta.validation.Valid;
+import java.util.List;
+import java.util.stream.Collectors;
+
+@Slf4j
+@RestController
+@RequestMapping("/auth")
+@RequiredArgsConstructor
+public class AuthController {
+
+    private final CustomUserDetailsService userDetailsService;
+    private final PasswordEncoder passwordEncoder;
+    private final JwtUtil jwtUtil;
+
+    /**
+     * POST /auth/login
+     * 登录接口：验证用户名密码，返回 JWT token 和用户信息
+     */
+    @PostMapping("/login")
+    public ApiResponse<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
+        // 1. 加载用户
+        UserDetails userDetails = userDetailsService.loadUserByUsername(request.getUsername());
+
+        // 2. 校验密码
+        if (!passwordEncoder.matches(request.getPassword(), userDetails.getPassword())) {
+            return ApiResponse.error("用户名或密码错误");
+        }
+
+        // 3. 生成 JWT
+        String token = jwtUtil.generateToken(userDetails);
+
+        // 4. 构造响应
+        SysUser user = userDetailsService.getUserByUsername(request.getUsername());
+        LoginResponse resp = new LoginResponse();
+        resp.setToken(token);
+        resp.setId(user.getId());
+        resp.setUsername(user.getUsername());
+        resp.setRealName(user.getRealName());
+        resp.setEmail(user.getEmail());
+        List<String> roles = user.getRoles().stream()
+                .map(r -> r.getRoleCode())
+                .collect(Collectors.toList());
+        resp.setRole(String.join(",", roles));
+
+        return ApiResponse.success("登录成功", resp);
+    }
+
+    /**
+     * GET /auth/current-user
+     * 获取当前登录用户信息
+     */
+    @GetMapping("/current-user")
+    public ApiResponse<LoginResponse> getCurrentUser() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated()) {
+            return ApiResponse.error(401, "未登录");
+        }
+
+        String username = authentication.getName();
+        SysUser user = userDetailsService.getUserByUsername(username);
+
+        LoginResponse resp = new LoginResponse();
+        resp.setId(user.getId());
+        resp.setUsername(user.getUsername());
+        resp.setRealName(user.getRealName());
+        resp.setEmail(user.getEmail());
+        List<String> roles = user.getRoles().stream()
+                .map(r -> r.getRoleCode())
+                .collect(Collectors.toList());
+        resp.setRole(String.join(",", roles));
+
+        return ApiResponse.success(resp);
+    }
+}

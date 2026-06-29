@@ -1,0 +1,152 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: rtdwh-management
+  mvc:
+    throw-exception-if-no-handler-found: true
+
+  # Undertow 配置（替换 Tomcat，避免 javax.servlet.jsp ClassCastException）
+  undertow:
+    threads:
+      worker: 200
+      io: 8
+    buffer-size: 1024
+    direct-buffers: true
+
+  datasource:
+    type: com.alibaba.druid.pool.DruidDataSource
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/rtdwh_mgmt?useUnicode=true&characterEncoding=utf8&useSSL=true&serverTimezone=Asia/Shanghai
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:root123123}
+    druid:
+      initial-size: 5
+      min-idle: 5
+      max-active: 20
+      max-wait: 60000
+      time-between-eviction-runs-millis: 60000
+      min-evictable-idle-time-millis: 300000
+      validation-query: SELECT 1
+      test-while-idle: true
+      test-on-borrow: false
+      test-on-return: false
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.MySQLDialect
+        globally_quoted_identifiers: true
+        globally_quoted_identifiers_skip_column_definitions: true
+
+  mail:
+    host: ${MAIL_HOST:smtp.example.com}
+    port: ${MAIL_PORT:465}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          ssl:
+            enable: true
+
+  quartz:
+    job-store-type: jdbc
+    jdbc:
+      initialize-schema: always
+    properties:
+      org.quartz.scheduler.instanceName: RTDWHScheduler
+      org.quartz.threadPool.threadCount: 5
+
+  cache:
+    type: simple
+
+# JWT Configuration
+jwt:
+  secret: ${JWT_SECRET:9$sK7pRz2QvBnG5dF8hJ0tLcX1mY4wA6uE#3iN%7oS&9bD*2gZ_5jP-8rT=1kV?6qC}
+  expiration: 86400000  # 24 hours in ms
+  refresh-expiration: 604800000  # 7 days in ms
+  header: Authorization
+  prefix: "Bearer "
+
+# Flink Cluster Configuration
+flink:
+  rest-api:
+    url: ${FLINK_REST_URL:http://localhost:8081}
+    timeout-seconds: 30
+  submission:
+    mode: application  # application | session
+    jar-path: ${FLINK_JAR_PATH:/opt/flink/lib}
+    savepoint-dir: ${FLINK_SAVEPOINT_DIR:/tmp/flink-savepoints}
+  sql-gateway:
+    enabled: ${SQL_GATEWAY_ENABLED:false}
+    url: ${SQL_GATEWAY_URL:http://localhost:9083}
+  status-monitor:
+    enabled: true
+    interval-seconds: 30  # Poll every 30 seconds
+
+# Paimon Configuration — MySQL JDBC Metastore
+paimon:
+  warehouse-path: ${PAIMON_WAREHOUSE:/data/paimon}
+  metastore: jdbc
+  jdbc-uri: ${PAIMON_JDBC_URI:jdbc:mysql://localhost:3306/rtdwh_paimon_meta}
+  jdbc-user: ${PAIMON_JDBC_USER:root}
+  jdbc-password: ${PAIMON_JDBC_PASSWORD:root123123}
+  catalog-key: ${PAIMON_CATALOG_KEY:rtdwh}
+
+# Encryption Configuration
+encryption:
+  key: ${ENCRYPTION_KEY:}
+
+# Query Configuration
+query:
+  max-rows: 1000
+  max-export-rows: 50000
+  timeout-seconds: 60
+
+# Alert Configuration
+alert:
+  dingtalk-webhook: ${DINGTALK_WEBHOOK:}
+  wecom-webhook: ${WECOM_WEBHOOK:}
+  email-recipients: ${ALERT_EMAIL_RECIPIENTS:admin@example.com}
+  email-from: ${ALERT_EMAIL_FROM:rtdwh-alert@example.com}
+
+# CDC Configuration
+cdc:
+  flink-cdc-version: ${FLINK_CDC_VERSION:3.3.0}
+  debezium-version: ${DEBEZIUM_VERSION:2.5.0}
+  paimon-version: ${PAIMON_VERSION:1.1.0}
+  default-start-mode: ${CDC_START_MODE:initial}  # initial | incremental
+
+# Logging
+logging:
+  level:
+    root: INFO
+    com.rtdwh: DEBUG
+    org.hibernate.SQL: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+# Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when_authorized
+
+# App Initialization (disabled in production)
+app:
+  init-users:
+    enabled: ${INIT_USERS_ENABLED:false}
+    admin-password: ${INIT_ADMIN_PASSWORD:}
+    dev-password: ${INIT_DEV_PASSWORD:}
+    guest-password: ${INIT_GUEST_PASSWORD:}
