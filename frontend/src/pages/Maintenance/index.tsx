@@ -33,7 +33,7 @@ const Maintenance: React.FC = () => {
   );
   const { data: logsData, loading: logsLoading, refresh: refreshLogs } = useRequest(getMaintenanceLogs);
 
-  const tables = tablesData || [];
+  const tables = (tablesData || []) as API.DwhTableMeta[];
   const logs = (logsData || []) as any[];
 
   const handleCompact = async (tableId: number, strategy: string) => {
@@ -110,7 +110,7 @@ const Maintenance: React.FC = () => {
   const opMap: Record<string, { color: string; label: string }> = {
     compact: { color: 'blue', label: 'Compact' },
     expire_snapshots: { color: 'orange', label: '快照过期' },
-    clean_orphan_files: { color: 'red', label: '孤立文件清理' },
+    orphan_cleanup: { color: 'red', label: '孤立文件清理' },
   };
 
   const triggerTypeMap: Record<string, string> = {
@@ -128,7 +128,7 @@ const Maintenance: React.FC = () => {
           {
             key: 'tables',
             label: '表维护概览',
-            content: (
+            children: (
               <Card>
                 <Space style={{ marginBottom: 16 }}>
                   <Input
@@ -153,7 +153,7 @@ const Maintenance: React.FC = () => {
                   <Button icon={<ReloadOutlined />} onClick={refreshTables}>刷新</Button>
                 </Space>
 
-                <Table
+                <Table<API.DwhTableMeta>
                   dataSource={tables}
                   rowKey="id"
                   loading={tablesLoading}
@@ -240,7 +240,7 @@ const Maintenance: React.FC = () => {
           {
             key: 'logs',
             label: '维护操作日志',
-            content: (
+            children: (
               <Card>
                 <Space style={{ marginBottom: 16 }}>
                   <Select placeholder="操作类型" allowClear style={{ width: 160 }} options={[
@@ -302,7 +302,7 @@ const Maintenance: React.FC = () => {
           {
             key: 'batch',
             label: '批量维护',
-            content: (
+            children: (
               <Card title="批量维护操作">
                 <Row gutter={16} style={{ marginBottom: 16 }}>
                   <Col span={8}>

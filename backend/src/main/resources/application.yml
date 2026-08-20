@@ -91,6 +91,13 @@ flink:
     enabled: true
     interval-seconds: 30  # Poll every 30 seconds
 
+# Persisted dependency health snapshot
+health:
+  monitor:
+    enabled: ${HEALTH_MONITOR_ENABLED:true}
+    interval-ms: ${HEALTH_MONITOR_INTERVAL_MS:60000}
+    initial-delay-ms: ${HEALTH_MONITOR_INITIAL_DELAY_MS:5000}
+
 # Paimon Configuration — MySQL JDBC Metastore
 paimon:
   warehouse-path: ${PAIMON_WAREHOUSE:/data/paimon}
@@ -146,7 +153,7 @@ management:
 # App Initialization (disabled in production)
 app:
   init-users:
-    enabled: ${INIT_USERS_ENABLED:false}
-    admin-password: ${INIT_ADMIN_PASSWORD:}
-    dev-password: ${INIT_DEV_PASSWORD:}
-    guest-password: ${INIT_GUEST_PASSWORD:}
+    enabled: ${INIT_USERS_ENABLED:true}
+    admin-password: ${INIT_ADMIN_PASSWORD:admin123}
+    dev-password: ${INIT_DEV_PASSWORD:dev}
+    guest-password: ${INIT_GUEST_PASSWORD:guest}

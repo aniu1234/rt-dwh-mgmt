@@ -46,6 +46,9 @@ public class CdcSqlGenerator {
         if (sourceConfig == null || targetConfig == null) {
             throw new IllegalArgumentException("源/目标数据源配置不存在");
         }
+        if (targetConfig.getDbType() != DbType.paimon) {
+            throw new IllegalArgumentException("CDC 目标数据源必须是 Paimon");
+        }
 
         StringBuilder sql = new StringBuilder();
         sql.append("-- Flink CDC 同步任务: ").append(task.getTaskName()).append("\n");
@@ -59,8 +62,16 @@ public class CdcSqlGenerator {
             String targetDb = mapping.get("targetDb");
             String targetTable = mapping.get("targetTable");
 
+            validateIdentifier(sourceTable, "源表名");
+            validateIdentifier(targetDb, "目标库名");
+            validateIdentifier(targetTable, "目标表名");
+
             if (i > 0) sql.append("\n");
-            sql.append(generateTableCdcSql(sourceConfig, sourceTable, targetConfig, targetDb, targetTable, task));
+            String syncMode = mapping.getOrDefault("syncMode", "full+incremental");
+            String startMode = "incremental".equalsIgnoreCase(syncMode)
+                    || task.getSyncStrategy() == SyncTask.SyncStrategy.incremental_only
+                    ? "latest-offset" : defaultStartMode;
+            sql.append(generateTableCdcSql(sourceConfig, sourceTable, targetConfig, targetDb, targetTable, task, startMode));
         }
 
         return sql.toString();
@@ -71,19 +82,18 @@ public class CdcSqlGenerator {
      */
     private String generateTableCdcSql(DatasourceConfig sourceConfig, String sourceTable,
                                         DatasourceConfig targetConfig, String targetDb,
-                                        String targetTable, SyncTask task) {
+                                        String targetTable, SyncTask task, String startMode) {
         StringBuilder sql = new StringBuilder();
 
         // 1. Create CDC source table
-        sql.append("CREATE TABLE source_").append(sourceTable).append(" (\n");
+        sql.append("CREATE TABLE ").append(identifier("source_" + sourceTable)).append(" (\n");
 
         // Introspect source table structure
         CdcTableIntrospector.TableSchema schema;
         try {
             schema = introspector.introspectTable(sourceConfig, sourceTable);
         } catch (Exception e) {
-            log.warn("Failed to introspect table {}, using fallback schema: {}", sourceTable, e.getMessage());
-            schema = buildFallbackSchema(sourceTable);
+            throw new IllegalStateException("无法读取源表结构 " + sourceTable + ": " + e.getMessage(), e);
         }
 
         // Generate column definitions
@@ -91,37 +101,38 @@ public class CdcSqlGenerator {
         for (int i = 0; i < schema.columns().size(); i++) {
             CdcTableIntrospector.ColumnSchema col = schema.columns().get(i);
             String flinkType = toFlinkType(col.type());
-            sql.append("  ").append(col.name()).append(" ").append(flinkType);
+            sql.append("  ").append(identifier(col.name())).append(" ").append(flinkType);
             if (i < schema.columns().size() - 1) sql.append(",");
             sql.append("\n");
             if (col.primaryKey()) pkCols.add(col.name());
         }
+        if (schema.columns().isEmpty()) {
+            throw new IllegalArgumentException("源表没有可同步的字段: " + sourceTable);
+        }
+        if (!pkCols.isEmpty()) {
+            sql.append("  ,PRIMARY KEY (").append(pkCols.stream().map(this::identifier).collect(java.util.stream.Collectors.joining(", "))).append(") NOT ENFORCED\n");
+        }
 
         // Add watermark for event time
         sql.append(") WITH (\n");
-        sql.append(generateSourceWithClause(sourceConfig, sourceTable));
+        sql.append(generateSourceWithClause(sourceConfig, sourceTable, startMode));
         sql.append(");\n\n");
 
         // 2. Create Paimon target table
-        sql.append("CREATE TABLE IF NOT EXISTS ").append(targetDb).append(".").append(targetTable).append(" (\n");
+        sql.append("CREATE TABLE IF NOT EXISTS ").append(identifier(targetDb)).append(".").append(identifier(targetTable)).append(" (\n");
 
         // Mirror source columns to target
         for (int i = 0; i < schema.columns().size(); i++) {
             CdcTableIntrospector.ColumnSchema col = schema.columns().get(i);
             String flinkType = toFlinkType(col.type());
-            sql.append("  ").append(col.name()).append(" ").append(flinkType);
+            sql.append("  ").append(identifier(col.name())).append(" ").append(flinkType);
             if (i < schema.columns().size() - 1) sql.append(",");
             sql.append("\n");
         }
 
-        // Add partition columns if sync strategy is full_then_incremental
-        if ("full_then_incremental".equals(task.getSyncStrategy())) {
-            sql.append("  ,dt STRING\n");
-        }
-
         // Add primary key for Paimon
         if (!pkCols.isEmpty()) {
-            sql.append("  ,PRIMARY KEY (").append(String.join(", ", pkCols)).append(") NOT ENFORCED\n");
+            sql.append("  ,PRIMARY KEY (").append(pkCols.stream().map(this::identifier).collect(java.util.stream.Collectors.joining(", "))).append(") NOT ENFORCED\n");
         }
 
         sql.append(") WITH (\n");
@@ -129,18 +140,12 @@ public class CdcSqlGenerator {
         sql.append(");\n\n");
 
         // 3. INSERT INTO statement
-        List<String> columnNames = schema.columns().stream().map(CdcTableIntrospector.ColumnSchema::name).toList();
-        sql.append("INSERT INTO ").append(targetDb).append(".").append(targetTable).append(" (\n");
+        List<String> columnNames = schema.columns().stream().map(c -> identifier(c.name())).toList();
+        sql.append("INSERT INTO ").append(identifier(targetDb)).append(".").append(identifier(targetTable)).append(" (\n");
         sql.append("  ").append(String.join(",\n  ", columnNames));
-        if ("full_then_incremental".equals(task.getSyncStrategy())) {
-            sql.append(",\n  dt");
-        }
         sql.append("\n) SELECT\n");
         sql.append("  ").append(String.join(",\n  ", columnNames));
-        if ("full_then_incremental".equals(task.getSyncStrategy())) {
-            sql.append(",\n  DATE_FORMAT(").append(pkCols.get(0)).append(", 'yyyy-MM-dd') AS dt");
-        }
-        sql.append("\nFROM source_").append(sourceTable).append(";\n");
+        sql.append("\nFROM ").append(identifier("source_" + sourceTable)).append(";\n");
 
         return sql.toString();
     }
@@ -148,30 +153,31 @@ public class CdcSqlGenerator {
     /**
      * Generate source table WITH clause for CDC connector.
      */
-    private String generateSourceWithClause(DatasourceConfig sourceConfig, String sourceTable) {
+    private String generateSourceWithClause(DatasourceConfig sourceConfig, String sourceTable, String startMode) {
         StringBuilder sb = new StringBuilder();
         DbType dbType = sourceConfig.getDbType();
 
         if (dbType == DbType.mysql) {
             sb.append("  'connector' = 'mysql-cdc',\n");
-            sb.append("  'hostname' = '").append(sourceConfig.getHost()).append("',\n");
+            sb.append("  'hostname' = '").append(escape(sourceConfig.getHost())).append("',\n");
             sb.append("  'port' = '").append(sourceConfig.getPort()).append("',\n");
-            sb.append("  'username' = '").append(sourceConfig.getUsername()).append("',\n");
-            sb.append("  'password' = '").append(decryptPassword(sourceConfig.getPasswordEncrypted())).append("',\n");
-            sb.append("  'database-name' = '").append(sourceConfig.getDatabase()).append("',\n");
-            sb.append("  'table-name' = '").append(sourceTable).append("',\n");
+            sb.append("  'username' = '").append(escape(sourceConfig.getUsername())).append("',\n");
+            sb.append("  'password' = '").append(escape(decryptPassword(sourceConfig.getPasswordEncrypted()))).append("',\n");
+            sb.append("  'database-name' = '").append(escape(sourceConfig.getDatabase())).append("',\n");
+            sb.append("  'table-name' = '").append(escape(sourceTable)).append("',\n");
             sb.append("  'server-time-zone' = 'Asia/Shanghai',\n");
-            sb.append("  'scan.startup.mode' = '").append(defaultStartMode).append("',\n");
+            sb.append("  'scan.startup.mode' = '").append(escape(startMode)).append("',\n");
             sb.append("  'debezium.snapshot.lock.mode' = 'none'\n");
         } else if (dbType == DbType.postgresql) {
             sb.append("  'connector' = 'postgres-cdc',\n");
-            sb.append("  'hostname' = '").append(sourceConfig.getHost()).append("',\n");
+            sb.append("  'hostname' = '").append(escape(sourceConfig.getHost())).append("',\n");
             sb.append("  'port' = '").append(sourceConfig.getPort()).append("',\n");
-            sb.append("  'username' = '").append(sourceConfig.getUsername()).append("',\n");
-            sb.append("  'password' = '").append(decryptPassword(sourceConfig.getPasswordEncrypted())).append("',\n");
-            sb.append("  'database-name' = '").append(sourceConfig.getDatabase()).append("',\n");
+            sb.append("  'username' = '").append(escape(sourceConfig.getUsername())).append("',\n");
+            sb.append("  'password' = '").append(escape(decryptPassword(sourceConfig.getPasswordEncrypted()))).append("',\n");
+            sb.append("  'database-name' = '").append(escape(sourceConfig.getDatabase())).append("',\n");
             sb.append("  'schema-name' = 'public',\n");
-            sb.append("  'table-name' = '").append(sourceTable).append("',\n");
+            sb.append("  'table-name' = '").append(escape(sourceTable)).append("',\n");
+            sb.append("  'scan.startup.mode' = '").append(escape(startMode)).append("',\n");
             sb.append("  'decoding.plugin.name' = 'pgoutput'\n");
         } else {
             throw new IllegalArgumentException("Unsupported source database type: " + dbType);
@@ -186,9 +192,9 @@ public class CdcSqlGenerator {
     private String generateSinkWithClause(String targetDb, String targetTable, SyncTask task) {
         StringBuilder sb = new StringBuilder();
         sb.append("  'connector' = 'paimon',\n");
-        sb.append("  'path' = '").append(warehousePath).append("/").append(targetDb).append("/").append(targetTable).append("',\n");
+        sb.append("  'path' = '").append(escape(warehousePath)).append("/").append(targetDb).append("/").append(targetTable).append("',\n");
         sb.append("  'metastore' = 'jdbc',\n");
-        sb.append("  'warehouse' = '").append(warehousePath).append("',\n");
+        sb.append("  'warehouse' = '").append(escape(warehousePath)).append("',\n");
         sb.append("  'sink.auto-create' = 'true',\n");
         sb.append("  'changelog-producer' = 'input',\n");
         sb.append("  'lookup.cache.max-rows' = '10000',\n");
@@ -239,17 +245,40 @@ public class CdcSqlGenerator {
             if (root.isArray()) {
                 for (com.fasterxml.jackson.databind.JsonNode item : root) {
                     Map<String, String> map = new LinkedHashMap<>();
-                    map.put("sourceTable", item.path("sourceTable").asText(""));
+                    String sourceTable = item.path("sourceTable").asText("").trim();
+                    String targetTable = item.path("targetTable").asText("").trim();
+                    if (sourceTable.isBlank() || targetTable.isBlank()) {
+                        throw new IllegalArgumentException("表映射必须包含 sourceTable 和 targetTable");
+                    }
+                    map.put("sourceTable", sourceTable);
                     map.put("targetDb", item.path("targetDb").asText("ods"));
-                    map.put("targetTable", item.path("targetTable").asText(""));
-                    map.put("syncMode", item.path("syncMode").asText("full+incremental"));
+                    map.put("targetTable", targetTable);
+                    String syncMode = item.path("syncMode").asText("full+incremental");
+                    if (!"full+incremental".equals(syncMode) && !"incremental".equals(syncMode)) {
+                        throw new IllegalArgumentException("syncMode 只能是 full+incremental 或 incremental");
+                    }
+                    map.put("syncMode", syncMode);
                     mappings.add(map);
                 }
             }
         } catch (Exception e) {
-            log.warn("Failed to parse table mappings: {}", e.getMessage());
+            throw new IllegalArgumentException("表映射 JSON 格式不正确: " + e.getMessage(), e);
         }
         return mappings;
+    }
+
+    private void validateIdentifier(String value, String label) {
+        if (value == null || !value.matches("[A-Za-z_][A-Za-z0-9_]*")) {
+            throw new IllegalArgumentException(label + "只能包含字母、数字和下划线，且不能以数字开头");
+        }
+    }
+
+    private String identifier(String value) {
+        return "`" + value.replace("`", "``") + "`";
+    }
+
+    private String escape(String value) {
+        return value == null ? "" : value.replace("'", "''");
     }
 
     /**

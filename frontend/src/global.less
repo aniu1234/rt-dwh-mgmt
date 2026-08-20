@@ -1,0 +1,696 @@
+:root {
+  color-scheme: only light;
+  --rtdwh-primary: #1890ff;
+  --rtdwh-primary-soft: #e6f7ff;
+  --rtdwh-success: #52c41a;
+  --rtdwh-warning: #faad14;
+  --rtdwh-danger: #ff4d4f;
+  --rtdwh-ink: #333333;
+  --rtdwh-heading: #1f2937;
+  --rtdwh-muted: #666666;
+  --rtdwh-subtle: #8c8c8c;
+  --rtdwh-surface: #ffffff;
+  --rtdwh-canvas: #f0f2f5;
+  --rtdwh-border: #f0f0f0;
+  --rtdwh-sider: #001529;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  background: var(--rtdwh-canvas);
+}
+
+body {
+  margin: 0;
+  color: var(--rtdwh-ink);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Application shell — aligned with docs/page-prototype/page-prototype.html. */
+.ant-pro-layout .ant-pro-layout-container,
+.ant-pro-layout .ant-layout,
+.ant-pro-layout .ant-layout-content {
+  background: var(--rtdwh-canvas);
+}
+
+.ant-pro-sider.ant-layout-sider,
+.ant-pro-global-header,
+.ant-pro-top-nav-header-main,
+.ant-pro-sider .ant-menu,
+.ant-pro-sider .ant-menu-sub,
+.ant-pro-sider .ant-layout-sider-children {
+  background: var(--rtdwh-sider) !important;
+}
+
+.ant-pro-sider-logo {
+  height: 48px !important;
+  padding: 0 16px !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.ant-pro-sider-logo h1 {
+  margin-inline-start: 10px !important;
+  color: #ffffff !important;
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.01em;
+}
+
+.ant-pro-sider .ant-menu {
+  padding: 8px !important;
+}
+
+.ant-pro-sider .ant-menu-item,
+.ant-pro-sider .ant-menu-submenu-title {
+  min-height: 36px;
+  height: 36px;
+  margin: 2px 0;
+  padding-inline: 12px !important;
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 36px;
+}
+
+.ant-pro-sider .ant-menu-submenu .ant-menu-item {
+  padding-inline-start: 38px !important;
+}
+
+.ant-pro-sider .ant-menu-item .anticon,
+.ant-pro-sider .ant-menu-submenu-title .anticon {
+  font-size: 14px;
+}
+
+.ant-pro-sider .ant-menu-item-selected {
+  background: var(--rtdwh-primary) !important;
+  color: #ffffff !important;
+  font-weight: 500;
+}
+
+.ant-pro-global-header {
+  min-height: 48px;
+  padding-inline: 18px !important;
+  border-bottom: 0;
+  box-shadow: none;
+}
+
+.ant-pro-global-header-header-actions-item,
+.ant-pro-global-header-header-actions-avatar {
+  color: rgba(255, 255, 255, 0.86) !important;
+  font-size: 13px;
+}
+
+.ant-pro-sider-collapsed-button {
+  border-color: var(--rtdwh-border) !important;
+  color: var(--rtdwh-muted) !important;
+  background: #ffffff !important;
+}
+
+/* Page rhythm */
+.ant-pro-page-container .ant-pro-page-container-warp-page-header {
+  padding: 16px 24px 8px;
+  background: transparent;
+}
+
+.ant-pro-page-container .ant-page-header-breadcrumb {
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.ant-pro-page-container .ant-breadcrumb,
+.ant-pro-page-container .ant-breadcrumb-link,
+.ant-pro-page-container .ant-breadcrumb-separator {
+  color: var(--rtdwh-muted);
+  font-size: 13px;
+}
+
+.ant-pro-page-container .ant-page-header-heading-title {
+  color: var(--rtdwh-heading);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.ant-pro-page-container .ant-page-header-heading-extra {
+  margin-block: 0;
+}
+
+.ant-pro-page-container-children-container {
+  padding: 8px 24px 24px !important;
+}
+
+/* Cards and statistics */
+.ant-card {
+  border: 1px solid var(--rtdwh-border);
+  border-radius: 8px;
+  background: var(--rtdwh-surface);
+  box-shadow: none;
+}
+
+.ant-card .ant-card-head {
+  min-height: 46px;
+  padding-inline: 20px;
+  border-color: var(--rtdwh-border);
+}
+
+.ant-card .ant-card-head-title {
+  padding-block: 12px;
+  color: var(--rtdwh-heading);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.ant-card .ant-card-body {
+  padding: 16px 20px;
+}
+
+.ant-card-small > .ant-card-head {
+  min-height: 40px;
+}
+
+.ant-card-small > .ant-card-body {
+  padding: 12px 16px;
+}
+
+.ant-statistic-title {
+  margin-bottom: 4px;
+  color: var(--rtdwh-muted);
+  font-size: 13px;
+}
+
+.ant-statistic-content {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.rtdwh-metric-card {
+  height: 100%;
+  overflow: hidden;
+}
+
+.rtdwh-metric-card .ant-card-body {
+  display: flex;
+  min-height: 108px;
+  align-items: center;
+  padding: 18px 20px;
+}
+
+.rtdwh-metric-icon {
+  display: inline-flex;
+  width: 42px;
+  height: 42px;
+  margin-right: 14px;
+  flex: 0 0 42px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  font-size: 20px;
+}
+
+.rtdwh-metric-card .ant-statistic-title {
+  margin-bottom: 2px;
+}
+
+/* Dense management tables */
+.ant-table-wrapper .ant-table {
+  color: var(--rtdwh-ink);
+  font-size: 13px;
+  background: #ffffff !important;
+}
+
+.ant-table-wrapper .ant-table-container,
+.ant-table-wrapper .ant-table-content,
+.ant-table-wrapper .ant-table-body,
+.ant-table-wrapper .ant-table-tbody,
+.ant-table-wrapper .ant-table-placeholder,
+.ant-table-wrapper .ant-table-placeholder > td,
+.ant-table-wrapper .ant-table-cell-fix-left,
+.ant-table-wrapper .ant-table-cell-fix-right,
+.ant-table-wrapper .ant-spin-container {
+  color: var(--rtdwh-ink) !important;
+  background: #ffffff !important;
+}
+
+.ant-table-wrapper .ant-table-tbody > tr > td {
+  color: var(--rtdwh-ink);
+  background: #ffffff !important;
+}
+
+.ant-table-wrapper .ant-empty-description {
+  color: var(--rtdwh-subtle) !important;
+}
+
+.ant-table-wrapper .ant-table-thead > tr > th {
+  padding: 10px 12px;
+  border-color: var(--rtdwh-border);
+  background: #fafafa;
+  color: #344054;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ant-table-wrapper .ant-table-tbody > tr > td {
+  padding: 10px 12px;
+  border-color: var(--rtdwh-border);
+}
+
+.ant-table-wrapper .ant-table-tbody > tr:hover > td {
+  background: var(--rtdwh-primary-soft) !important;
+}
+
+.ant-table-wrapper .ant-pagination {
+  margin-block: 16px 0;
+}
+
+/* Inputs, buttons, tabs and status labels */
+.ant-btn,
+.ant-input,
+.ant-input-affix-wrapper,
+.ant-input-number,
+.ant-select-selector,
+.ant-picker,
+.ant-modal-content,
+.ant-drawer-content {
+  border-radius: 4px !important;
+}
+
+.ant-btn:not(.ant-btn-sm):not(.ant-btn-lg),
+.ant-input:not(textarea),
+.ant-input-affix-wrapper,
+.ant-input-number,
+.ant-picker,
+.ant-select-single:not(.ant-select-customize-input) .ant-select-selector {
+  min-height: 32px;
+}
+
+.ant-btn {
+  font-size: 13px;
+  box-shadow: none;
+}
+
+.ant-input,
+.ant-input-affix-wrapper,
+.ant-input-affix-wrapper .ant-input,
+.ant-input-number,
+.ant-input-number-input,
+.ant-picker,
+.ant-select:not(.ant-select-customize-input) .ant-select-selector,
+.ant-btn-default {
+  border-color: #d9d9d9 !important;
+  color: var(--rtdwh-ink) !important;
+  background: #ffffff !important;
+}
+
+.ant-input::placeholder,
+.ant-input-affix-wrapper input::placeholder,
+.ant-select-selection-placeholder {
+  color: #bfbfbf !important;
+}
+
+.ant-input-prefix,
+.ant-input-suffix,
+.ant-select-arrow {
+  color: var(--rtdwh-subtle) !important;
+}
+
+.ant-select-dropdown,
+.ant-select-dropdown .ant-select-item,
+.ant-dropdown .ant-dropdown-menu {
+  color: var(--rtdwh-ink) !important;
+  background: #ffffff !important;
+}
+
+.ant-select-dropdown .ant-select-item-option-active:not(.ant-select-item-option-disabled),
+.ant-select-dropdown .ant-select-item-option-selected:not(.ant-select-item-option-disabled) {
+  background: var(--rtdwh-primary-soft) !important;
+}
+
+.ant-btn-primary {
+  background: var(--rtdwh-primary);
+}
+
+.ant-tag {
+  margin-inline-end: 4px;
+  padding-inline: 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.ant-tabs-nav {
+  margin-bottom: 16px !important;
+}
+
+.ant-tabs-tab {
+  padding: 8px 4px 10px !important;
+  font-size: 14px;
+}
+
+.ant-tabs-ink-bar {
+  height: 2px !important;
+}
+
+.ant-descriptions .ant-descriptions-item-label {
+  color: var(--rtdwh-muted);
+  font-size: 13px;
+}
+
+.ant-descriptions .ant-descriptions-item-content {
+  color: var(--rtdwh-ink);
+  font-size: 13px;
+}
+
+.ant-modal .ant-modal-header {
+  margin-bottom: 18px;
+}
+
+.ant-modal .ant-modal-title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.rtdwh-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.rtdwh-code-panel {
+  overflow: auto;
+  padding: 14px 16px;
+  border-radius: 8px;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+/* Report and alert pages use the same light workspace language as every other module. */
+.report-page .ant-card,
+.report-page .ant-card-head,
+.report-page .ant-card-body,
+.report-page .ant-table,
+.report-page .ant-table-container,
+.report-page .ant-table-thead > tr > th,
+.report-page .ant-table-tbody > tr > td {
+  color: var(--rtdwh-ink);
+  border-color: var(--rtdwh-border);
+  background: #ffffff;
+}
+
+.report-page .ant-table-thead > tr > th {
+  background: #fafafa;
+}
+
+.report-page .ant-table-tbody > tr:hover > td {
+  background: var(--rtdwh-primary-soft) !important;
+}
+
+.alert-page .alert-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px !important;
+}
+
+.alert-page .alert-table-card {
+  overflow: hidden;
+  border: 1px solid var(--rtdwh-border);
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.alert-page .alert-table-card + .alert-table-card {
+  margin-top: 16px !important;
+}
+
+/* System settings and dependency diagnostics */
+.settings-page .settings-section-card + .settings-section-card {
+  margin-top: 16px;
+}
+
+.settings-page .ant-descriptions-item {
+  padding-bottom: 14px;
+}
+
+.settings-page .ant-descriptions-item-label {
+  color: var(--rtdwh-subtle);
+}
+
+.settings-config-footer {
+  display: flex;
+  flex-wrap: wrap;
+  min-height: 42px;
+  margin: 4px -20px -16px;
+  padding: 10px 20px;
+  align-items: center;
+  gap: 16px;
+  border-top: 1px solid var(--rtdwh-border);
+  color: var(--rtdwh-subtle);
+  font-size: 12px;
+}
+
+.settings-config-footer .ant-btn {
+  margin-left: auto;
+}
+
+.settings-check-time {
+  color: var(--rtdwh-subtle);
+  font-size: 12px;
+}
+
+.settings-overall-bar {
+  display: flex;
+  min-height: 58px;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid;
+  border-radius: 8px;
+}
+
+.settings-overall-bar > .anticon {
+  font-size: 22px;
+}
+
+.settings-overall-bar > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-overall-bar strong {
+  color: var(--rtdwh-heading);
+  font-size: 14px;
+}
+
+.settings-overall-bar span {
+  color: var(--rtdwh-muted);
+  font-size: 12px;
+}
+
+.settings-health-card {
+  height: 100%;
+}
+
+.settings-health-card .ant-card-body {
+  height: 100%;
+}
+
+.settings-health-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-health-icon {
+  display: inline-flex;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  font-size: 19px;
+}
+
+.settings-health-title {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  color: var(--rtdwh-heading);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.settings-health-details {
+  display: grid;
+  margin-top: 16px;
+  gap: 9px;
+}
+
+.settings-health-detail {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  gap: 10px;
+  font-size: 12px;
+}
+
+.settings-health-detail > span:first-child {
+  color: var(--rtdwh-subtle);
+}
+
+.settings-health-detail .ant-typography {
+  margin-bottom: 0;
+  color: var(--rtdwh-ink);
+  text-align: right;
+}
+
+.settings-health-error {
+  margin-top: 14px;
+}
+
+.settings-health-error .ant-alert-description {
+  word-break: break-word;
+}
+
+.settings-health-suggestion {
+  color: #8c5d00;
+}
+
+.settings-health-technical {
+  color: var(--rtdwh-subtle);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+}
+
+/* Login */
+.rtdwh-login-page {
+  position: relative;
+  display: flex;
+  min-height: 100vh;
+  padding: 32px 20px;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 22% 18%, rgba(24, 144, 255, 0.22), transparent 34%),
+    radial-gradient(circle at 82% 78%, rgba(24, 144, 255, 0.12), transparent 30%),
+    var(--rtdwh-sider);
+}
+
+.rtdwh-login-page::before {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+  background-size: 32px 32px;
+  content: "";
+  pointer-events: none;
+}
+
+.rtdwh-login-panel {
+  position: relative;
+  z-index: 1;
+  width: min(400px, 100%);
+  padding: 36px 40px 32px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 18px 48px rgba(0, 10, 25, 0.3);
+}
+
+.rtdwh-login-brand {
+  margin-bottom: 26px;
+  text-align: center;
+}
+
+.rtdwh-login-eyebrow {
+  margin-bottom: 8px;
+  color: var(--rtdwh-primary);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+}
+
+.rtdwh-login-title {
+  color: var(--rtdwh-heading);
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.rtdwh-login-mark {
+  margin-right: 8px;
+  color: var(--rtdwh-primary);
+  font-size: 17px;
+}
+
+.rtdwh-login-subtitle {
+  margin-top: 8px;
+  color: var(--rtdwh-muted);
+  font-size: 13px;
+}
+
+.rtdwh-login-panel .ant-pro-form-login-main {
+  width: 100%;
+}
+
+.rtdwh-login-panel .ant-btn-primary {
+  height: 40px;
+  font-weight: 600;
+}
+
+.rtdwh-login-hint {
+  margin-top: 16px;
+  color: var(--rtdwh-subtle);
+  font-size: 12px;
+  text-align: center;
+}
+
+@media (max-width: 768px) {
+  .ant-pro-page-container .ant-pro-page-container-warp-page-header {
+    padding: 12px 12px 6px;
+  }
+
+  .ant-pro-page-container-children-container {
+    padding: 6px 12px 16px !important;
+  }
+
+  .ant-card .ant-card-head,
+  .ant-card .ant-card-body {
+    padding-inline: 14px;
+  }
+
+  .rtdwh-metric-card .ant-card-body {
+    min-height: 92px;
+    padding: 14px;
+  }
+
+  .rtdwh-login-panel {
+    padding: 30px 24px 24px;
+  }
+
+  .settings-config-footer .ant-btn {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .settings-page .ant-card-extra .settings-check-time {
+    display: none;
+  }
+}

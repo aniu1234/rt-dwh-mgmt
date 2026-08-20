@@ -3,21 +3,32 @@ import { PageContainer } from '@ant-design/pro-components';
 import { Card, Descriptions, Table, Tag, Tabs, Button, Space, Modal, Input, message } from 'antd';
 import { useParams } from '@umijs/max';
 import { useRequest } from '@umijs/max';
-import { getDwhTableDetail, getDwhTableColumns, updateTableBusinessDesc, triggerCompact, triggerExpireSnapshots, getMaintenanceLogs } from '@/api';
+import {
+  cleanOrphanFiles,
+  getDwhTableColumns,
+  getDwhTableDetail,
+  getMaintenanceLogs,
+  triggerCompact,
+  triggerExpireSnapshots,
+  updateDwhColumnComment,
+  updateTableBusinessDesc,
+} from '@/api';
 
 const DwhTableDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const tableId = parseInt(id || '0');
   const [editingDesc, setEditingDesc] = useState(false);
   const [descValue, setDescValue] = useState('');
+  const [editingColumn, setEditingColumn] = useState<API.DwhColumnMeta>();
+  const [columnComment, setColumnComment] = useState('');
 
   const { data: tableData, refresh: refreshTable } = useRequest(() => getDwhTableDetail(tableId));
-  const { data: columnsData } = useRequest(() => getDwhTableColumns(tableId));
-  const { data: logsData } = useRequest(() => getMaintenanceLogs());
+  const { data: columnsData, refresh: refreshColumns } = useRequest(() => getDwhTableColumns(tableId));
+  const { data: logsData, refresh: refreshLogs } = useRequest(() => getMaintenanceLogs());
 
-  const table = tableData;
-  const columns = columnsData || [];
-  const maintenanceLogs = logsData || [];
+  const table = tableData as API.DwhTableMeta | undefined;
+  const columns = (columnsData || []) as API.DwhColumnMeta[];
+  const maintenanceLogs = (logsData || []) as API.MaintenanceLog[];
 
   if (!table) return <PageContainer>加载中...</PageContainer>;
 
@@ -50,6 +61,28 @@ const DwhTableDetail: React.FC = () => {
     }
   };
 
+  const handleUpdateColumnComment = async () => {
+    if (!editingColumn) return;
+    try {
+      await updateDwhColumnComment(editingColumn.id, columnComment);
+      message.success('字段注释已更新');
+      setEditingColumn(undefined);
+      refreshColumns();
+    } catch (e) {
+      message.error('更新字段注释失败');
+    }
+  };
+
+  const handleOrphanCleanup = async () => {
+    try {
+      await cleanOrphanFiles(tableId);
+      message.success('孤立文件清理已触发');
+      refreshLogs();
+    } catch (e) {
+      message.error('操作失败');
+    }
+  };
+
   const formatSize = (bytes?: number) => {
     if (!bytes) return '—';
     const units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -66,7 +99,7 @@ const DwhTableDetail: React.FC = () => {
           {
             key: 'structure',
             label: '表结构',
-            content: (
+            children: (
               <>
                 <Card title="基本信息" style={{ marginBottom: 16 }}>
                   <Descriptions column={2}>
@@ -99,7 +132,7 @@ const DwhTableDetail: React.FC = () => {
                 </Card>
 
                 <Card title="字段列表">
-                  <Table
+                  <Table<API.DwhColumnMeta>
                     dataSource={columns}
                     rowKey="id"
                     size="small"
@@ -108,12 +141,17 @@ const DwhTableDetail: React.FC = () => {
                       { title: '类型', dataIndex: 'columnType', key: 'type', width: 120 },
                       { title: '主键', dataIndex: 'isPartitionKey', key: 'pk', width: 60, render: (v) => v ? '✓' : '' },
                       { title: '可为空', dataIndex: 'nullable', key: 'nullable', width: 60, render: (v) => v ? '✓' : '' },
-                      { title: '业务注释', dataIndex: 'comment', key: 'comment', ellipsis: true },
+                      { title: '业务注释', dataIndex: 'businessComment', key: 'comment', ellipsis: true, render: (value) => value || '—' },
                       {
                         title: '操作',
                         key: 'action',
                         width: 80,
-                        render: () => <Button size="small" type="link">编辑注释</Button>,
+                        render: (_, record) => (
+                          <Button size="small" type="link" onClick={() => {
+                            setEditingColumn(record);
+                            setColumnComment(record.businessComment || record.comment || '');
+                          }}>编辑注释</Button>
+                        ),
                       },
                     ]}
                   />
@@ -124,14 +162,14 @@ const DwhTableDetail: React.FC = () => {
           {
             key: 'maintenance',
             label: '表维护',
-            content: (
+            children: (
               <Card>
                 <Space style={{ marginBottom: 16 }}>
                   <Button type="primary" onClick={handleCompact}>触发 Compact</Button>
                   <Button type="primary" danger onClick={handleExpireSnapshots}>过期快照清理</Button>
-                  <Button>清理孤立文件</Button>
+                  <Button onClick={handleOrphanCleanup}>清理孤立文件</Button>
                 </Space>
-                <Table
+                <Table<API.MaintenanceLog>
                   dataSource={maintenanceLogs}
                   rowKey="id"
                   columns={[
@@ -150,7 +188,7 @@ const DwhTableDetail: React.FC = () => {
           {
             key: 'snapshots',
             label: '快照历史',
-            content: <Card><Table dataSource={[]} rowKey="id" locale={{ emptyText: '暂无快照数据' }} columns={[
+            children: <Card><Table dataSource={[]} rowKey="id" locale={{ emptyText: '暂无快照数据' }} columns={[
               { title: '快照ID', dataIndex: 'snapshotId' },
               { title: '提交时间', dataIndex: 'commitTime' },
               { title: '文件数', dataIndex: 'fileCount' },
@@ -159,6 +197,20 @@ const DwhTableDetail: React.FC = () => {
           },
         ]}
       />
+      <Modal
+        title={`编辑字段注释：${editingColumn?.columnName || ''}`}
+        open={Boolean(editingColumn)}
+        onCancel={() => setEditingColumn(undefined)}
+        onOk={handleUpdateColumnComment}
+        okText="保存"
+      >
+        <Input.TextArea
+          rows={4}
+          value={columnComment}
+          onChange={(event) => setColumnComment(event.target.value)}
+          placeholder="请输入字段的业务含义"
+        />
+      </Modal>
     </PageContainer>
   );
 };

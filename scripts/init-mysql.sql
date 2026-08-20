@@ -7,7 +7,30 @@ CREATE DATABASE IF NOT EXISTS rtdwh_mgmt
   CHARACTER SET utf8mb4
   COLLATE utf8mb4_unicode_ci;
 
+-- Paimon JDBC Catalog metastore. Paimon creates its catalog tables lazily,
+-- but the containing database must exist before the first connection.
+CREATE DATABASE IF NOT EXISTS rtdwh_paimon_meta
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
+
+-- The official MySQL image creates MYSQL_USER before executing init scripts.
+-- Keep the default deployment user able to initialize Paimon catalog tables.
+GRANT ALL PRIVILEGES ON rtdwh_paimon_meta.* TO 'rtdwh_admin'@'%';
+FLUSH PRIVILEGES;
+
 USE rtdwh_mgmt;
+
+-- Latest persisted system dependency health snapshot
+CREATE TABLE IF NOT EXISTS sys_health_status (
+  status_key VARCHAR(32) PRIMARY KEY,
+  overall_status VARCHAR(20) NOT NULL,
+  payload_json LONGTEXT NOT NULL,
+  checked_at DATETIME NOT NULL,
+  duration_ms BIGINT NOT NULL DEFAULT 0,
+  check_source VARCHAR(20) NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
 
 -- SysUser
 CREATE TABLE IF NOT EXISTS sys_user (
@@ -263,7 +286,7 @@ CREATE TABLE IF NOT EXISTS query_history (
   query_type ENUM('adhoc','report') NOT NULL,
   result_row_count INT,
   duration_ms BIGINT,
-  status ENUM('success','failed','cancelled') NOT NULL,
+  status ENUM('running','success','failed','cancelled') NOT NULL,
   error_msg TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES sys_user(id)

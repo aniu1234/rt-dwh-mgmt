@@ -28,30 +28,16 @@ const Login: React.FC = () => {
   };
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        height: '100vh',
-        background: 'linear-gradient(135deg, #1a73e8 0%, #0d47a1 100%)',
-      }}
-    >
-      <div
-        style={{
-          width: 400,
-          padding: 40,
-          borderRadius: 16,
-          background: '#fff',
-          boxShadow: '0 8px 40px rgba(0,0,0,0.12)',
-        }}
-      >
-        <div style={{ textAlign: 'center', marginBottom: 24 }}>
-          <div style={{ fontSize: 28, fontWeight: 700, color: '#1a73e8' }}>
-            实时数仓管理平台
+    <div className="rtdwh-login-page">
+      <div className="rtdwh-login-panel">
+        <div className="rtdwh-login-brand">
+          <div className="rtdwh-login-eyebrow">RT-DWH CONTROL CENTER</div>
+          <div className="rtdwh-login-title">
+            <span className="rtdwh-login-mark">▶</span>
+            实时数仓平台
           </div>
-          <div style={{ fontSize: 14, color: '#888', marginTop: 8 }}>
-            RT-DWH Management · Flink 2.x + Paimon
+          <div className="rtdwh-login-subtitle">
+            Flink 2.x + Paimon 实时数据链路管理
           </div>
         </div>
 
@@ -82,8 +68,8 @@ const Login: React.FC = () => {
           />
         </LoginForm>
 
-        <div style={{ textAlign: 'center', marginTop: 16, color: '#aaa', fontSize: 12 }}>
-          默认账号: admin / admin123
+        <div className="rtdwh-login-hint">
+          首次部署请使用 INIT_ADMIN_PASSWORD 初始化管理员账号
         </div>
       </div>
     </div>

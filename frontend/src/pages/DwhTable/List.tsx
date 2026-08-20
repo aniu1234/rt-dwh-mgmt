@@ -29,7 +29,7 @@ const DwhTableList: React.FC = () => {
     getDwhTables({ layer: layerFilter, keyword }),
   );
 
-  const tables = data || [];
+  const tables = (data || []) as API.DwhTableMeta[];
 
   const handleSyncMetadata = async () => {
     try {
@@ -68,7 +68,7 @@ const DwhTableList: React.FC = () => {
           />
         </Space>
 
-        <Table
+        <Table<API.DwhTableMeta>
           dataSource={tables}
           rowKey="id"
           loading={loading}

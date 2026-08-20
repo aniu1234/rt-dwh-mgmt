@@ -523,6 +523,53 @@ public class DwhMetaService {
         return result;
     }
 
+    /** Trigger compaction for all matching tables. Individual failures do not stop the batch. */
+    public Map<String, Object> batchCompact(TableLayer layer, int fileCountThreshold) {
+        List<DwhTableMeta> candidates = listTables(layer, null, null).stream()
+                .filter(table -> table.getFileCount() != null && table.getFileCount() >= fileCountThreshold)
+                .toList();
+        return runBatchMaintenance(candidates, table -> triggerCompact(table.getId(), "minor"));
+    }
+
+    /** Trigger snapshot expiration for all tables in the selected layer. */
+    public Map<String, Object> batchExpireSnapshots(TableLayer layer, int retainLast) {
+        return runBatchMaintenance(
+                listTables(layer, null, null),
+                table -> triggerExpireSnapshots(table.getId(), retainLast));
+    }
+
+    /** Trigger orphan-file cleanup for one table, or for all tables when the id is omitted. */
+    public Map<String, Object> batchOrphanCleanup(Long tableMetaId) {
+        List<DwhTableMeta> candidates = tableMetaId == null
+                ? listTables(null, null, null)
+                : List.of(getTableDetail(tableMetaId));
+        return runBatchMaintenance(candidates, table -> triggerOrphanCleanup(table.getId()));
+    }
+
+    private Map<String, Object> runBatchMaintenance(
+            List<DwhTableMeta> tables,
+            java.util.function.Function<DwhTableMeta, Map<String, Object>> operation) {
+        int triggered = 0;
+        List<Map<String, Object>> failures = new ArrayList<>();
+        for (DwhTableMeta table : tables) {
+            try {
+                operation.apply(table);
+                triggered++;
+            } catch (RuntimeException exception) {
+                failures.add(Map.of(
+                        "tableId", table.getId(),
+                        "table", table.getPaimonDb() + "." + table.getPaimonTable(),
+                        "message", exception.getMessage() == null ? "操作失败" : exception.getMessage()
+                ));
+            }
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("triggered", triggered);
+        result.put("failed", failures.size());
+        result.put("failures", failures);
+        return result;
+    }
+
     /**
      * Get maintenance logs for a table or all tables.
      */

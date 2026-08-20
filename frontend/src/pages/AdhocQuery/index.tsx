@@ -1,22 +1,22 @@
 import React, { useState } from 'react';
 import { PageContainer } from '@ant-design/pro-components';
-import { Card, Select, Input, Button, Space, Table, message } from 'antd';
+import { Card, Select, Input, Button, Space, Table, message, Alert, Tag } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import { useRequest } from '@umijs/max';
-import { executeQuery, getQueryHistory } from '@/api';
+import { executeQuery, exportQuery, getQueryHistory, cancelQuery, cancelQueryByRequestId } from '@/api';
 
 const AdhocQuery: React.FC = () => {
   const [sql, setSql] = useState('');
   const [maxRows, setMaxRows] = useState(1000);
   const [result, setResult] = useState<API.QueryResult | null>(null);
+  const [executing, setExecuting] = useState(false);
+  const [historyId, setHistoryId] = useState<number>();
+  const [requestId, setRequestId] = useState<string>();
 
-  const { data: historyPageData, loading: historyLoading } = useRequest(getQueryHistory);
+  const { data: historyPageData, loading: historyLoading, run: loadHistory } = useRequest(getQueryHistory, { defaultParams: [{ page: 0, size: 20 }] });
+  const historyPage = historyPageData as API.PageResult<any> | undefined;
   // 后端返回 Page<QueryHistory>（全局拦截器已解包 ApiResponse），实际数组在 .content
-  const historyList = Array.isArray(historyPageData?.content)
-    ? historyPageData.content
-    : Array.isArray(historyPageData)
-      ? historyPageData
-      : [];
+  const historyList = historyPage?.content || [];
 
   const handleExecute = async () => {
     if (!sql.trim()) {
@@ -24,16 +24,38 @@ const AdhocQuery: React.FC = () => {
       return;
     }
     try {
-      const queryResult = await executeQuery({ sql, maxRows });
+      setExecuting(true);
+      const currentRequestId = `web_${Date.now()}`;
+      setRequestId(currentRequestId);
+      const queryResult = await executeQuery({ sql, maxRows, requestId: currentRequestId });
       setResult(queryResult);
-      if (queryResult.totalRows !== undefined) {
-        message.success(`查询成功，返回 ${queryResult.totalRows} 行，耗时 ${queryResult.executionTime}ms`);
-      } else if (queryResult.status === 'failed') {
+      setHistoryId((queryResult as any).historyId);
+      if (queryResult.status === 'success') {
+        message.success(`查询成功，返回 ${queryResult.rowCount} 行，耗时 ${queryResult.durationMs}ms`);
+      } else {
         message.error(`查询失败: ${queryResult.errorMsg || '未知错误'}`);
       }
     } catch (e) {
       message.error('查询执行异常');
-    }
+    } finally { setExecuting(false); }
+  };
+
+  const handleCancel = async () => {
+    if (!requestId && !historyId) return;
+    try {
+      if (requestId) await cancelQueryByRequestId(requestId);
+      else await cancelQuery(historyId!);
+      message.info('已请求取消查询');
+    } catch { message.error('取消失败，查询可能已结束'); }
+  };
+
+  const handleExport = async () => {
+    if (!sql.trim()) return message.warning('请输入 SQL 语句');
+    try {
+      const blob = await exportQuery({ sql, maxRows });
+      const url = URL.createObjectURL(blob as Blob); const link = document.createElement('a');
+      link.href = url; link.download = 'query-result.csv'; link.click(); URL.revokeObjectURL(url);
+    } catch { message.error('导出失败'); }
   };
 
   return (
@@ -54,9 +76,9 @@ const AdhocQuery: React.FC = () => {
             onChange={(e) => setMaxRows(parseInt(e.target.value) || 1000)}
             style={{ width: 100 }}
           />
-          <Button type="primary" onClick={handleExecute}>▶ 执行查询</Button>
-          <Button type="primary" style={{ background: '#52c41a' }}>导出 CSV</Button>
-          <Button type="primary" style={{ background: '#52c41a' }}>导出 Excel</Button>
+          <Button type="primary" loading={executing} onClick={handleExecute}>▶ 执行查询</Button>
+          <Button danger disabled={!executing || (!requestId && !historyId)} onClick={handleCancel}>取消查询</Button>
+          <Button type="primary" style={{ background: '#52c41a' }} onClick={handleExport}>导出 CSV</Button>
         </Space>
         <textarea
           value={sql}
@@ -79,11 +101,13 @@ const AdhocQuery: React.FC = () => {
       </Card>
 
       {result && (
-        <Card title={`查询结果（耗时 ${result.executionTime}ms · 返回 ${result.totalRows} 行）`}>
+        <Card title={`查询结果（耗时 ${result.durationMs}ms · 返回 ${result.rowCount} 行）`}>
+          {result.status !== 'success' && <Alert type="error" message={result.errorMsg || '查询失败'} showIcon style={{ marginBottom: 12 }} />}
+          <Tag color={result.status === 'success' ? 'green' : result.status === 'cancelled' ? 'orange' : 'red'}>{result.status}</Tag>
           <div style={{ maxHeight: 400, overflow: 'auto' }}>
-            <Table
-              dataSource={result.rows.map((row, i) => ({ key: i, ...Object.fromEntries(result.columns.map((c, j) => [c.name, row[j]])) }))}
-              columns={result.columns.map((c) => ({ title: c.name, dataIndex: c.name, key: c.name }))}
+            <Table<Record<string, any>>
+              dataSource={result.rows.map((row, i) => ({ key: i, ...Object.fromEntries(result.columns.map((column, j) => [column, row[j]])) }))}
+              columns={result.columns.map((column) => ({ title: column, dataIndex: column, key: column }))}
               size="small"
               pagination={false}
             />
@@ -98,10 +122,11 @@ const AdhocQuery: React.FC = () => {
           size="small"
           loading={historyLoading}
           pagination={{
-            total: historyPageData?.totalElements ?? 0,
-            pageSize: historyPageData?.size ?? 20,
-            current: (historyPageData?.number ?? 0) + 1,
+            total: historyPage?.totalElements ?? 0,
+            pageSize: historyPage?.size ?? 20,
+            current: (historyPage?.number ?? 0) + 1,
             showSizeChanger: true,
+            onChange: (page, pageSize) => loadHistory({ page: page - 1, size: pageSize }),
           }}
           columns={[
             { title: '时间', dataIndex: 'createdAt', key: 'time' },
@@ -113,7 +138,7 @@ const AdhocQuery: React.FC = () => {
               dataIndex: 'status',
               key: 'status',
               width: 80,
-              render: (v) => v === 'success' ? '✓ Success' : '✗ Failed',
+              render: (v) => v === 'success' ? '✓ 成功' : v === 'cancelled' ? '⏹ 已取消' : v === 'running' ? '… 执行中' : '✗ 失败',
             },
           ]}
         />

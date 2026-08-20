@@ -14,6 +14,7 @@ import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestTemplate;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.*;
 
@@ -50,6 +51,30 @@ public class FlinkClusterService {
     public RestTemplate getRestTemplate() { return restTemplate; }
     public ObjectMapper getObjectMapper() { return objectMapper; }
     public String getFlinkRestUrl() { return flinkRestUrl; }
+    public String getSubmissionMode() { return submissionMode; }
+    public String getSavepointDir() { return savepointDir; }
+    public boolean isSqlGatewayEnabled() { return sqlGatewayEnabled; }
+    public String getSqlGatewayUrl() { return sqlGatewayUrl; }
+
+    /** Update the active runtime connection used by subsequent Flink operations. */
+    public void updateRuntimeConfig(String restUrl, String mode) {
+        this.flinkRestUrl = restUrl.replaceAll("/+$", "");
+        this.submissionMode = mode;
+    }
+
+    /** Update all editable runtime settings used by subsequent Flink operations. */
+    public void updateRuntimeConfig(
+            String restUrl,
+            String mode,
+            String savepointDirectory,
+            boolean gatewayEnabled,
+            String gatewayUrl
+    ) {
+        updateRuntimeConfig(restUrl, mode);
+        this.savepointDir = savepointDirectory;
+        this.sqlGatewayEnabled = gatewayEnabled;
+        this.sqlGatewayUrl = gatewayUrl.replaceAll("/+$", "");
+    }
 
     // ========================================================================
     // 1. Jar Upload + Run (Application / Session Mode)
@@ -804,27 +829,102 @@ public class FlinkClusterService {
      * GET /overview
      */
     public Map<String, Object> healthCheck() {
+        return healthCheck(flinkRestUrl);
+    }
+
+    /** Check an arbitrary Flink endpoint without changing the active runtime configuration. */
+    public Map<String, Object> healthCheck(String restUrl) {
+        String endpoint = restUrl.replaceAll("/+$", "");
+        long startTime = System.currentTimeMillis();
         try {
             ResponseEntity<String> resp = restTemplate.getForEntity(
-                flinkRestUrl + "/overview", String.class);
+                endpoint + "/overview", String.class);
 
             if (resp.getStatusCode().is2xxSuccessful() && resp.getBody() != null) {
-                JsonNode json = objectMapper.readTree(resp.getBody());
+                String body = resp.getBody().trim();
+                MediaType contentType = resp.getHeaders().getContentType();
+                if (!body.startsWith("{") && !body.startsWith("[")) {
+                    return invalidFlinkResponse(
+                            endpoint,
+                            startTime,
+                            contentType,
+                            "目标地址返回了网页内容而不是 Flink REST JSON；该端口可能被其他 Web 服务占用"
+                    );
+                }
 
-                return Map.of(
-                    "status", "healthy",
-                    "flinkVersion", json.path("flink-version").asText(),
-                    "runningJobs", json.path("jobs-running").asInt(),
-                    "taskSlotsAvailable", json.path("slots-available").asInt(),
-                    "taskSlotsTotal", json.path("slots-total").asInt(),
-                    "taskManagers", json.path("taskmanagers").asInt()
-                );
+                JsonNode json;
+                try {
+                    json = objectMapper.readTree(body);
+                } catch (Exception parseException) {
+                    return invalidFlinkResponse(
+                            endpoint,
+                            startTime,
+                            contentType,
+                            "目标地址返回的内容不是有效 JSON，无法识别为 Flink REST 服务"
+                    );
+                }
+
+                if (!json.hasNonNull("flink-version") || !json.has("taskmanagers")) {
+                    return invalidFlinkResponse(
+                            endpoint,
+                            startTime,
+                            contentType,
+                            "目标地址返回了 JSON，但缺少 Flink overview 标识字段"
+                    );
+                }
+
+                Map<String, Object> result = new LinkedHashMap<>();
+                result.put("status", "healthy");
+                result.put("endpoint", endpoint);
+                result.put("flinkVersion", json.path("flink-version").asText("unknown"));
+                result.put("runningJobs", json.path("jobs-running").asInt());
+                result.put("finishedJobs", json.path("jobs-finished").asInt());
+                result.put("failedJobs", json.path("jobs-failed").asInt());
+                result.put("cancelledJobs", json.path("jobs-cancelled").asInt());
+                result.put("taskSlotsAvailable", json.path("slots-available").asInt());
+                result.put("taskSlotsTotal", json.path("slots-total").asInt());
+                result.put("taskManagers", json.path("taskmanagers").asInt());
+                result.put("responseTimeMs", System.currentTimeMillis() - startTime);
+                result.put("checkedAt", Instant.now().toString());
+                return result;
             }
-            return Map.of("status", "unhealthy", "error", "Invalid response from Flink");
+            return Map.of(
+                    "status", "unhealthy",
+                    "endpoint", endpoint,
+                    "responseTimeMs", System.currentTimeMillis() - startTime,
+                    "checkedAt", Instant.now().toString(),
+                    "error", "Flink 返回了无效响应: HTTP " + resp.getStatusCode().value()
+            );
         } catch (Exception e) {
             log.warn("Flink health check failed: {}", e.getMessage());
-            return Map.of("status", "unreachable", "error", e.getMessage());
+            return Map.of(
+                    "status", "unreachable",
+                    "endpoint", endpoint,
+                    "responseTimeMs", System.currentTimeMillis() - startTime,
+                    "checkedAt", Instant.now().toString(),
+                    "error", e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()
+            );
         }
+    }
+
+    private Map<String, Object> invalidFlinkResponse(
+            String endpoint,
+            long startTime,
+            MediaType contentType,
+            String reason
+    ) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("status", "unhealthy");
+        result.put("endpoint", endpoint);
+        result.put("responseTimeMs", System.currentTimeMillis() - startTime);
+        result.put("checkedAt", Instant.now().toString());
+        result.put("diagnosticCode", "NOT_FLINK_REST");
+        result.put("error", reason);
+        result.put("suggestion", "请在“编辑配置”中填写真实的 Flink JobManager REST 地址，并确认 /overview 返回 JSON");
+        if (contentType != null) {
+            result.put("contentType", contentType.toString());
+        }
+        return result;
     }
 
     // ========================================================================
