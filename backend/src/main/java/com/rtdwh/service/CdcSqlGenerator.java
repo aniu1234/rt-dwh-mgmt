@@ -35,6 +35,21 @@ public class CdcSqlGenerator {
     @Value("${paimon.warehouse-path}")
     private String warehousePath;
 
+    @Value("${paimon.metastore:jdbc}")
+    private String paimonMetastore;
+
+    @Value("${paimon.jdbc-uri}")
+    private String paimonJdbcUri;
+
+    @Value("${paimon.jdbc-user}")
+    private String paimonJdbcUser;
+
+    @Value("${paimon.jdbc-password}")
+    private String paimonJdbcPassword;
+
+    @Value("${paimon.catalog-key:rtdwh}")
+    private String paimonCatalogKey;
+
     /**
      * Generate CDC SQL for a sync task based on its table mappings.
      */
@@ -54,6 +69,8 @@ public class CdcSqlGenerator {
         sql.append("-- Flink CDC 同步任务: ").append(task.getTaskName()).append("\n");
         sql.append("-- 源: ").append(sourceConfig.getConfigName()).append(" -> 目标: ").append(targetConfig.getConfigName()).append("\n");
         sql.append("-- 策略: ").append(task.getSyncStrategy() != null ? task.getSyncStrategy() : defaultStartMode).append("\n\n");
+        sql.append(generatePaimonCatalogSql());
+        sql.append("\n");
 
         // Generate SQL for each table mapping
         for (int i = 0; i < mappings.size(); i++) {
@@ -85,8 +102,12 @@ public class CdcSqlGenerator {
                                         String targetTable, SyncTask task, String startMode) {
         StringBuilder sql = new StringBuilder();
 
+        sql.append("CREATE DATABASE IF NOT EXISTS ").append(identifier(targetDb)).append(";\n\n");
+
         // 1. Create CDC source table
-        sql.append("CREATE TABLE ").append(identifier("source_" + sourceTable)).append(" (\n");
+        // Keep connector tables session-scoped. After switching to the Paimon catalog,
+        // a persistent CREATE TABLE would otherwise be delegated to that catalog.
+        sql.append("CREATE TEMPORARY TABLE ").append(identifier("source_" + sourceTable)).append(" (\n");
 
         // Introspect source table structure
         CdcTableIntrospector.TableSchema schema;
@@ -115,7 +136,8 @@ public class CdcSqlGenerator {
 
         // Add watermark for event time
         sql.append(") WITH (\n");
-        sql.append(generateSourceWithClause(sourceConfig, sourceTable, startMode));
+        sql.append(generateSourceWithClause(
+                sourceConfig, sourceTable, startMode, schema.serverTimeZone()));
         sql.append(");\n\n");
 
         // 2. Create Paimon target table
@@ -153,7 +175,8 @@ public class CdcSqlGenerator {
     /**
      * Generate source table WITH clause for CDC connector.
      */
-    private String generateSourceWithClause(DatasourceConfig sourceConfig, String sourceTable, String startMode) {
+    private String generateSourceWithClause(DatasourceConfig sourceConfig, String sourceTable,
+                                            String startMode, String serverTimeZone) {
         StringBuilder sb = new StringBuilder();
         DbType dbType = sourceConfig.getDbType();
 
@@ -165,7 +188,10 @@ public class CdcSqlGenerator {
             sb.append("  'password' = '").append(escape(decryptPassword(sourceConfig.getPasswordEncrypted()))).append("',\n");
             sb.append("  'database-name' = '").append(escape(sourceConfig.getDatabase())).append("',\n");
             sb.append("  'table-name' = '").append(escape(sourceTable)).append("',\n");
-            sb.append("  'server-time-zone' = 'Asia/Shanghai',\n");
+            if (serverTimeZone == null || serverTimeZone.isBlank()) {
+                throw new IllegalStateException("无法检测 MySQL 服务端时区");
+            }
+            sb.append("  'server-time-zone' = '").append(escape(serverTimeZone)).append("',\n");
             sb.append("  'scan.startup.mode' = '").append(escape(startMode)).append("',\n");
             sb.append("  'debezium.snapshot.lock.mode' = 'none'\n");
         } else if (dbType == DbType.postgresql) {
@@ -191,16 +217,26 @@ public class CdcSqlGenerator {
      */
     private String generateSinkWithClause(String targetDb, String targetTable, SyncTask task) {
         StringBuilder sb = new StringBuilder();
-        sb.append("  'connector' = 'paimon',\n");
-        sb.append("  'path' = '").append(escape(warehousePath)).append("/").append(targetDb).append("/").append(targetTable).append("',\n");
-        sb.append("  'metastore' = 'jdbc',\n");
-        sb.append("  'warehouse' = '").append(escape(warehousePath)).append("',\n");
-        sb.append("  'sink.auto-create' = 'true',\n");
-        sb.append("  'changelog-producer' = 'input',\n");
-        sb.append("  'lookup.cache.max-rows' = '10000',\n");
-        sb.append("  'lookup.cache.ttl' = '10min'\n");
+        // The table is created inside the Paimon catalog, so connector/path and
+        // metastore options belong to CREATE CATALOG rather than each table.
+        sb.append("  'changelog-producer' = 'input'\n");
 
         return sb.toString();
+    }
+
+    private String generatePaimonCatalogSql() {
+        String catalogName = paimonCatalogKey == null || paimonCatalogKey.isBlank()
+                ? "rtdwh" : paimonCatalogKey.trim();
+        return "CREATE CATALOG " + identifier(catalogName) + " WITH (\n"
+                + "  'type' = 'paimon',\n"
+                + "  'metastore' = '" + escape(paimonMetastore) + "',\n"
+                + "  'uri' = '" + escape(paimonJdbcUri) + "',\n"
+                + "  'jdbc.user' = '" + escape(paimonJdbcUser) + "',\n"
+                + "  'jdbc.password' = '" + escape(paimonJdbcPassword) + "',\n"
+                + "  'catalog-key' = '" + escape(catalogName) + "',\n"
+                + "  'warehouse' = '" + escape(warehousePath) + "'\n"
+                + ");\n\n"
+                + "USE CATALOG " + identifier(catalogName) + ";\n";
     }
 
     /**
@@ -290,6 +326,6 @@ public class CdcSqlGenerator {
                 CdcTableIntrospector.ColumnSchema.builder().name("created_at").type("TIMESTAMP(3)").build(),
                 CdcTableIntrospector.ColumnSchema.builder().name("updated_at").type("TIMESTAMP(3)").build()
         );
-        return new CdcTableIntrospector.TableSchema(tableName, columns, List.of("id"));
+        return new CdcTableIntrospector.TableSchema(tableName, columns, List.of("id"), "UTC");
     }
 }

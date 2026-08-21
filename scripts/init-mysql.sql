@@ -9,9 +9,12 @@ CREATE DATABASE IF NOT EXISTS rtdwh_mgmt
 
 -- Paimon JDBC Catalog metastore. Paimon creates its catalog tables lazily,
 -- but the containing database must exist before the first connection.
+-- Paimon 2.0 creates paimon_table_properties with a four-column VARCHAR(255)
+-- primary key. utf8mb4 can require 4080 index bytes and exceeds InnoDB's
+-- 3072-byte limit; utf8mb3 requires at most 3060.
 CREATE DATABASE IF NOT EXISTS rtdwh_paimon_meta
-  CHARACTER SET utf8mb4
-  COLLATE utf8mb4_unicode_ci;
+  CHARACTER SET utf8mb3
+  COLLATE utf8mb3_unicode_ci;
 
 -- The official MySQL image creates MYSQL_USER before executing init scripts.
 -- Keep the default deployment user able to initialize Paimon catalog tables.

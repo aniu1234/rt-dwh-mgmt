@@ -12,7 +12,6 @@ import com.rtdwh.dto.SyncTaskUpdateDTO;
 import com.rtdwh.repository.SyncTaskRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,9 +32,6 @@ public class SyncTaskService {
     private final CdcSqlGenerator cdcSqlGenerator;
     private final DatasourceService datasourceService;
     private final ObjectMapper objectMapper;
-
-    @Value("${flink.sql-gateway.enabled:false}")
-    private boolean sqlGatewayEnabled;
 
     // ========================================================================
     // CRUD Operations
@@ -181,11 +177,14 @@ public class SyncTaskService {
             Map<String, Object> submitResult;
 
             // Choose submission method based on configuration
-            if (sqlGatewayEnabled && task.getTaskType() != TaskType.cdc_sync) {
-                // ETL and materialized tables can use SQL Gateway
+            if (flinkClusterService.isSqlGatewayEnabled()) {
+                // All task types in this platform are represented as Flink SQL.
+                // CDC must also use SQL Gateway; the generated CDC SQL is not an
+                // executable user JAR and cannot be submitted through /jars/{id}/run.
                 submitResult = flinkClusterService.submitViaSqlGateway(task);
             } else {
-                // CDC sync always uses jar-based submission
+                // Compatibility fallback for deployments that provide their own
+                // executable job runner JAR.
                 submitResult = flinkClusterService.submitJob(task);
             }
 
@@ -237,8 +236,8 @@ public class SyncTaskService {
         try {
             Map<String, Object> submitResult;
 
-            if (sqlGatewayEnabled && task.getTaskType() != TaskType.cdc_sync) {
-                submitResult = flinkClusterService.submitViaSqlGateway(task);
+            if (flinkClusterService.isSqlGatewayEnabled()) {
+                submitResult = flinkClusterService.submitViaSqlGateway(task, savepointPath);
             } else {
                 submitResult = flinkClusterService.submitFromSavepoint(task, savepointPath);
             }

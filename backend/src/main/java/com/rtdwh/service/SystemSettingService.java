@@ -137,7 +137,7 @@ public class SystemSettingService {
             throw new IllegalArgumentException("提交模式仅支持 application 或 session");
         }
 
-        String savepointDir = defaultIfBlank(trimToEmpty(body.get("savepointDir")), "/tmp/flink-savepoints");
+        String savepointDir = defaultIfBlank(trimToEmpty(body.get("savepointDir")), "file:///tmp/flink-savepoints");
         if (!savepointDir.startsWith("/") && !savepointDir.matches("^[a-zA-Z][a-zA-Z0-9+.-]*://.+")) {
             throw new IllegalArgumentException("Savepoint 目录必须是绝对路径或有效的存储 URI");
         }

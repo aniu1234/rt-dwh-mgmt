@@ -45,7 +45,7 @@ type ComponentKey = 'flink' | 'paimon' | 'mysql';
 const DEFAULT_FLINK_CONFIG: API.FlinkClusterConfig = {
   restApiUrl: 'http://localhost:8081',
   submissionMode: 'application',
-  savepointDir: '/tmp/flink-savepoints',
+  savepointDir: 'file:///tmp/flink-savepoints',
   sqlGatewayEnabled: false,
   sqlGatewayUrl: 'http://localhost:9083',
   flinkVersion: '',
@@ -214,7 +214,7 @@ const Settings: React.FC = () => {
       restApiUrl: editableConfig.restApiUrl,
       submissionMode: editableConfig.submissionMode || 'application',
       flinkVersion: editableConfig.flinkVersion || health?.flink?.flinkVersion || '',
-      savepointDir: editableConfig.savepointDir || '/tmp/flink-savepoints',
+      savepointDir: editableConfig.savepointDir || 'file:///tmp/flink-savepoints',
       sqlGatewayEnabled: Boolean(editableConfig.sqlGatewayEnabled),
       sqlGatewayUrl: editableConfig.sqlGatewayUrl || 'http://localhost:9083',
     });
@@ -486,7 +486,7 @@ const Settings: React.FC = () => {
             label="Savepoint 目录"
             rules={[{ required: true, message: '请输入 Savepoint 目录' }]}
           >
-            <Input placeholder="/tmp/flink-savepoints 或 s3://bucket/savepoints" />
+            <Input placeholder="file:///tmp/flink-savepoints 或 s3://bucket/savepoints" />
           </Form.Item>
 
           <Form.Item name="sqlGatewayEnabled" label="启用 SQL Gateway" valuePropName="checked">

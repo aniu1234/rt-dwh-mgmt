@@ -82,7 +82,7 @@ public class HealthCheckService {
                 result.put("status", "not_initialized");
                 result.put("diagnosticCode", "DATABASE_NOT_FOUND");
                 result.put("error", "Paimon 元数据库 rtdwh_paimon_meta 尚未创建");
-                result.put("suggestion", "在 MySQL 中执行 CREATE DATABASE IF NOT EXISTS rtdwh_paimon_meta CHARACTER SET utf8mb4");
+                result.put("suggestion", "在 MySQL 中执行 CREATE DATABASE IF NOT EXISTS rtdwh_paimon_meta CHARACTER SET utf8mb3 COLLATE utf8mb3_unicode_ci");
             } else {
                 result.put("status", "unreachable");
                 result.put("error", safeMessage(e));
