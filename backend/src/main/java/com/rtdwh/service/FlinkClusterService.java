@@ -15,6 +15,9 @@ import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestTemplate;
 
 import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
@@ -25,6 +28,10 @@ import java.util.*;
 @Service
 @RequiredArgsConstructor
 public class FlinkClusterService {
+
+    private static final HttpClient FLINK_CANCEL_CLIENT = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(5))
+            .build();
 
     @Value("${flink.rest-api.url}")
     private String flinkRestUrl;
@@ -856,27 +863,21 @@ public class FlinkClusterService {
         log.info("Canceling Flink job: {}", flinkJobId);
 
         try {
-            // Flink 2.x: DELETE /jobs/{jobId}/cancel or PATCH
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-
-            HttpEntity<Void> request = new HttpEntity<>(headers);
-
-            ResponseEntity<String> response = restTemplate.exchange(
-                flinkRestUrl + "/jobs/" + flinkJobId + "/cancel",
-                HttpMethod.POST, request, String.class);
-
-            if (!response.getStatusCode().is2xxSuccessful()) {
-                log.warn("Cancel job returned non-2xx: {}", response.getStatusCode());
+            HttpRequest request = HttpRequest.newBuilder(
+                            URI.create(flinkRestUrl + "/jobs/" + flinkJobId + "?mode=cancel"))
+                    .timeout(Duration.ofSeconds(10))
+                    .method("PATCH", HttpRequest.BodyPublishers.noBody())
+                    .build();
+            HttpResponse<Void> response = FLINK_CANCEL_CLIENT.send(
+                    request, HttpResponse.BodyHandlers.discarding());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new IllegalStateException("HTTP " + response.statusCode());
             }
-
-            // Also try stopping if cancel didn't work
-            restTemplate.exchange(
-                flinkRestUrl + "/jobs/" + flinkJobId + "/stop?mode=cancel",
-                HttpMethod.POST, request, String.class);
-
-        } catch (Exception e) {
-            log.warn("Cancel job error (job may already be terminated): {}", e.getMessage());
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            log.warn("Cancel job interrupted: {}", flinkJobId);
+        } catch (Exception exception) {
+            log.warn("Cancel job error (job may already be terminated): {}", exception.getMessage());
         }
     }
 

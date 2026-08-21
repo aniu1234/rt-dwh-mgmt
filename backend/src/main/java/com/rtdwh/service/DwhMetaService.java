@@ -3,6 +3,7 @@ package com.rtdwh.service;
 import com.rtdwh.entity.DwhColumnMeta;
 import com.rtdwh.entity.DwhTableMeta;
 import com.rtdwh.dto.DwhSnapshotDTO;
+import com.rtdwh.dto.QueryCatalogDTO;
 import com.rtdwh.entity.DwhTableMeta.TableLayer;
 import com.rtdwh.entity.TableMaintenanceLog;
 import com.rtdwh.entity.TableMaintenanceLog.Operation;
@@ -76,6 +77,31 @@ public class DwhMetaService {
 
     public List<DwhColumnMeta> getTableColumns(Long tableMetaId) {
         return columnMetaRepository.findByTableMetaIdOrderBySortOrder(tableMetaId);
+    }
+
+    @Transactional(readOnly = true)
+    public QueryCatalogDTO getQueryCatalog() {
+        Map<String, List<QueryCatalogDTO.TableInfo>> grouped = new TreeMap<>();
+        for (DwhTableMeta table : tableMetaRepository.findAll()) {
+            List<QueryCatalogDTO.ColumnInfo> columns = getTableColumns(table.getId()).stream()
+                    .map(column -> new QueryCatalogDTO.ColumnInfo(
+                            column.getColumnName(),
+                            column.getColumnType(),
+                            Boolean.TRUE.equals(column.getIsPk()),
+                            Boolean.TRUE.equals(column.getIsNullable())))
+                    .toList();
+            grouped.computeIfAbsent(table.getPaimonDb(), ignored -> new ArrayList<>())
+                    .add(new QueryCatalogDTO.TableInfo(
+                            table.getPaimonTable(), table.getLayer().name(), columns));
+        }
+        List<QueryCatalogDTO.DatabaseInfo> databases = grouped.entrySet().stream()
+                .map(entry -> new QueryCatalogDTO.DatabaseInfo(
+                        entry.getKey(),
+                        entry.getValue().stream()
+                                .sorted(Comparator.comparing(QueryCatalogDTO.TableInfo::name))
+                                .toList()))
+                .toList();
+        return new QueryCatalogDTO("paimon", paimonCatalogKey, databases);
     }
 
     @Transactional

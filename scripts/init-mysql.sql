@@ -296,6 +296,20 @@ CREATE TABLE IF NOT EXISTS query_history (
   FOREIGN KEY (user_id) REFERENCES sys_user(id)
 );
 
+-- SavedQuery: user-owned SQL library
+CREATE TABLE IF NOT EXISTS saved_query (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT NOT NULL,
+  name VARCHAR(128) NOT NULL,
+  sql_text TEXT NOT NULL,
+  description VARCHAR(512),
+  tags VARCHAR(256),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_saved_query_user_name (user_id, name),
+  FOREIGN KEY (user_id) REFERENCES sys_user(id)
+);
+
 -- Quartz tables (auto-created by Spring Boot when initialize-schema: always)
 
 -- Insert initial permissions

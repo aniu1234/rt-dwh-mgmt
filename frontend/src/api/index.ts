@@ -205,6 +205,26 @@ export async function getQueryHistory(params?: { page?: number; size?: number })
   return request<API.PageResult<any>>(`${API_PREFIX}/query/history`, { params });
 }
 
+export async function getQueryCatalog() {
+  return request<API.QueryCatalog>(`${API_PREFIX}/query/catalog`);
+}
+
+export async function getSavedQueries() {
+  return request<API.SavedQuery[]>(`${API_PREFIX}/query/saved`);
+}
+
+export async function createSavedQuery(data: API.SavedQueryPayload) {
+  return request<API.SavedQuery>(`${API_PREFIX}/query/saved`, { method: 'POST', data });
+}
+
+export async function updateSavedQuery(id: number, data: API.SavedQueryPayload) {
+  return request<API.SavedQuery>(`${API_PREFIX}/query/saved/${id}`, { method: 'PUT', data });
+}
+
+export async function deleteSavedQuery(id: number) {
+  return request<void>(`${API_PREFIX}/query/saved/${id}`, { method: 'DELETE' });
+}
+
 // Reports
 export async function getReports() {
   return request<API.ReportTemplate[]>(`${API_PREFIX}/reports`);

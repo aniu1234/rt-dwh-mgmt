@@ -166,6 +166,36 @@ declare namespace API {
     truncated?: boolean;
   }
 
+  interface QueryCatalog {
+    catalogName: string;
+    catalogKey: string;
+    databases: Array<{
+      name: string;
+      tables: Array<{
+        name: string;
+        layer: string;
+        columns: Array<{ name: string; type: string; primaryKey: boolean; nullable: boolean }>;
+      }>;
+    }>;
+  }
+
+  interface SavedQuery {
+    id: number;
+    name: string;
+    sqlText: string;
+    description?: string;
+    tags?: string;
+    createdAt: string | number[];
+    updatedAt: string | number[];
+  }
+
+  interface SavedQueryPayload {
+    name: string;
+    sqlText: string;
+    description?: string;
+    tags?: string;
+  }
+
   /** 报表模板 */
   interface ReportTemplate {
     id: number;

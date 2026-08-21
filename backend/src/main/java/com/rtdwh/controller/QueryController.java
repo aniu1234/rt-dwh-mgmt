@@ -2,9 +2,14 @@ package com.rtdwh.controller;
 
 import com.rtdwh.dto.ApiResponse;
 import com.rtdwh.dto.QueryExecuteDTO;
+import com.rtdwh.dto.QueryCatalogDTO;
+import com.rtdwh.dto.SavedQueryUpsertDTO;
 import com.rtdwh.entity.QueryHistory;
+import com.rtdwh.entity.SavedQuery;
+import com.rtdwh.service.DwhMetaService;
 import com.rtdwh.service.QueryService;
 import com.rtdwh.service.ReportService;
+import com.rtdwh.service.SavedQueryService;
 import com.rtdwh.util.SecurityContextUtil;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +31,8 @@ public class QueryController {
 
     private final QueryService queryService;
     private final ReportService reportService;
+    private final DwhMetaService dwhMetaService;
+    private final SavedQueryService savedQueryService;
     private final SecurityContextUtil securityContextUtil;
 
     /**
@@ -77,6 +84,35 @@ public class QueryController {
             @RequestParam(defaultValue = "20") int size) {
         Long userId = securityContextUtil.getCurrentUserId();
         return ApiResponse.success(queryService.getQueryHistoryPage(userId, page, size));
+    }
+
+    @GetMapping("/catalog")
+    public ApiResponse<QueryCatalogDTO> getCatalog() {
+        return ApiResponse.success(dwhMetaService.getQueryCatalog());
+    }
+
+    @GetMapping("/saved")
+    public ApiResponse<List<SavedQuery>> listSavedQueries() {
+        return ApiResponse.success(savedQueryService.list(securityContextUtil.getCurrentUserId()));
+    }
+
+    @PostMapping("/saved")
+    public ApiResponse<SavedQuery> createSavedQuery(@Valid @RequestBody SavedQueryUpsertDTO dto) {
+        return ApiResponse.success("SQL 已保存到服务端",
+                savedQueryService.create(securityContextUtil.getCurrentUserId(), dto));
+    }
+
+    @PutMapping("/saved/{id}")
+    public ApiResponse<SavedQuery> updateSavedQuery(@PathVariable Long id,
+                                                    @Valid @RequestBody SavedQueryUpsertDTO dto) {
+        return ApiResponse.success("SQL 已更新",
+                savedQueryService.update(id, securityContextUtil.getCurrentUserId(), dto));
+    }
+
+    @DeleteMapping("/saved/{id}")
+    public ApiResponse<Void> deleteSavedQuery(@PathVariable Long id) {
+        savedQueryService.delete(id, securityContextUtil.getCurrentUserId());
+        return ApiResponse.success("SQL 已删除", null);
     }
 
     /**
