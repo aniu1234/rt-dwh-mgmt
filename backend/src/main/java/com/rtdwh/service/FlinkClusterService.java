@@ -927,6 +927,16 @@ public class FlinkClusterService {
                 "throughputQps", throughputQps
             );
         } catch (Exception e) {
+            if (e instanceof RestClientResponseException responseException
+                    && responseException.getStatusCode() == HttpStatus.NOT_FOUND) {
+                log.info("Flink job no longer exists on cluster: {}", flinkJobId);
+                return Map.of(
+                        "status", "NOT_FOUND",
+                        "flinkState", "NOT_FOUND",
+                        "lagMs", 0L,
+                        "throughputQps", 0.0
+                );
+            }
             log.warn("Failed to get Flink job status for {}: {}", flinkJobId, e.getMessage());
             return Map.of("status", "UNREACHABLE", "lagMs", 0L, "throughputQps", 0.0);
         }
@@ -936,7 +946,7 @@ public class FlinkClusterService {
      * Map Flink's own job state to our internal status
      */
     private String mapFlinkState(String flinkState) {
-        switch (flinkState) {
+        switch (flinkState.toUpperCase(Locale.ROOT)) {
             case "RUNNING": return "running";
             case "CANCELED": return "finished";
             case "FAILED": return "failed";
@@ -944,7 +954,7 @@ public class FlinkClusterService {
             case "CREATED": return "submitting";
             case "RESTARTING": return "running";
             case "SUSPENDED": return "paused";
-            case "Failing": return "failed";
+            case "FAILING": return "failed";
             default: return flinkState.toLowerCase();
         }
     }

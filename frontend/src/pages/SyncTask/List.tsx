@@ -46,6 +46,8 @@ const SyncTaskList: React.FC = () => {
     getSyncTasks({ status: statusFilter, taskType: typeFilter, keyword }),
     {
       refreshDeps: [statusFilter, typeFilter, keyword],
+      pollingInterval: 10_000,
+      pollingWhenHidden: false,
     },
   );
 

@@ -461,15 +461,23 @@ public class SyncTaskService {
                 syncedCount++;
 
                 // Handle Flink state changes
-                switch (flinkState) {
+                switch (flinkState.toUpperCase(java.util.Locale.ROOT)) {
                     case "FAILED":
-                    case "Failing":
+                    case "FAILING":
                         handleFlinkJobFailure(task, flinkStatus);
                         break;
 
                     case "CANCELED":
                     case "FINISHED":
                         handleFlinkJobCompletion(task, flinkState);
+                        break;
+
+                    case "NOT_FOUND":
+                        handleMissingFlinkJob(task);
+                        break;
+
+                    case "SUSPENDED":
+                        handleSuspendedFlinkJob(task);
                         break;
 
                     case "RUNNING":
@@ -541,6 +549,27 @@ public class SyncTaskService {
 
         syncTaskRepository.save(task);
         log.info("Task [{}] marked as FINISHED (Flink state: {})", task.getTaskName(), flinkState);
+    }
+
+    private void handleMissingFlinkJob(SyncTask task) {
+        task.setStatus(TaskStatus.finished);
+        task.setSavepointTriggerId(null);
+        task.setCurrentLagMs(0L);
+        task.setThroughputQps(0.0);
+        task.setLastErrorMsg("Flink 集群中已不存在该 Job，状态已自动校准为已终止");
+        syncTaskRepository.save(task);
+        log.info("Task [{}] marked as FINISHED because Flink job [{}] was not found",
+                task.getTaskName(), task.getFlinkJobId());
+    }
+
+    private void handleSuspendedFlinkJob(SyncTask task) {
+        task.setStatus(TaskStatus.paused);
+        task.setSavepointTriggerId(null);
+        task.setCurrentLagMs(0L);
+        task.setThroughputQps(0.0);
+        task.setLastErrorMsg("Flink Job 已进入 SUSPENDED 状态，任务已自动校准为暂停");
+        syncTaskRepository.save(task);
+        log.info("Task [{}] marked as PAUSED (Flink state: SUSPENDED)", task.getTaskName());
     }
 
     private void updateRunningTaskMetrics(SyncTask task, Map<String, Object> flinkStatus) {

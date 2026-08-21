@@ -73,6 +73,9 @@ const SyncTaskDetail: React.FC = () => {
     try {
       const data = await getSyncTaskStatus(taskId);
       setStatusInfo(data);
+      setTask((previous) => previous && data?.taskStatus && previous.status !== data.taskStatus
+        ? { ...previous, status: data.taskStatus as API.SyncTask['status'] }
+        : previous);
     } catch { /* ignore */ }
   }, [taskId]);
 

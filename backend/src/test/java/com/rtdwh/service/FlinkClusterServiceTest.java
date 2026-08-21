@@ -2,10 +2,16 @@ package com.rtdwh.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.web.client.RestTemplate;
 
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 
 class FlinkClusterServiceTest {
 
@@ -61,5 +67,21 @@ class FlinkClusterServiceTest {
         assertEquals(
                 "hdfs://namenode:8020/flink/savepoints",
                 FlinkClusterService.normalizeStorageUri("hdfs://namenode:8020/flink/savepoints/"));
+    }
+
+    @Test
+    void reportsMissingJobSeparatelyFromTemporaryClusterFailure() {
+        RestTemplate restTemplate = new RestTemplate();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(restTemplate).build();
+        FlinkClusterService service = new FlinkClusterService(restTemplate, objectMapper);
+        ReflectionTestUtils.setField(service, "flinkRestUrl", "http://localhost:8081");
+        server.expect(requestTo("http://localhost:8081/jobs/missing-job"))
+                .andRespond(withStatus(HttpStatus.NOT_FOUND));
+
+        var result = service.getJobStatus("missing-job");
+
+        assertEquals("NOT_FOUND", result.get("status"));
+        assertEquals("NOT_FOUND", result.get("flinkState"));
+        server.verify();
     }
 }
