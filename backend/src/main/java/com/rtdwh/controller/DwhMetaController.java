@@ -1,6 +1,7 @@
 package com.rtdwh.controller;
 
 import com.rtdwh.dto.ApiResponse;
+import com.rtdwh.dto.DwhSnapshotDTO;
 import com.rtdwh.entity.DwhColumnMeta;
 import com.rtdwh.entity.DwhTableMeta;
 import com.rtdwh.entity.DwhTableMeta.TableLayer;
@@ -39,6 +40,11 @@ public class DwhMetaController {
     @GetMapping("/tables/{id}/columns")
     public ApiResponse<List<DwhColumnMeta>> getTableColumns(@PathVariable Long id) {
         return ApiResponse.success(dwhMetaService.getTableColumns(id));
+    }
+
+    @GetMapping("/tables/{id}/snapshots")
+    public ApiResponse<List<DwhSnapshotDTO>> getTableSnapshots(@PathVariable Long id) {
+        return ApiResponse.success(dwhMetaService.getTableSnapshots(id));
     }
 
     @PutMapping("/columns/{id}/comment")

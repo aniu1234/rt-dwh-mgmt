@@ -147,6 +147,7 @@ CREATE TABLE IF NOT EXISTS dwh_table_meta (
   latest_commit_time TIMESTAMP,
   file_count INT,
   total_size_bytes BIGINT,
+  record_count BIGINT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uk_db_table (paimon_db, paimon_table)

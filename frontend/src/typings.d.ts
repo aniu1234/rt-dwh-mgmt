@@ -97,16 +97,16 @@ declare namespace API {
   /** 数仓表元数据 */
   interface DwhTableMeta {
     id: number;
-    database: string;
-    tableName: string;
-    paimonDb?: string;
-    paimonTable?: string;
+    paimonDb: string;
+    paimonTable: string;
+    database?: string;
+    tableName?: string;
     layer: string; // ods | dwd | dws | ads
     tableType: string;
     storageFormat: string;
-    recordCount: number;
-    totalSize: number;
+    recordCount?: number;
     totalSizeBytes?: number;
+    totalSize?: number;
     fileCount: number;
     lastModifiedTime: string;
     businessDesc: string;
@@ -118,6 +118,8 @@ declare namespace API {
     primaryKeys?: string;
     snapshotCount?: number;
     latestSnapshotId?: number;
+    latestCommitTime?: string | number[];
+    schemaJson?: string;
   }
 
   /** 数仓表列元数据 */
@@ -137,6 +139,16 @@ declare namespace API {
     sortOrder?: number;
     sourceColumn?: string;
     defaultValue?: string;
+  }
+
+  interface DwhSnapshot {
+    snapshotId: number;
+    schemaId: number;
+    commitKind: string;
+    commitTime?: string | number[];
+    recordCount: number;
+    deltaRecordCount: number;
+    manifestSizeBytes: number;
   }
 
   /** 查询结果 */
@@ -309,6 +321,8 @@ declare namespace API {
     startedAt?: string;
     finishedAt?: string;
     durationMs?: number;
+    errorMsg?: string;
+    sqlContent?: string;
     paimonDb?: string;
     database?: string;
   }

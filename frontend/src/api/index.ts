@@ -148,6 +148,10 @@ export async function getDwhTableColumns(id: number) {
   return request<API.DwhColumnMeta[]>(`${API_PREFIX}/dwh/tables/${id}/columns`);
 }
 
+export async function getDwhTableSnapshots(id: number) {
+  return request<API.DwhSnapshot[]>(`${API_PREFIX}/dwh/tables/${id}/snapshots`);
+}
+
 export async function updateDwhColumnComment(id: number, comment: string) {
   return request<API.DwhColumnMeta>(`${API_PREFIX}/dwh/columns/${id}/comment`, {
     method: 'PUT',
@@ -305,7 +309,7 @@ export async function resolveQualityAlert(id: number) {
 }
 
 // Maintenance
-export async function getMaintenanceLogs(params?: { operation?: string; triggerType?: string }) {
+export async function getMaintenanceLogs(params?: { tableMetaId?: number; operation?: string; status?: string }) {
   return request<API.MaintenanceLog[]>(`${API_PREFIX}/dwh/maintenance/logs`, { params });
 }
 
