@@ -22,6 +22,7 @@ public class ReportService {
     private final ReportTemplateRepository reportTemplateRepository;
     private final ReportRunRepository reportRunRepository;
     private final ObjectMapper objectMapper;
+    private final ReportParameterRenderer parameterRenderer;
 
     @Transactional(readOnly = true)
     public List<ReportTemplate> listReports() {
@@ -91,6 +92,7 @@ public class ReportService {
     }
 
     private void applySchedule(ReportTemplate template, LocalDateTime now) {
+        parameterRenderer.validateTemplate(template.getSqlQuery(), template.getFilterConfig());
         ReportScheduleConfig config = ReportScheduleConfig.parse(template.getScheduleConfig(), objectMapper);
         template.setScheduleEnabled(config.enabled());
         template.setNextRunAt(config.enabled() ? config.nextAfter(now) : null);

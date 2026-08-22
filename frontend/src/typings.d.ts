@@ -280,6 +280,10 @@ declare namespace API {
     localScanBytes?: number;
     remoteScanBytes?: number;
     cacheWriteBytes?: number;
+    queueWaitMs?: number;
+    costScore?: number;
+    budgetExceeded?: boolean;
+    budgetReason?: string;
   }
 
   interface QueryGovernanceStats {
@@ -289,8 +293,13 @@ declare namespace API {
     successRate: number;
     p95DurationMs: number;
     runningCount: number;
+    queuedCount: number;
+    averageQueueWaitMs: number;
     concurrencyLimit: number;
+    budgetExceededCount: number;
+    budget: { scannedBytes: number; cpuMs: number; peakMemoryBytes: number };
     slowQueries: any[];
+    costlyQueries: any[];
   }
 
   interface QueryCatalog {
@@ -339,6 +348,15 @@ declare namespace API {
     isPublished: boolean;
     createdAt: string;
     updatedAt: string;
+  }
+
+  interface ReportParameterDefinition {
+    name: string;
+    label?: string;
+    type: 'string' | 'number' | 'boolean' | 'date' | 'datetime' | 'stringList';
+    required?: boolean;
+    defaultValue?: unknown;
+    placeholder?: string;
   }
 
   interface ReportRun {

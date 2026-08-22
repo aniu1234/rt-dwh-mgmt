@@ -55,6 +55,10 @@ class QueryServiceDorisTest {
         when(connectionService.getWorkloadGroup()).thenReturn("rtdwh_adhoc");
         when(connectionService.getExecMemLimitBytes()).thenReturn(1024L * 1024L * 1024L);
         when(connectionService.getConnection()).thenReturn(connection);
+        when(connectionService.getQueryRuntimeStats("trace-123")).thenReturn(
+                new DorisConnectionService.QueryRuntimeStats(
+                        "doris-query-1", 10, 200, 50, 200, 100, 100, 0, "FINISHED"));
+        when(connectionService.getQueryIdByTraceId("trace-123")).thenReturn("doris-query-1");
         when(connection.createStatement()).thenReturn(session);
         when(connection.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY))
                 .thenReturn(queryStatement);
@@ -71,6 +75,11 @@ class QueryServiceDorisTest {
         ReflectionTestUtils.setField(service, "defaultMaxRows", 1000);
         ReflectionTestUtils.setField(service, "maxExportRows", 10000);
         ReflectionTestUtils.setField(service, "defaultTimeout", 30);
+        ReflectionTestUtils.setField(service, "maxConcurrentPerUser", 2);
+        ReflectionTestUtils.setField(service, "queueWaitSeconds", 1);
+        ReflectionTestUtils.setField(service, "scannedBytesBudget", 100L);
+        ReflectionTestUtils.setField(service, "cpuMsBudget", 100L);
+        ReflectionTestUtils.setField(service, "peakMemoryBudget", 100L);
 
         QueryExecuteDTO dto = new QueryExecuteDTO();
         dto.setSql("SELECT id, name FROM users");
@@ -83,6 +92,10 @@ class QueryServiceDorisTest {
         assertEquals("ods", result.get("database"));
         assertEquals("trace-123", result.get("traceId"));
         assertEquals(1, result.get("rowCount"));
+        assertEquals(true, result.get("budgetExceeded"));
+        assertEquals(150.0, result.get("costScore"));
+        assertTrue(String.valueOf(result.get("budgetReason")).contains("扫描量"));
+        assertTrue(result.get("queueWaitMs") instanceof Long);
         assertTrue(result.get("rows").toString().contains("Alice"));
         verify(session).execute("SWITCH `rtdwh_paimon`");
         verify(session).execute("USE `ods`");

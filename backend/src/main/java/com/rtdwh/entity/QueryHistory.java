@@ -55,6 +55,17 @@ public class QueryHistory {
 
     private Long cacheWriteBytes;
 
+    private Long queueWaitMs;
+
+    private Double costScore;
+
+    @Builder.Default
+    @Column(nullable = false)
+    private Boolean budgetExceeded = false;
+
+    @Column(length = 512)
+    private String budgetReason;
+
     private Integer resultRowCount;
 
     private Long durationMs;

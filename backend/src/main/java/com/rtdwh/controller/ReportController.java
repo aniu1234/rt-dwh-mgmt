@@ -5,6 +5,7 @@ import com.rtdwh.entity.ReportTemplate;
 import com.rtdwh.service.QueryService;
 import com.rtdwh.service.ReportService;
 import com.rtdwh.service.ReportScheduleService;
+import com.rtdwh.service.ReportParameterRenderer;
 import com.rtdwh.util.SecurityContextUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -23,6 +24,7 @@ public class ReportController {
     private final QueryService queryService;
     private final ReportScheduleService reportScheduleService;
     private final SecurityContextUtil securityContextUtil;
+    private final ReportParameterRenderer parameterRenderer;
 
     @GetMapping
     public ApiResponse<List<ReportTemplate>> listReports() {
@@ -41,14 +43,17 @@ public class ReportController {
         return ApiResponse.success("Report created", reportService.createReport(template, userId));
     }
 
-    @GetMapping("/{id}/data")
-    public ApiResponse<Map<String, Object>> getReportData(@PathVariable Long id) {
+    @RequestMapping(value = "/{id}/data", method = {RequestMethod.GET, RequestMethod.POST})
+    public ApiResponse<Map<String, Object>> getReportData(
+            @PathVariable Long id,
+            @RequestBody(required = false) Map<String, Object> parameters) {
         ReportTemplate report = reportService.getReport(id);
         if (!Boolean.TRUE.equals(report.getIsPublished())) {
             throw new IllegalStateException("报告尚未发布，无法查询");
         }
 
-        Map<String, Object> result = queryService.executeReportQuery(report.getSqlQuery(), securityContextUtil.getCurrentUserId());
+        String sql = parameterRenderer.render(report.getSqlQuery(), report.getFilterConfig(), parameters);
+        Map<String, Object> result = queryService.executeReportQuery(sql, securityContextUtil.getCurrentUserId());
         return ApiResponse.success(result);
     }
 
@@ -67,9 +72,11 @@ public class ReportController {
 
     @PostMapping("/{id}/run")
     @PreAuthorize("hasAuthority('report:create')")
-    public ApiResponse<com.rtdwh.entity.ReportRun> runNow(@PathVariable Long id) {
+    public ApiResponse<com.rtdwh.entity.ReportRun> runNow(
+            @PathVariable Long id,
+            @RequestBody(required = false) Map<String, Object> parameters) {
         return ApiResponse.success("报表执行完成", reportScheduleService.runNow(
-                id, securityContextUtil.getCurrentUserId()));
+                id, securityContextUtil.getCurrentUserId(), parameters));
     }
 
     @GetMapping("/{id}/runs")

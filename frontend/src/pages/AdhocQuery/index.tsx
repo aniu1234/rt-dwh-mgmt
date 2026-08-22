@@ -308,6 +308,7 @@ const AdhocQuery: React.FC = () => {
           </Space>}>
           {result.status !== 'success' && <Alert type="error" message={result.errorMsg || '查询失败'} showIcon style={{ marginBottom: 12 }} />}
           {result.truncated && <Alert type="warning" message="结果已达到最大返回行数，请增加限制或导出 CSV" showIcon style={{ marginBottom: 12 }} />}
+          {result.budgetExceeded && <Alert type="warning" showIcon message="本次查询超出成本软预算" description={result.budgetReason} style={{ marginBottom: 12 }} />}
           <Row gutter={12} style={{ marginBottom: 12 }}>
             <Col span={6}><Statistic title="扫描行数" value={result.scannedRows ?? '—'} /></Col>
             <Col span={6}><Statistic title="扫描数据量" value={formatBytes(result.scannedBytes)} /></Col>
@@ -322,12 +323,28 @@ const AdhocQuery: React.FC = () => {
         </Card>
       )}
 
-      <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={6}><Card><Statistic title="近 1000 次成功率" value={governance?.successRate || 0} precision={1} suffix="%" /></Card></Col>
-        <Col span={6}><Card><Statistic title="P95 耗时" value={governance?.p95DurationMs || 0} suffix="ms" /></Card></Col>
-        <Col span={6}><Card><Statistic title="失败查询" value={governance?.failedCount || 0} /></Card></Col>
-        <Col span={6}><Card><Statistic title="并发使用" value={governance?.runningCount || 0} suffix={`/ ${governance?.concurrencyLimit || 2}`} /></Card></Col>
+      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+        <Col xs={24} sm={12} xl={4}><Card><Statistic title="近 1000 次成功率" value={governance?.successRate || 0} precision={1} suffix="%" /></Card></Col>
+        <Col xs={24} sm={12} xl={4}><Card><Statistic title="P95 耗时" value={governance?.p95DurationMs || 0} suffix="ms" /></Card></Col>
+        <Col xs={24} sm={12} xl={4}><Card><Statistic title="失败查询" value={governance?.failedCount || 0} /></Card></Col>
+        <Col xs={24} sm={12} xl={4}><Card><Statistic title="预算超限" value={governance?.budgetExceededCount || 0} /></Card></Col>
+        <Col xs={24} sm={12} xl={4}><Card><Statistic title="平均排队" value={governance?.averageQueueWaitMs || 0} precision={1} suffix="ms" /></Card></Col>
+        <Col xs={24} sm={12} xl={4}><Card><Statistic title="运行 / 排队" value={`${governance?.runningCount || 0} / ${governance?.queuedCount || 0}`} suffix={`· 上限 ${governance?.concurrencyLimit || 2}`} /></Card></Col>
       </Row>
+
+      <Card title="高成本查询 Top 10" style={{ marginBottom: 16 }}>
+        <Table dataSource={governance?.costlyQueries || []} rowKey="id" size="small" pagination={false}
+          locale={{ emptyText: '暂无可用的 Doris 成本指标' }}
+          columns={[
+            { title: 'SQL', dataIndex: 'sqlText', ellipsis: true },
+            { title: '成本分', dataIndex: 'costScore', width: 100, render: (value) => value == null ? '—' : <Tag color={value > 100 ? 'red' : value > 60 ? 'orange' : 'green'}>{value}</Tag> },
+            { title: '扫描量', dataIndex: 'scannedBytes', width: 120, render: formatBytes },
+            { title: 'CPU', dataIndex: 'cpuMs', width: 100, render: (value) => value == null ? '—' : `${value}ms` },
+            { title: '峰值内存', dataIndex: 'peakMemoryBytes', width: 120, render: formatBytes },
+            { title: '排队', dataIndex: 'queueWaitMs', width: 90, render: (value) => `${value || 0}ms` },
+            { title: '预算', dataIndex: 'budgetExceeded', width: 90, render: (value, record: any) => value ? <Tooltip title={record.budgetReason}><Tag color="error">超限</Tag></Tooltip> : <Tag color="success">正常</Tag> },
+          ]} />
+      </Card>
 
       <Card title="查询历史">
         <Table dataSource={historyList} rowKey="id" size="small" loading={historyLoading}
@@ -344,6 +361,8 @@ const AdhocQuery: React.FC = () => {
             { title: '扫描量', dataIndex: 'scannedBytes', width: 110, render: formatBytes },
             { title: 'CPU', dataIndex: 'cpuMs', width: 90, render: (value) => value == null ? '—' : `${value}ms` },
             { title: '峰值内存', dataIndex: 'peakMemoryBytes', width: 110, render: formatBytes },
+            { title: '排队', dataIndex: 'queueWaitMs', width: 80, render: (value) => `${value || 0}ms` },
+            { title: '成本', dataIndex: 'costScore', width: 85, render: (value, record: any) => value == null ? '—' : <Tooltip title={record.budgetReason}><Tag color={record.budgetExceeded ? 'red' : 'blue'}>{value}</Tag></Tooltip> },
             { title: '耗时', dataIndex: 'durationMs', width: 90, render: (value) => `${value || 0}ms` },
             { title: '状态', dataIndex: 'status', width: 100, render: (value) => <Tag color={{
               success: 'green', failed: 'red', cancelled: 'orange', running: 'blue',

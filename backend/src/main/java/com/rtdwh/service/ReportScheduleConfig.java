@@ -8,15 +8,19 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 record ReportScheduleConfig(boolean enabled, String cron, ZoneId zoneId, int retainCount, int maxRows,
-                            int maxRetries, String notifyOn, Set<String> notifyChannels, List<String> recipients) {
+                            int maxRetries, String notifyOn, Set<String> notifyChannels, List<String> recipients,
+                            Map<String, Object> parameters) {
     static ReportScheduleConfig parse(String json, ObjectMapper objectMapper) {
         if (json == null || json.isBlank()) {
             return new ReportScheduleConfig(false, "0 0 * * * *", ZoneId.of("Asia/Shanghai"),
-                    30, 1000, 0, "never", Set.of(), List.of());
+                    30, 1000, 0, "never", Set.of(), List.of(), Map.of());
         }
         try {
             JsonNode node = objectMapper.readTree(json);
@@ -50,8 +54,16 @@ record ReportScheduleConfig(boolean enabled, String cron, ZoneId zoneId, int ret
                     recipients.add(email);
                 }
             }
+            Map<String, Object> parameters = new LinkedHashMap<>();
+            JsonNode parameterNode = node.path("parameters");
+            if (!parameterNode.isMissingNode() && !parameterNode.isObject()) {
+                throw new IllegalArgumentException("调度参数 parameters 必须是 JSON 对象");
+            }
+            parameterNode.fields().forEachRemaining(entry ->
+                    parameters.put(entry.getKey(), objectMapper.convertValue(entry.getValue(), Object.class)));
             return new ReportScheduleConfig(enabled, cron, zoneId, retainCount, maxRows,
-                    maxRetries, notifyOn, Set.copyOf(channels), List.copyOf(recipients));
+                    maxRetries, notifyOn, Set.copyOf(channels), List.copyOf(recipients),
+                    Collections.unmodifiableMap(parameters));
         } catch (IllegalArgumentException exception) {
             throw exception;
         } catch (Exception exception) {

@@ -126,6 +126,11 @@ query:
   max-export-rows: 50000
   timeout-seconds: 60
   max-concurrent-per-user: ${QUERY_MAX_CONCURRENT_PER_USER:2}
+  queue-wait-seconds: ${QUERY_QUEUE_WAIT_SECONDS:3}
+  budget:
+    scanned-bytes: ${QUERY_BUDGET_SCANNED_BYTES:5368709120}
+    cpu-ms: ${QUERY_BUDGET_CPU_MS:30000}
+    peak-memory-bytes: ${QUERY_BUDGET_PEAK_MEMORY_BYTES:2147483648}
 
 # Doris serves interactive queries over its MySQL-compatible FE endpoint.
 doris:

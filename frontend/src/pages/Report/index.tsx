@@ -54,11 +54,17 @@ interface ReportFormValues {
   reportName: string;
   reportType: ReportType;
   sqlQuery: string;
+  filterConfig?: string;
   scheduleEnabled?: boolean;
   scheduleCron?: string;
   scheduleTimezone?: string;
   retainCount?: number;
   maxRows?: number;
+  maxRetries?: number;
+  notifyOn?: 'never' | 'success' | 'failure' | 'always';
+  notifyChannels?: string[];
+  recipients?: string;
+  scheduleParameters?: string;
 }
 
 interface ReportDataState {
@@ -90,6 +96,29 @@ const chartTypeOptions = (Object.keys(chartTypeLabel) as ReportType[]).map((valu
 }));
 
 const palette = ['#1677ff', '#52c41a', '#faad14', '#ff4d4f', '#722ed1', '#13c2c2', '#eb2f96', '#2f54eb'];
+
+const parameterTemplate = JSON.stringify({
+  parameters: [
+    { name: 'start_date', label: '开始日期', type: 'date', required: true, defaultValue: '2026-08-01' },
+    { name: 'region', label: '区域', type: 'string', required: false, defaultValue: '华东' },
+  ],
+}, null, 2);
+
+const parseParameterDefinitions = (config?: string): API.ReportParameterDefinition[] => {
+  if (!config?.trim()) return [];
+  try {
+    const parsed = JSON.parse(config);
+    const parameters = Array.isArray(parsed) ? parsed : parsed.parameters;
+    return Array.isArray(parameters) ? parameters : [];
+  } catch {
+    return [];
+  }
+};
+
+const defaultParameterValues = (definitions: API.ReportParameterDefinition[]) => Object.fromEntries(
+  definitions.filter((item) => item.defaultValue !== undefined && item.defaultValue !== null)
+    .map((item) => [item.name, item.defaultValue]),
+);
 
 const dateValue = (value?: string) => {
   if (!value) return 0;
@@ -359,11 +388,13 @@ const Report: React.FC = () => {
   const [viewReport, setViewReport] = useState<API.ReportTemplate>();
   const [viewData, setViewData] = useState<API.QueryResult>();
   const [viewLoading, setViewLoading] = useState(false);
+  const [viewParameters, setViewParameters] = useState<API.ReportParameterDefinition[]>([]);
   const [runsReport, setRunsReport] = useState<API.ReportTemplate>();
   const [reportRuns, setReportRuns] = useState<API.ReportRun[]>([]);
   const [runsLoading, setRunsLoading] = useState(false);
   const autoLoadedKeyRef = useRef('');
   const [form] = Form.useForm<ReportFormValues>();
+  const [parameterForm] = Form.useForm<Record<string, unknown>>();
 
   const { data: reportsData, loading, refresh } = useRequest(getReports);
   const reports = (reportsData || []) as API.ReportTemplate[];
@@ -431,18 +462,21 @@ const Report: React.FC = () => {
   const openCreate = () => {
     setEditingReport(undefined);
     form.resetFields();
-    form.setFieldsValue({ reportType: 'line', scheduleEnabled: false, scheduleCron: '0 0 * * * *', scheduleTimezone: 'Asia/Shanghai', retainCount: 30, maxRows: 1000, maxRetries: 0, notifyOn: 'never', notifyChannels: [] });
+    form.setFieldsValue({ reportType: 'line', scheduleEnabled: false, scheduleCron: '0 0 * * * *', scheduleTimezone: 'Asia/Shanghai', retainCount: 30, maxRows: 1000, maxRetries: 0, notifyOn: 'never', notifyChannels: [], scheduleParameters: '{}' });
     setEditorOpen(true);
   };
 
   const openEdit = (report: API.ReportTemplate) => {
     setEditingReport(report);
     let schedule: any = {};
+    let filterConfig: string | undefined;
     try { schedule = report.scheduleConfig ? JSON.parse(report.scheduleConfig) : {}; } catch { schedule = {}; }
+    try { filterConfig = report.filterConfig ? JSON.stringify(JSON.parse(report.filterConfig), null, 2) : undefined; } catch { filterConfig = report.filterConfig; }
     form.setFieldsValue({
       reportName: report.reportName,
       reportType: report.reportType,
       sqlQuery: report.sqlQuery,
+      filterConfig,
       scheduleEnabled: schedule.enabled || false,
       scheduleCron: schedule.cron || '0 0 * * * *',
       scheduleTimezone: schedule.timezone || 'Asia/Shanghai',
@@ -452,6 +486,7 @@ const Report: React.FC = () => {
       notifyOn: schedule.notifyOn || 'never',
       notifyChannels: schedule.notifyChannels || [],
       recipients: schedule.recipients || '',
+      scheduleParameters: JSON.stringify(schedule.parameters || {}, null, 2),
     });
     setEditorOpen(true);
   };
@@ -460,7 +495,12 @@ const Report: React.FC = () => {
     try {
       const values = await form.validateFields();
       const { scheduleEnabled, scheduleCron, scheduleTimezone, retainCount, maxRows,
-        maxRetries, notifyOn, notifyChannels, recipients, ...reportValues } = values;
+        maxRetries, notifyOn, notifyChannels, recipients, scheduleParameters, filterConfig, ...reportValues } = values;
+      const parsedFilterConfig = filterConfig?.trim() ? JSON.parse(filterConfig) : undefined;
+      const parsedScheduleParameters = scheduleParameters?.trim() ? JSON.parse(scheduleParameters) : {};
+      if (parsedScheduleParameters && (Array.isArray(parsedScheduleParameters) || typeof parsedScheduleParameters !== 'object')) {
+        throw new Error('定时参数必须是 JSON 对象');
+      }
       const scheduleConfig = JSON.stringify({
         enabled: !!scheduleEnabled,
         cron: scheduleCron || '0 0 * * * *',
@@ -471,13 +511,15 @@ const Report: React.FC = () => {
         notifyOn: notifyOn || 'never',
         notifyChannels: notifyChannels || [],
         recipients: recipients || '',
+        parameters: parsedScheduleParameters,
       });
+      const normalizedFilterConfig = parsedFilterConfig ? JSON.stringify(parsedFilterConfig) : undefined;
       setSubmitting(true);
       if (editingReport) {
-        await updateReport(editingReport.id, { ...editingReport, ...reportValues, scheduleConfig });
+        await updateReport(editingReport.id, { ...editingReport, ...reportValues, filterConfig: normalizedFilterConfig, scheduleConfig });
         message.success('报表已更新');
       } else {
-        await createReport({ ...reportValues, scheduleConfig, isPublished: false });
+        await createReport({ ...reportValues, filterConfig: normalizedFilterConfig, scheduleConfig, isPublished: false });
         message.success('报表已创建，可发布后加入看板');
       }
       setEditorOpen(false);
@@ -529,22 +571,17 @@ const Report: React.FC = () => {
     }
   };
 
-  const openPreview = async (report: API.ReportTemplate) => {
-    setViewReport(report);
+  const loadPreviewData = async (report: API.ReportTemplate, parameters: Record<string, unknown>) => {
     setViewLoading(true);
-    const cached = reportStates[report.id]?.data;
-    if (cached) {
-      setViewData(cached);
-      setViewLoading(false);
-      return;
-    }
     try {
-      const data = await getReportData(report.id);
+      const data = await getReportData(report.id, parameters);
       setViewData(data);
-      setReportStates((current) => ({
-        ...current,
-        [report.id]: { data, loading: false, updatedAt: Date.now() },
-      }));
+      if (!parseParameterDefinitions(report.filterConfig).length) {
+        setReportStates((current) => ({
+          ...current,
+          [report.id]: { data, loading: false, updatedAt: Date.now() },
+        }));
+      }
     } catch (error: any) {
       setViewData({ columns: [], rows: [], status: 'failed', errorMsg: error?.message || '报表查询失败' });
     } finally {
@@ -552,9 +589,34 @@ const Report: React.FC = () => {
     }
   };
 
+  const openPreview = async (report: API.ReportTemplate) => {
+    const definitions = parseParameterDefinitions(report.filterConfig);
+    const defaults = defaultParameterValues(definitions);
+    setViewReport(report);
+    setViewParameters(definitions);
+    setViewData(undefined);
+    parameterForm.resetFields();
+    parameterForm.setFieldsValue(defaults);
+    const cached = definitions.length ? undefined : reportStates[report.id]?.data;
+    if (cached) {
+      setViewData(cached);
+      setViewLoading(false);
+      return;
+    }
+    const missingRequired = definitions.some((item) => item.required
+      && (item.defaultValue === undefined || item.defaultValue === null || item.defaultValue === ''));
+    if (missingRequired) {
+      setViewLoading(false);
+      return;
+    }
+    await loadPreviewData(report, defaults);
+  };
+
   const closePreview = () => {
     setViewReport(undefined);
     setViewData(undefined);
+    setViewParameters([]);
+    parameterForm.resetFields();
   };
 
   const refreshDashboard = async () => {
@@ -781,6 +843,38 @@ const Report: React.FC = () => {
           >
             <Input.TextArea className="report-sql-editor" autoSize={{ minRows: 8, maxRows: 16 }} spellCheck={false} placeholder={'SELECT\n  dt,\n  SUM(amount) AS total_amount\nFROM ads_order_daily\nGROUP BY dt\nORDER BY dt'} />
           </Form.Item>
+          <Card
+            size="small"
+            title="查询参数（可选）"
+            extra={<Button size="small" onClick={() => form.setFieldValue('filterConfig', parameterTemplate)}>一键代入模板</Button>}
+          >
+            <Alert
+              type="info"
+              showIcon
+              message="SQL 使用 {{参数名}} 占位"
+              description="参数只作为值写入，支持 string、number、boolean、date、datetime、stringList；不支持动态表名或字段名。"
+              style={{ marginBottom: 12 }}
+            />
+            <Form.Item
+              name="filterConfig"
+              label="参数定义（JSON）"
+              extra={'示例：WHERE dt >= {{start_date}} AND region = {{region}}'}
+              rules={[{
+                validator: async (_, value?: string) => {
+                  if (!value?.trim()) return;
+                  try {
+                    const parsed = JSON.parse(value);
+                    const parameters = Array.isArray(parsed) ? parsed : parsed.parameters;
+                    if (!Array.isArray(parameters)) throw new Error();
+                  } catch {
+                    throw new Error('请输入参数数组，或包含 parameters 数组的合法 JSON');
+                  }
+                },
+              }]}
+            >
+              <Input.TextArea autoSize={{ minRows: 4, maxRows: 12 }} spellCheck={false} placeholder={parameterTemplate} />
+            </Form.Item>
+          </Card>
           <Card size="small" title="定时运行" style={{ marginTop: 12 }}>
             <Form.Item name="scheduleEnabled" label="启用调度" valuePropName="checked">
               <Switch />
@@ -812,6 +906,24 @@ const Report: React.FC = () => {
                       <Input placeholder="owner@example.com, data-team@example.com" />
                     </Form.Item>
                   )}
+                </Form.Item>
+                <Form.Item
+                  name="scheduleParameters"
+                  label="定时运行参数（JSON）"
+                  extra="覆盖参数定义中的默认值；必须是键值对象，例如 {&quot;region&quot;:&quot;华东&quot;}"
+                  rules={[{
+                    validator: async (_, value?: string) => {
+                      if (!value?.trim()) return;
+                      try {
+                        const parsed = JSON.parse(value);
+                        if (Array.isArray(parsed) || parsed === null || typeof parsed !== 'object') throw new Error();
+                      } catch {
+                        throw new Error('请输入合法的 JSON 对象');
+                      }
+                    },
+                  }]}
+                >
+                  <Input.TextArea autoSize={{ minRows: 2, maxRows: 6 }} spellCheck={false} placeholder={'{"region":"华东"}'} />
                 </Form.Item>
               </>}
             </Form.Item>
@@ -860,6 +972,43 @@ const Report: React.FC = () => {
           <Button key="export" type="primary" icon={<CloudDownloadOutlined />} disabled={!viewData?.rows?.length} onClick={() => exportResult(viewReport?.reportName || 'report', viewData)}>导出 CSV</Button>,
         ]}
       >
+        {viewReport && viewParameters.length > 0 && (
+          <Card size="small" title="查询条件" style={{ marginBottom: 16 }}>
+            <Form
+              form={parameterForm}
+              layout="inline"
+              onFinish={(values) => loadPreviewData(viewReport, values)}
+            >
+              {viewParameters.map((parameter) => (
+                <Form.Item
+                  key={parameter.name}
+                  name={parameter.name}
+                  label={parameter.label || parameter.name}
+                  rules={[{ required: parameter.required, message: `请填写${parameter.label || parameter.name}` }]}
+                  style={{ marginBottom: 12 }}
+                >
+                  {parameter.type === 'number' ? (
+                    <InputNumber placeholder={parameter.placeholder} style={{ width: 180 }} />
+                  ) : parameter.type === 'boolean' ? (
+                    <Select
+                      style={{ width: 140 }}
+                      options={[{ label: '是', value: true }, { label: '否', value: false }]}
+                      placeholder="请选择"
+                    />
+                  ) : (
+                    <Input
+                      style={{ width: 210 }}
+                      placeholder={parameter.placeholder || (parameter.type === 'stringList' ? '多个值用逗号分隔' : undefined)}
+                    />
+                  )}
+                </Form.Item>
+              ))}
+              <Form.Item style={{ marginBottom: 12 }}>
+                <Button type="primary" htmlType="submit" loading={viewLoading}>应用条件</Button>
+              </Form.Item>
+            </Form>
+          </Card>
+        )}
         {viewLoading ? <Skeleton active paragraph={{ rows: 10 }} /> : viewReport && (
           <>
             <div className="report-detail-meta">

@@ -9,6 +9,7 @@ import com.rtdwh.entity.SavedQuery;
 import com.rtdwh.service.DorisCatalogService;
 import com.rtdwh.service.QueryService;
 import com.rtdwh.service.ReportService;
+import com.rtdwh.service.ReportParameterRenderer;
 import com.rtdwh.service.SavedQueryService;
 import com.rtdwh.util.SecurityContextUtil;
 import jakarta.validation.Valid;
@@ -36,6 +37,7 @@ public class QueryController {
     private final DorisCatalogService dorisCatalogService;
     private final SavedQueryService savedQueryService;
     private final SecurityContextUtil securityContextUtil;
+    private final ReportParameterRenderer parameterRenderer;
 
     /**
      * Execute an ad-hoc SQL query.
@@ -140,8 +142,7 @@ public class QueryController {
         if (!Boolean.TRUE.equals(report.getIsPublished())) {
             throw new IllegalStateException("报告尚未发布，无法查询");
         }
-        // Report filters are deliberately not concatenated into SQL. Templates must
-        // contain safe, read-only SQL; parameter binding can be added per connector.
-        return ApiResponse.success(queryService.executeReportQuery(report.getSqlQuery(), userId));
+        String sql = parameterRenderer.render(report.getSqlQuery(), report.getFilterConfig(), params);
+        return ApiResponse.success(queryService.executeReportQuery(sql, userId));
     }
 }

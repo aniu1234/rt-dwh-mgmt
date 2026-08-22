@@ -162,11 +162,11 @@ CDC 是常驻流任务，不参与按日期补数；除内置 Flink SQL Runner �
 
 - 自动初始化 Doris Paimon External Catalog，并关闭 Paimon table-object 缓存以读取最新 Snapshot；
 - 浏览 Catalog／Database／Table／Column，使用 Monaco SQL 编辑器和上下文智能补全；
-- 执行只读 SQL 校验、超时控制、最大行数限制、结果截断和用户并发限制；
+- 执行只读 SQL 校验、超时控制、最大行数限制、结果截断、用户并发限制和公平短时排队；
 - 支持查询取消、CSV 导出、服务端／浏览器 SQL 收藏和查询历史；
 - 记录执行引擎、Catalog、Database、Trace ID、耗时、状态和错误信息；
-- 汇总成功率、P95 耗时、失败查询和并发使用情况；
-- 基于 SQL 模板配置表格、折线、柱状、饼图和混合图报表，形成业务看板。
+- 采集 Doris 扫描量、CPU、峰值内存和 Query Profile，展示排队耗时、成本软预算及高成本查询排行；
+- 基于安全的类型化参数 SQL 模板配置表格、折线、柱状、饼图和混合图报表，支持手动／定时参数、快照与订阅分发。
 
 这里的“实时可见”由两部分组成：Flink 在 Checkpoint 时提交 Paimon Snapshot，Doris 查询最新 Snapshot。端到端可见延迟通常不超过一个 Checkpoint 周期加查询时间。
 
@@ -202,11 +202,11 @@ CDC 是常驻流任务，不参与按日期补数；除内置 Flink SQL Runner �
 
 ## 未完成能力
 
-核心交付闭环和首批 P1 能力已经落地，后续工作集中在更细粒度的数据权限、分发订阅和成本归因：
+核心交付闭环和首批 P1 能力已经落地，后续工作集中在更细粒度的数据权限、兼容性回归和生产部署验收：
 
 | 优先级 | 近期重点 |
 |---|---|
-| P1 | PostgreSQL Slot 生命周期、Doris 运行指标/Profile、报表计划/快照/订阅通知、用户角色管理和可渲染 Helm Chart 已完成首版；继续补充数据域权限、查询排队与成本预算、参数化报表和最小集群安装验收 |
+| P1 | PostgreSQL Slot 生命周期、Doris 指标/Profile/排队/成本预算、参数化报表与计划分发、用户角色管理和 Helm Chart 已完成首版；继续补充数据域权限、PostgreSQL 类型兼容回归和最小集群安装验收 |
 | P2 | 建设列级血缘与脱敏、统一指标与数据产品、SLA／成本看板和变更审批流程 |
 
 各项现状、缺口和验收标准见 [`docs/product-roadmap.md`](docs/product-roadmap.md)。
@@ -410,6 +410,10 @@ npm run dev
 | `DORIS_WORKLOAD_GROUP` | 即席查询 Workload Group | `rtdwh_adhoc` |
 | `DORIS_EXEC_MEM_LIMIT_BYTES` | 单查询执行内存限制 | `2147483648` |
 | `QUERY_MAX_CONCURRENT_PER_USER` | 单用户并发查询上限 | `2` |
+| `QUERY_QUEUE_WAIT_SECONDS` | 并发槽位的最长排队时间 | `3` |
+| `QUERY_BUDGET_SCANNED_BYTES` | 单查询扫描量软预算 | `5368709120` |
+| `QUERY_BUDGET_CPU_MS` | 单查询 CPU 时间软预算 | `30000` |
+| `QUERY_BUDGET_PEAK_MEMORY_BYTES` | 单查询峰值内存软预算 | `2147483648` |
 
 ### 监控与用户初始化
 

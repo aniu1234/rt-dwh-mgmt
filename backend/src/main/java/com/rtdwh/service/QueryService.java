@@ -32,6 +32,8 @@ import java.util.UUID;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
@@ -52,9 +54,18 @@ public class QueryService {
     @Value("${query.max-export-rows}") private int maxExportRows;
     @Value("${query.timeout-seconds}") private int defaultTimeout;
     @Value("${query.max-concurrent-per-user:2}") private int maxConcurrentPerUser;
+    @Value("${query.queue-wait-seconds:3}") private int queueWaitSeconds;
+    @Value("${query.budget.scanned-bytes:5368709120}") private long scannedBytesBudget;
+    @Value("${query.budget.cpu-ms:30000}") private long cpuMsBudget;
+    @Value("${query.budget.peak-memory-bytes:2147483648}") private long peakMemoryBudget;
 
     private final ConcurrentHashMap<Long, ActiveQuery> active = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Long> requests = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Long, Semaphore> querySlots = new ConcurrentHashMap<>();
+
+    private record QueryPermit(Semaphore semaphore, long waitMs) implements AutoCloseable {
+        @Override public void close() { semaphore.release(); }
+    }
 
     private static final class ActiveQuery {
         final Long userId;
@@ -96,12 +107,13 @@ public class QueryService {
 
     private Map<String, Object> execute(QueryExecuteDTO dto, Long userId, QueryType type, int rowLimit) {
         String sql = validateSql(dto.getSql());
-        int concurrencyLimit = Math.max(1, maxConcurrentPerUser);
-        long currentConcurrency = active.values().stream().filter(query -> Objects.equals(query.userId, userId)).count();
-        if (currentConcurrency >= concurrencyLimit) {
-            throw new IllegalStateException("当前用户并发查询数已达到上限 " + concurrencyLimit);
+        try (QueryPermit permit = acquirePermit(userId)) {
+            return executeWithPermit(dto, userId, type, rowLimit, sql, permit.waitMs());
         }
+    }
 
+    private Map<String, Object> executeWithPermit(QueryExecuteDTO dto, Long userId, QueryType type,
+                                                  int rowLimit, String sql, long queueWaitMs) {
         int maxRows = Math.max(1, Math.min(dto.getMaxRows() == null ? defaultMaxRows : dto.getMaxRows(), rowLimit));
         int timeout = Math.max(1, Math.min(dto.getTimeoutSeconds() == null ? defaultTimeout : dto.getTimeoutSeconds(), 1800));
         String catalog = defaultIfBlank(dto.getCatalog(), dorisConnectionService.getCatalog());
@@ -115,6 +127,7 @@ public class QueryService {
                 .queryType(type)
                 .queryEngine("doris")
                 .traceId(requestId)
+                .queueWaitMs(queueWaitMs)
                 .status(QueryStatus.running)
                 .build());
         long historyId = history.getId();
@@ -162,6 +175,7 @@ public class QueryService {
 
         history.setQueryId(dorisQueryId);
         applyRuntimeStats(history, metrics);
+        evaluateBudget(history);
         history.setResultRowCount(rows.size());
         history.setDurationMs(duration);
         history.setStatus(status);
@@ -190,7 +204,28 @@ public class QueryService {
         result.put("localScanBytes", metrics == null ? null : metrics.localScanBytes());
         result.put("remoteScanBytes", metrics == null ? null : metrics.remoteScanBytes());
         result.put("cacheWriteBytes", metrics == null ? null : metrics.cacheWriteBytes());
+        result.put("queueWaitMs", queueWaitMs);
+        result.put("costScore", history.getCostScore());
+        result.put("budgetExceeded", history.getBudgetExceeded());
+        result.put("budgetReason", history.getBudgetReason());
         return result;
+    }
+
+    private QueryPermit acquirePermit(Long userId) {
+        int concurrencyLimit = Math.max(1, maxConcurrentPerUser);
+        Semaphore semaphore = querySlots.computeIfAbsent(userId, ignored -> new Semaphore(concurrencyLimit, true));
+        long started = System.nanoTime();
+        boolean acquired;
+        try {
+            acquired = semaphore.tryAcquire(Math.max(0, queueWaitSeconds), TimeUnit.SECONDS);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("等待查询执行槽位时被中断");
+        }
+        if (!acquired) {
+            throw new IllegalStateException("查询队列等待超时，请稍后重试（并发上限 " + concurrencyLimit + "）");
+        }
+        return new QueryPermit(semaphore, TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started));
     }
 
     private void monitorRuntimeStats(
@@ -228,6 +263,27 @@ public class QueryService {
         history.setLocalScanBytes(metrics.localScanBytes());
         history.setRemoteScanBytes(metrics.remoteScanBytes());
         history.setCacheWriteBytes(metrics.cacheWriteBytes());
+    }
+
+    private void evaluateBudget(QueryHistory history) {
+        List<Double> ratios = new ArrayList<>();
+        List<String> reasons = new ArrayList<>();
+        addBudgetMetric("扫描量", history.getScannedBytes(), scannedBytesBudget, ratios, reasons);
+        addBudgetMetric("CPU", history.getCpuMs(), cpuMsBudget, ratios, reasons);
+        addBudgetMetric("峰值内存", history.getPeakMemoryBytes(), peakMemoryBudget, ratios, reasons);
+        if (!ratios.isEmpty()) {
+            double score = ratios.stream().mapToDouble(Double::doubleValue).average().orElse(0D) * 100D;
+            history.setCostScore(Math.round(score * 10D) / 10D);
+        }
+        history.setBudgetExceeded(!reasons.isEmpty());
+        history.setBudgetReason(reasons.isEmpty() ? null : String.join("；", reasons));
+    }
+
+    private void addBudgetMetric(String name, Long actual, long budget,
+                                 List<Double> ratios, List<String> reasons) {
+        if (actual == null || budget <= 0) return;
+        ratios.add(actual.doubleValue() / budget);
+        if (actual > budget) reasons.add(name + " " + actual + " > " + budget);
     }
 
     private boolean executeViaDorisJdbc(
@@ -337,6 +393,13 @@ public class QueryService {
         List<QueryHistory> slowQueries = history.stream().filter(item -> item.getDurationMs() != null)
                 .sorted((left, right) -> Long.compare(right.getDurationMs(), left.getDurationMs()))
                 .limit(10).toList();
+        List<QueryHistory> costlyQueries = history.stream().filter(item -> item.getCostScore() != null)
+                .sorted((left, right) -> Double.compare(right.getCostScore(), left.getCostScore()))
+                .limit(10).toList();
+        long budgetExceeded = history.stream().filter(item -> Boolean.TRUE.equals(item.getBudgetExceeded())).count();
+        double averageQueueWait = history.stream().map(QueryHistory::getQueueWaitMs).filter(Objects::nonNull)
+                .mapToLong(Long::longValue).average().orElse(0D);
+        Semaphore slots = querySlots.get(userId);
         Map<String, Object> stats = new LinkedHashMap<>();
         stats.put("sampleSize", history.size());
         stats.put("successCount", success);
@@ -344,8 +407,16 @@ public class QueryService {
         stats.put("successRate", history.isEmpty() ? 0D : success * 100D / history.size());
         stats.put("p95DurationMs", p95);
         stats.put("runningCount", active.values().stream().filter(query -> Objects.equals(query.userId, userId)).count());
+        stats.put("queuedCount", slots == null ? 0 : slots.getQueueLength());
+        stats.put("averageQueueWaitMs", Math.round(averageQueueWait * 10D) / 10D);
         stats.put("concurrencyLimit", Math.max(1, maxConcurrentPerUser));
+        stats.put("budgetExceededCount", budgetExceeded);
+        stats.put("budget", Map.of(
+                "scannedBytes", scannedBytesBudget,
+                "cpuMs", cpuMsBudget,
+                "peakMemoryBytes", peakMemoryBudget));
         stats.put("slowQueries", slowQueries);
+        stats.put("costlyQueries", costlyQueries);
         return stats;
     }
 

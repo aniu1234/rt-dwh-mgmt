@@ -231,6 +231,10 @@ services:
       - DORIS_PAIMON_JDBC_URI=jdbc:mysql://mysql:3306/rtdwh_paimon_meta?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
       - DORIS_PAIMON_TABLE_CACHE_TTL_SECONDS=${DORIS_PAIMON_TABLE_CACHE_TTL_SECONDS:-0}
       - QUERY_MAX_CONCURRENT_PER_USER=${QUERY_MAX_CONCURRENT_PER_USER:-2}
+      - QUERY_QUEUE_WAIT_SECONDS=${QUERY_QUEUE_WAIT_SECONDS:-3}
+      - QUERY_BUDGET_SCANNED_BYTES=${QUERY_BUDGET_SCANNED_BYTES:-5368709120}
+      - QUERY_BUDGET_CPU_MS=${QUERY_BUDGET_CPU_MS:-30000}
+      - QUERY_BUDGET_PEAK_MEMORY_BYTES=${QUERY_BUDGET_PEAK_MEMORY_BYTES:-2147483648}
       - PAIMON_WAREHOUSE=/data/paimon
       - PAIMON_JDBC_URI=jdbc:mysql://mysql:3306/rtdwh_paimon_meta?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
       - PAIMON_JDBC_USER=${PAIMON_JDBC_USER:-rtdwh_admin}

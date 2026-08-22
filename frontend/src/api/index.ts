@@ -347,8 +347,11 @@ export async function getReports() {
   return request<API.ReportTemplate[]>(`${API_PREFIX}/reports`);
 }
 
-export async function getReportData(id: number) {
-  return request<API.QueryResult>(`${API_PREFIX}/reports/${id}/data`);
+export async function getReportData(id: number, parameters?: Record<string, unknown>) {
+  return request<API.QueryResult>(`${API_PREFIX}/reports/${id}/data`, {
+    method: 'POST',
+    data: parameters || {},
+  });
 }
 
 export async function createReport(data: any) {
@@ -363,8 +366,11 @@ export async function deleteReport(id: number) {
   return request<void>(`${API_PREFIX}/reports/${id}`, { method: 'DELETE' });
 }
 
-export async function runReportNow(id: number) {
-  return request<API.ReportRun>(`${API_PREFIX}/reports/${id}/run`, { method: 'POST' });
+export async function runReportNow(id: number, parameters?: Record<string, unknown>) {
+  return request<API.ReportRun>(`${API_PREFIX}/reports/${id}/run`, {
+    method: 'POST',
+    data: parameters || {},
+  });
 }
 
 export async function getReportRuns(id: number, limit = 50) {

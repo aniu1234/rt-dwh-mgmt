@@ -24,24 +24,25 @@ public class ReportScheduleService {
     private final ReportRunRepository runRepository;
     private final ObjectMapper objectMapper;
     private final AlertNotifyService alertNotifyService;
+    private final ReportParameterRenderer parameterRenderer;
 
     public int runDueReports() {
         int executed = 0;
         for (int index = 0; index < 20; index++) {
             ReportService.ReportClaim claim = reportService.claimNextDue(LocalDateTime.now()).orElse(null);
             if (claim == null) break;
-            execute(claim.report(), "scheduled", claim.scheduledAt(), claim.report().getCreatorId());
+            execute(claim.report(), "scheduled", claim.scheduledAt(), claim.report().getCreatorId(), null);
             executed++;
         }
         return executed;
     }
 
-    public ReportRun runNow(Long reportId, Long userId) {
+    public ReportRun runNow(Long reportId, Long userId, Map<String, Object> parameters) {
         ReportTemplate report = reportService.getReport(reportId);
         if (!Boolean.TRUE.equals(report.getIsPublished())) {
             throw new IllegalStateException("报表尚未发布，不能执行调度");
         }
-        return execute(report, "manual", LocalDateTime.now(), userId);
+        return execute(report, "manual", LocalDateTime.now(), userId, parameters);
     }
 
     public List<ReportRun> listRuns(Long reportId, int limit) {
@@ -69,7 +70,8 @@ public class ReportScheduleService {
     }
 
     private ReportRun execute(ReportTemplate report, String triggerType,
-                              LocalDateTime scheduledAt, Long userId) {
+                              LocalDateTime scheduledAt, Long userId,
+                              Map<String, Object> requestedParameters) {
         LocalDateTime started = LocalDateTime.now();
         ReportRun run = runRepository.save(ReportRun.builder()
                 .reportId(report.getId())
@@ -81,12 +83,15 @@ public class ReportScheduleService {
                 .deliveryStatus("skipped")
                 .build());
         ReportScheduleConfig config = ReportScheduleConfig.parse(report.getScheduleConfig(), objectMapper);
+        Map<String, Object> parameters = requestedParameters == null ? config.parameters() : requestedParameters;
         int attempt = 0;
         while (attempt <= config.maxRetries()) {
             attempt++;
             try {
+                String renderedSql = parameterRenderer.render(
+                        report.getSqlQuery(), report.getFilterConfig(), parameters);
                 Map<String, Object> result = queryService.executeReportQuery(
-                        report.getSqlQuery(), userId, config.maxRows());
+                        renderedSql, userId, config.maxRows());
                 String status = String.valueOf(result.getOrDefault("status", "failed"));
                 run.setStatus("success".equalsIgnoreCase(status) ? "success" : "failed");
                 run.setRowCount(number(result.get("rowCount")));
