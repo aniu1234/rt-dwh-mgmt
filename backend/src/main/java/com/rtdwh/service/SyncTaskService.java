@@ -50,7 +50,10 @@ public class SyncTaskService {
         } catch (Exception e) {
             throw new IllegalArgumentException("任务类型或同步策略不合法");
         }
-        if (Objects.equals(dto.getSourceConfigId(), dto.getTargetConfigId())) {
+        // CDC represents a physical source-to-lake copy, so source and target
+        // must differ. SQL/Materialized tasks may legitimately read and write
+        // through the same Paimon datasource while targeting different tables.
+        if (taskType == TaskType.cdc_sync && Objects.equals(dto.getSourceConfigId(), dto.getTargetConfigId())) {
             throw new IllegalArgumentException("源数据源和目标数据源不能相同");
         }
         DatasourceConfig source = datasourceService.getDatasource(dto.getSourceConfigId());
@@ -76,6 +79,7 @@ public class SyncTaskService {
                 .taskName(dto.getTaskName())
                 .description(dto.getDescription())
                 .taskType(taskType)
+                .scenarioCode(resolveScenarioCode(dto.getScenarioCode(), taskType))
                 .sourceConfigId(dto.getSourceConfigId())
                 .targetConfigId(dto.getTargetConfigId())
                 .flinkSql(dto.getFlinkSql())
@@ -88,6 +92,15 @@ public class SyncTaskService {
                 .build();
 
         return syncTaskRepository.save(task);
+    }
+
+    private String resolveScenarioCode(String scenarioCode, TaskType taskType) {
+        if (scenarioCode != null && !scenarioCode.isBlank()) return scenarioCode.trim();
+        return switch (taskType) {
+            case cdc_sync -> "table_realtime_sync";
+            case etl -> "sql_transform";
+            case materialized -> "materialized_table";
+        };
     }
 
     public SyncTask getTask(Long id) {

@@ -43,6 +43,7 @@ class SyncTaskServiceTest {
         assertEquals("test_cdc_task", task.getTaskName());
         assertEquals(TaskStatus.draft, task.getStatus());
         assertEquals(SyncTask.TaskType.cdc_sync, task.getTaskType());
+        assertEquals("table_realtime_sync", task.getScenarioCode());
     }
 
     @Test
@@ -52,6 +53,7 @@ class SyncTaskServiceTest {
         SyncTaskCreateDTO dto = new SyncTaskCreateDTO();
         dto.setTaskName("test_get_task");
         dto.setTaskType("cdc_sync");
+        dto.setScenarioCode("database_realtime_sync");
         Long[] datasourceIds = createDatasources();
         dto.setSourceConfigId(datasourceIds[0]);
         dto.setTargetConfigId(datasourceIds[1]);
@@ -64,6 +66,7 @@ class SyncTaskServiceTest {
 
         assertEquals(created.getId(), fetched.getId());
         assertEquals("test_get_task", fetched.getTaskName());
+        assertEquals("database_realtime_sync", fetched.getScenarioCode());
     }
 
     @Test

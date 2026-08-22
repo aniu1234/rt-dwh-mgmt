@@ -34,6 +34,7 @@ declare namespace API {
     name: string;
     description: string;
     taskType: string; // CDC | SQL | BATCH | cdc_sync | etl | materialized
+    scenarioCode?: string; // product scenario, e.g. table_realtime_sync
     status: string; // draft | submitting | running | paused | failed | cancelled | finished | saving_point
     sourceDatasourceId: number;
     sourceDatasourceName?: string;

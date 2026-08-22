@@ -202,6 +202,7 @@ public class SyncTaskController {
             // Build a temporary SyncTask from the config
             SyncTask task = new SyncTask();
             task.setTaskName((String) config.getOrDefault("taskName", "preview"));
+            task.setScenarioCode((String) config.getOrDefault("scenarioCode", "table_realtime_sync"));
             task.setTaskType(SyncTask.TaskType.valueOf((String) config.getOrDefault("taskType", "cdc_sync")));
             task.setSyncStrategy(SyncTask.SyncStrategy.valueOf((String) config.getOrDefault("syncStrategy", "full_then_incremental")));
             task.setParallelism(Integer.parseInt(String.valueOf(config.getOrDefault("parallelism", 1))));

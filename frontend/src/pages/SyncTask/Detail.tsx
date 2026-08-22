@@ -18,21 +18,16 @@ import {
   retrySyncTask, triggerSavepoint, updateSyncTask, deleteSyncTask,
   syncAllTaskStatus, getPostgresCdcStatus, cleanupPostgresCdc,
 } from '@/api';
+import { getTaskScenarioColor, getTaskScenarioLabel, taskTypeLabel } from './scenarios';
 
 const statusConfig: Record<string, { color: string; label: string; badge: string }> = {
-  draft: { color: 'default', label: 'Draft', badge: 'default' },
+  draft: { color: 'default', label: '未启动', badge: 'default' },
   submitting: { color: 'processing', label: '提交中', badge: 'processing' },
-  running: { color: 'blue', label: 'Running', badge: 'processing' },
-  saving_point: { color: 'warning', label: '保存中', badge: 'warning' },
-  paused: { color: 'orange', label: 'Paused', badge: 'warning' },
-  failed: { color: 'red', label: 'Failed', badge: 'error' },
-  finished: { color: 'green', label: 'Finished', badge: 'success' },
-};
-
-const taskTypeMap: Record<string, string> = {
-  cdc_sync: 'CDC同步',
-  etl: 'ETL',
-  materialized: '物化表',
+  running: { color: 'blue', label: '运行中', badge: 'processing' },
+  saving_point: { color: 'warning', label: '保存断点', badge: 'warning' },
+  paused: { color: 'orange', label: '已暂停', badge: 'warning' },
+  failed: { color: 'red', label: '启动／运行失败', badge: 'error' },
+  finished: { color: 'green', label: '已终止', badge: 'success' },
 };
 
 const syncStrategyMap: Record<string, string> = {
@@ -140,7 +135,8 @@ const SyncTaskDetail: React.FC = () => {
       switch (action) {
         case 'start':
           res = await startSyncTask(taskId);
-          message.success(res?.status === 'running' ? '任务已启动' : '任务正在提交中...');
+          if (res?.status === 'failed') message.error(res.lastErrorMsg || '任务启动失败，请根据错误信息修复后重试');
+          else message.success(res?.status === 'running' ? '任务启动成功' : '任务正在提交到 Flink');
           break;
         case 'pause':
           res = await pauseSyncTask(taskId);
@@ -156,7 +152,8 @@ const SyncTaskDetail: React.FC = () => {
           break;
         case 'retry':
           res = await retrySyncTask(taskId);
-          message.success(res?.status === 'running' ? '任务重试成功' : '重试操作进行中');
+          if (res?.status === 'failed') message.error(res.lastErrorMsg || '任务重试失败，请检查配置和 Flink 状态');
+          else message.success(res?.status === 'running' ? '任务重试成功' : '任务正在重新提交');
           break;
         case 'savepoint':
           res = await triggerSavepoint(taskId);
@@ -239,24 +236,24 @@ const SyncTaskDetail: React.FC = () => {
     switch (currentStatus) {
       case 'draft':
         return [
-          <Tooltip title="提交任务到 Flink 集群">{btn('start', '启动', <PlayCircleOutlined />, 'primary')}</Tooltip>,
-          <Tooltip title="编辑任务配置">
+          <Tooltip key="start" title="提交任务到 Flink 集群">{btn('start', '启动', <PlayCircleOutlined />, 'primary')}</Tooltip>,
+          <Tooltip key="edit" title="编辑任务配置">
             <Button icon={<EditOutlined />} onClick={handleEdit}>编辑</Button>
           </Tooltip>,
-          <Popconfirm title="确认删除此任务？" onConfirm={handleDelete}>
+          <Popconfirm key="delete" title="确认删除此任务？" onConfirm={handleDelete}>
             <Button danger icon={<DeleteOutlined />}>删除</Button>
           </Popconfirm>,
         ];
       case 'submitting':
         return [
-          <Badge status="processing" text="正在提交到 Flink..." />,
-          <Tooltip title="手动同步状态">{btn('sync', '同步', <SyncOutlined />)}</Tooltip>,
+          <Badge key="submitting" status="processing" text="正在提交到 Flink..." />,
+          <Tooltip key="sync" title="手动同步状态">{btn('sync', '同步', <SyncOutlined />)}</Tooltip>,
         ];
       case 'running':
         return [
-          <Tooltip title="创建 Savepoint 后暂停，可从断点恢复">{btn('pause', '暂停', <PauseCircleOutlined />, 'primary', true)}</Tooltip>,
-          <Tooltip title="手动触发 Savepoint（不停止任务）">{btn('savepoint', 'Savepoint', <SaveOutlined />)}</Tooltip>,
-          <Tooltip title="立即停止，不保留 Savepoint">
+          <Tooltip key="pause" title="创建 Savepoint 后暂停，可从断点恢复">{btn('pause', '暂停', <PauseCircleOutlined />, 'primary', true)}</Tooltip>,
+          <Tooltip key="savepoint" title="手动触发 Savepoint（不停止任务）">{btn('savepoint', 'Savepoint', <SaveOutlined />)}</Tooltip>,
+          <Tooltip key="stop" title="立即停止，不保留 Savepoint">
             <Popconfirm title="确认停止？将不保留 Savepoint，无法恢复。" onConfirm={() => handleAction('stop')}>
               <Button danger icon={<StopOutlined />} loading={actionLoading === 'stop'}>停止</Button>
             </Popconfirm>
@@ -264,27 +261,27 @@ const SyncTaskDetail: React.FC = () => {
         ];
       case 'saving_point':
         return [
-          <Badge status="warning" text="正在保存 Savepoint..." />,
-          <Tooltip title="手动同步状态">{btn('sync', '同步', <SyncOutlined />)}</Tooltip>,
-          <Popconfirm title="确认强制停止？将不保留 Savepoint。" onConfirm={() => handleAction('stop')}>
+          <Badge key="saving-point" status="warning" text="正在保存 Savepoint..." />,
+          <Tooltip key="sync" title="手动同步状态">{btn('sync', '同步', <SyncOutlined />)}</Tooltip>,
+          <Popconfirm key="force-stop" title="确认强制停止？将不保留 Savepoint。" onConfirm={() => handleAction('stop')}>
             <Button danger icon={<StopOutlined />}>强制停止</Button>
           </Popconfirm>,
         ];
       case 'paused':
         return [
-          <Tooltip title="从 Savepoint 恢复运行">{btn('resume', '恢复', <PlayCircleOutlined />, 'primary')}</Tooltip>,
-          <Popconfirm title="确认停止？暂停任务将被终止。" onConfirm={() => handleAction('stop')}>
+          <Tooltip key="resume" title="从 Savepoint 恢复运行">{btn('resume', '恢复', <PlayCircleOutlined />, 'primary')}</Tooltip>,
+          <Popconfirm key="stop" title="确认停止？暂停任务将被终止。" onConfirm={() => handleAction('stop')}>
             <Button danger icon={<StopOutlined />}>停止</Button>
           </Popconfirm>,
         ];
       case 'failed':
         return [
-          <Tooltip title="重新提交任务到 Flink">{btn('retry', '重试', <RedoOutlined />, 'primary')}</Tooltip>,
-          <Tooltip title="标记为终止，不再重试">{btn('stop', '标记终止', <StopOutlined />, undefined, true)}</Tooltip>,
+          <Tooltip key="retry" title="重新提交任务到 Flink">{btn('retry', '重试', <RedoOutlined />, 'primary')}</Tooltip>,
+          <Tooltip key="stop" title="标记为终止，不再重试">{btn('stop', '标记终止', <StopOutlined />, undefined, true)}</Tooltip>,
         ];
       case 'finished':
         return [
-          <Popconfirm title="确认删除此任务？" onConfirm={handleDelete}>
+          <Popconfirm key="delete" title="确认删除此任务？" onConfirm={handleDelete}>
             <Button danger icon={<DeleteOutlined />}>删除</Button>
           </Popconfirm>,
         ];
@@ -313,6 +310,8 @@ const SyncTaskDetail: React.FC = () => {
 
   return (
     <PageContainer
+      title={task.taskName || `任务 #${task.id}`}
+      subTitle={<Tag color={statusCfg.color}>{statusCfg.label}</Tag>}
       extra={
         <Space wrap>
           {getActionButtons()}
@@ -324,6 +323,22 @@ const SyncTaskDetail: React.FC = () => {
         </Space>
       }
     >
+      {currentStatus === 'draft' && (
+        <Alert
+          type="info"
+          showIcon
+          icon={<PlayCircleOutlined />}
+          message="任务配置已保存，尚未启动"
+          description="点击“启动”后，系统会生成最新 CDC SQL（实时同步任务）并提交到 Flink。"
+          action={access.canManageTask ? (
+            <Button type="primary" icon={<PlayCircleOutlined />} loading={actionLoading === 'start'} onClick={() => handleAction('start')}>
+              立即启动
+            </Button>
+          ) : undefined}
+          style={{ marginBottom: 16 }}
+        />
+      )}
+
       {/* Status Banner */}
       {(currentStatus === 'failed' || currentStatus === 'saving_point' || currentStatus === 'submitting') && (
         <Alert
@@ -399,8 +414,10 @@ const SyncTaskDetail: React.FC = () => {
       <Card title="基本信息" style={{ marginBottom: 16 }}>
         <Descriptions column={3} bordered size="small">
           <Descriptions.Item label="任务名称">{task.taskName}</Descriptions.Item>
-          <Descriptions.Item label="任务类型">
-            <Tag>{taskTypeMap[task.taskType] || task.taskType}</Tag>
+          <Descriptions.Item label="任务场景">
+            <Tag color={getTaskScenarioColor(task.scenarioCode, task.taskType)}>
+              {getTaskScenarioLabel(task.scenarioCode, task.taskType)}
+            </Tag>
           </Descriptions.Item>
           <Descriptions.Item label="状态">
             <Tag color={statusCfg.color} style={{ fontSize: 13 }}>
@@ -408,6 +425,7 @@ const SyncTaskDetail: React.FC = () => {
             </Tag>
           </Descriptions.Item>
           <Descriptions.Item label="同步策略">{syncStrategyMap[task.syncStrategy] || task.syncStrategy}</Descriptions.Item>
+          <Descriptions.Item label="执行器">{taskTypeLabel[task.taskType as keyof typeof taskTypeLabel] || task.taskType}</Descriptions.Item>
           <Descriptions.Item label="并行度">{task.parallelism || 1}</Descriptions.Item>
           <Descriptions.Item label="Checkpoint 间隔">
             {(task.checkpointIntervalMs || 60000) / 1000}秒

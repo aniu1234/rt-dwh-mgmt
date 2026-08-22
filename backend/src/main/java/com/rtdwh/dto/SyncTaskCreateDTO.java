@@ -15,6 +15,10 @@ public class SyncTaskCreateDTO {
     @NotNull(message = "任务类型不能为空")
     private String taskType; // cdc_sync, etl, materialized
 
+    @Size(max = 64, message = "场景编码长度不能超过64")
+    @Pattern(regexp = "^[a-z][a-z0-9_]*$", message = "场景编码只能包含小写字母、数字和下划线")
+    private String scenarioCode;
+
     @NotNull(message = "源数据源配置ID不能为空")
     private Long sourceConfigId;
 

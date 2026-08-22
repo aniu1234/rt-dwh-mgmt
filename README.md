@@ -100,6 +100,8 @@ RT-DWH 后端通过 Flink REST API、Flink SQL Gateway、Doris MySQL 协议和 P
 
 RT-DWH 不是 Flink、Paimon 或 Doris 的替代品，而是位于三者之上的实时数仓控制面。平台围绕“数据进入湖仓以后，如何持续运行、被发现、被查询、被治理”组织产品能力。
 
+完整的用户角色、领域对象、产品闭环、技术架构和部署决策见 [`docs/product-design-and-technical-solution.md`](docs/product-design-and-technical-solution.md)。
+
 ### 产品角色
 
 | 角色 | 主要诉求 | 平台入口 |
@@ -597,6 +599,7 @@ rt-dwh-mgmt/
 
 | 内容 | 文件 |
 |---|---|
+| 产品设计与技术方案 | [`docs/product-design-and-technical-solution.md`](docs/product-design-and-technical-solution.md) |
 | Paimon＋Flink＋Doris 核心架构 | [`docs/diagrams/paimon-flink-doris-lightweight-architecture.svg`](docs/diagrams/paimon-flink-doris-lightweight-architecture.svg) |
 | 系统能力总览 | [`docs/diagrams/arch-part1-capability.svg`](docs/diagrams/arch-part1-capability.svg) |
 | 技术架构详图 | [`docs/diagrams/arch-part2-technical.svg`](docs/diagrams/arch-part2-technical.svg) |

@@ -35,6 +35,10 @@ public class SyncTask {
     @Column(nullable = false, length = 20)
     private TaskType taskType;
 
+    /** Product-level scenario identity, decoupled from the Flink execution adapter. */
+    @Column(nullable = false, length = 64)
+    private String scenarioCode;
+
     @Column(nullable = false)
     private Long sourceConfigId;
 
