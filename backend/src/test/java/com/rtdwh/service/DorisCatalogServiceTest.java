@@ -17,11 +17,13 @@ class DorisCatalogServiceTest {
     @Test
     void readsDatabasesTablesAndColumnsFromConfiguredDorisCatalog() throws Exception {
         DorisConnectionService connectionService = mock(DorisConnectionService.class);
+        QueryAccessScopeService accessScopeService = mock(QueryAccessScopeService.class);
         Connection connection = mock(Connection.class);
         Statement statement = mock(Statement.class);
         when(connectionService.getCatalog()).thenReturn("rtdwh_paimon");
         when(connectionService.getConnection()).thenReturn(connection);
         when(connection.createStatement()).thenReturn(statement);
+        when(accessScopeService.allowed(7L, "rtdwh_paimon", "ods", "ods_quality_rule")).thenReturn(true);
 
         ResultSet databases = singleColumnRows("ods", "information_schema");
         ResultSet tables = singleColumnRows("ods_quality_rule");
@@ -43,7 +45,7 @@ class DorisCatalogServiceTest {
         when(statement.executeQuery("SHOW TABLES FROM `rtdwh_paimon`.`ods`")).thenReturn(tables);
         when(statement.executeQuery("DESCRIBE `rtdwh_paimon`.`ods`.`ods_quality_rule`")).thenReturn(columns);
 
-        var catalog = new DorisCatalogService(connectionService).getQueryCatalog();
+        var catalog = new DorisCatalogService(connectionService, accessScopeService).getQueryCatalog(7L);
 
         assertEquals("rtdwh_paimon", catalog.catalogName());
         assertEquals("doris", catalog.catalogKey());

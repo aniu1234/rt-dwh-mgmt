@@ -164,6 +164,12 @@ declare namespace API {
   interface AdminRole extends AdminRoleSummary {
     description?: string;
     permissions: AdminPermission[];
+    dataScopes: Array<{
+      id?: number;
+      catalogPattern: string;
+      databasePattern: string;
+      tablePattern: string;
+    }>;
   }
 
   interface AdminUser {

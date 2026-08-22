@@ -6,6 +6,7 @@ import com.rtdwh.entity.SysUser;
 import com.rtdwh.repository.SysPermissionRepository;
 import com.rtdwh.repository.SysRoleRepository;
 import com.rtdwh.repository.SysUserRepository;
+import com.rtdwh.repository.RoleDataScopeRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -28,11 +29,13 @@ class UserAdminServiceTest {
     @Mock SysRoleRepository roleRepository;
     @Mock SysPermissionRepository permissionRepository;
     @Mock PasswordEncoder passwordEncoder;
+    @Mock RoleDataScopeRepository scopeRepository;
     UserAdminService service;
 
     @BeforeEach
     void setUp() {
-        service = new UserAdminService(userRepository, roleRepository, permissionRepository, passwordEncoder);
+        service = new UserAdminService(userRepository, roleRepository, permissionRepository,
+                passwordEncoder, scopeRepository);
     }
 
     @Test

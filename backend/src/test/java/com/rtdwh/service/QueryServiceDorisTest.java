@@ -25,7 +25,8 @@ class QueryServiceDorisTest {
     @Test
     void rejectsDorisSelectIntoOutfile() {
         QueryService service = new QueryService(
-                mock(QueryHistoryRepository.class), mock(DorisConnectionService.class));
+                mock(QueryHistoryRepository.class), mock(DorisConnectionService.class),
+                mock(QueryAccessScopeService.class));
         QueryExecuteDTO dto = new QueryExecuteDTO();
         dto.setSql("SELECT * FROM users INTO OUTFILE 'file:///tmp/users.csv'");
 
@@ -71,7 +72,8 @@ class QueryServiceDorisTest {
         when(resultSet.getObject(1)).thenReturn(1L);
         when(resultSet.getObject(2)).thenReturn("Alice");
 
-        QueryService service = new QueryService(repository, connectionService);
+        QueryAccessScopeService accessScopeService = mock(QueryAccessScopeService.class);
+        QueryService service = new QueryService(repository, connectionService, accessScopeService);
         ReflectionTestUtils.setField(service, "defaultMaxRows", 1000);
         ReflectionTestUtils.setField(service, "maxExportRows", 10000);
         ReflectionTestUtils.setField(service, "defaultTimeout", 30);
@@ -99,5 +101,6 @@ class QueryServiceDorisTest {
         assertTrue(result.get("rows").toString().contains("Alice"));
         verify(session).execute("SWITCH `rtdwh_paimon`");
         verify(session).execute("USE `ods`");
+        verify(accessScopeService).validate(7L, "SELECT id, name FROM users", "rtdwh_paimon", "ods");
     }
 }

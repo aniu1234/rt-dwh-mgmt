@@ -17,15 +17,25 @@ import java.util.Locale;
 public class DorisCatalogService {
 
     private final DorisConnectionService dorisConnectionService;
+    private final QueryAccessScopeService accessScopeService;
     private volatile QueryCatalogDTO cachedCatalog;
     private volatile long cachedAt;
 
-    public synchronized QueryCatalogDTO getQueryCatalog() {
+    public synchronized QueryCatalogDTO getQueryCatalog(Long userId) {
         String catalog = dorisConnectionService.getCatalog();
+        QueryCatalogDTO fullCatalog = loadCatalog(catalog);
+        List<QueryCatalogDTO.DatabaseInfo> visible = fullCatalog.databases().stream()
+                .map(database -> new QueryCatalogDTO.DatabaseInfo(database.name(), database.tables().stream()
+                        .filter(table -> accessScopeService.allowed(userId, catalog, database.name(), table.name()))
+                        .toList()))
+                .filter(database -> !database.tables().isEmpty())
+                .toList();
+        return new QueryCatalogDTO(catalog, fullCatalog.catalogKey(), visible);
+    }
+
+    private synchronized QueryCatalogDTO loadCatalog(String catalog) {
         if (cachedCatalog != null && catalog.equals(cachedCatalog.catalogName())
-                && System.currentTimeMillis() - cachedAt < 60_000L) {
-            return cachedCatalog;
-        }
+                && System.currentTimeMillis() - cachedAt < 60_000L) return cachedCatalog;
         List<QueryCatalogDTO.DatabaseInfo> databases = new ArrayList<>();
         try (Connection connection = dorisConnectionService.getConnection();
              Statement statement = connection.createStatement()) {

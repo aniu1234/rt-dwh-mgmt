@@ -1,0 +1,100 @@
+package com.rtdwh.service;
+
+import com.alibaba.druid.DbType;
+import com.alibaba.druid.sql.SQLUtils;
+import com.alibaba.druid.sql.ast.SQLStatement;
+import com.alibaba.druid.sql.visitor.SchemaStatVisitor;
+import com.rtdwh.entity.RoleDataScope;
+import com.rtdwh.entity.SysUser;
+import com.rtdwh.repository.RoleDataScopeRepository;
+import com.rtdwh.repository.SysUserRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+import java.util.regex.Pattern;
+
+@Service
+@RequiredArgsConstructor
+public class QueryAccessScopeService {
+    private final SysUserRepository userRepository;
+    private final RoleDataScopeRepository scopeRepository;
+
+    @Transactional(readOnly = true)
+    public void validate(Long userId, String sql, String defaultCatalog, String defaultDatabase) {
+        Access access = access(userId);
+        if (access.admin()) return;
+        List<String> tables = extractTables(sql);
+        String first = sql.stripLeading().split("\\s+", 2)[0].toUpperCase(Locale.ROOT);
+        if (tables.isEmpty() && Set.of("SHOW", "DESCRIBE", "DESC").contains(first)) {
+            throw new IllegalArgumentException("受限角色的元数据查询必须明确指定表");
+        }
+        for (String table : tables) {
+            QualifiedName name = qualify(table, defaultCatalog, defaultDatabase);
+            if (!allowed(access.scopes(), name.catalog(), name.database(), name.table())) {
+                throw new IllegalArgumentException("无权查询数据表: " + name.catalog() + "."
+                        + name.database() + "." + name.table());
+            }
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public boolean allowed(Long userId, String catalog, String database, String table) {
+        Access access = access(userId);
+        return access.admin() || allowed(access.scopes(), catalog, database, table);
+    }
+
+    private Access access(Long userId) {
+        SysUser user = userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("用户不存在: " + userId));
+        boolean admin = user.getRoles().stream().anyMatch(role -> "ADMIN".equals(role.getRoleCode()));
+        if (admin) return new Access(true, List.of());
+        Collection<Long> roleIds = user.getRoles().stream().map(role -> role.getId()).toList();
+        return new Access(false, scopeRepository.findByRoleIdIn(roleIds));
+    }
+
+    private List<String> extractTables(String sql) {
+        try {
+            SQLStatement statement = SQLUtils.parseSingleStatement(sql, DbType.mysql);
+            SchemaStatVisitor visitor = SQLUtils.createSchemaStatVisitor(DbType.mysql);
+            statement.accept(visitor);
+            return visitor.getTables().keySet().stream().map(name -> name.getName()).distinct().toList();
+        } catch (Exception exception) {
+            throw new IllegalArgumentException("无法安全解析查询涉及的数据表: " + exception.getMessage());
+        }
+    }
+
+    private QualifiedName qualify(String raw, String defaultCatalog, String defaultDatabase) {
+        String normalized = raw.replace("`", "").replace("\"", "").trim();
+        String[] parts = normalized.split("\\.");
+        if (parts.length == 1) return new QualifiedName(defaultCatalog, defaultDatabase, parts[0]);
+        if (parts.length == 2) return new QualifiedName(defaultCatalog, parts[0], parts[1]);
+        if (parts.length == 3) return new QualifiedName(parts[0], parts[1], parts[2]);
+        throw new IllegalArgumentException("无法识别数据表名称: " + raw);
+    }
+
+    private boolean allowed(List<RoleDataScope> scopes, String catalog, String database, String table) {
+        return scopes.stream().anyMatch(scope -> matches(scope.getCatalogPattern(), catalog)
+                && matches(scope.getDatabasePattern(), database)
+                && matches(scope.getTablePattern(), table));
+    }
+
+    private boolean matches(String glob, String value) {
+        StringBuilder regex = new StringBuilder("^");
+        for (char character : glob.toCharArray()) {
+            if (character == '*') regex.append(".*");
+            else if (character == '?') regex.append('.');
+            else regex.append(Pattern.quote(String.valueOf(character)));
+        }
+        return Pattern.compile(regex.append('$').toString(), Pattern.CASE_INSENSITIVE)
+                .matcher(value == null ? "" : value).matches();
+    }
+
+    private record Access(boolean admin, List<RoleDataScope> scopes) {}
+    private record QualifiedName(String catalog, String database, String table) {}
+}

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { PageContainer } from '@ant-design/pro-components';
 import { Button, Card, Form, Input, message, Modal, Popconfirm, Select, Space, Table, Tabs, Tag } from 'antd';
-import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
+import { DeleteOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useRequest } from '@umijs/max';
 import {
   createAdminRole, createAdminUser, deleteAdminRole, getAdminPermissions, getAdminRoles,
@@ -36,7 +36,7 @@ const UserAdmin: React.FC = () => {
     if (role) roleForm.setFieldsValue({ ...role, permissionIds: role.permissions.map((permission) => permission.id) });
   };
 
-  return <PageContainer title="用户与权限" subTitle="管理平台账号、自定义角色和接口权限">
+  return <PageContainer title="用户与权限" subTitle="管理平台账号、自定义角色、接口权限和湖仓数据范围">
     <Card extra={<Button icon={<ReloadOutlined />} onClick={refresh}>刷新</Button>}>
       <Tabs items={[
         { key: 'users', label: `用户（${users.length}）`, children: <>
@@ -61,6 +61,9 @@ const UserAdmin: React.FC = () => {
             { title: '角色', key: 'role', width: 220, render: (_, role) => <div><b>{role.roleName}</b><div style={{ color: '#8c8c8c' }}>{role.roleCode}</div></div> },
             { title: '说明', dataIndex: 'description', ellipsis: true },
             { title: '权限数', dataIndex: 'permissions', width: 100, render: (value: API.AdminPermission[]) => value.length },
+            { title: '数据范围', dataIndex: 'dataScopes', render: (value: API.AdminRole['dataScopes']) => value?.length
+              ? <Space wrap>{value.slice(0, 3).map((scope, index) => <Tag key={scope.id || index} color="geekblue">{scope.catalogPattern}.{scope.databasePattern}.{scope.tablePattern}</Tag>)}{value.length > 3 && <Tag>+{value.length - 3}</Tag>}</Space>
+              : <Tag color="warning">未授权</Tag> },
             { title: '操作', width: 180, render: (_, role) => BUILTIN_ROLES.includes(role.roleCode) ? <Tag>内置角色</Tag> : <Space>
               <Button size="small" onClick={() => editRole(role)}>编辑</Button>
               <Popconfirm title="确认删除该角色？" onConfirm={async () => { await deleteAdminRole(role.id); message.success('角色已删除'); rolesRequest.refresh(); }}><Button size="small" danger>删除</Button></Popconfirm>
@@ -98,6 +101,19 @@ const UserAdmin: React.FC = () => {
         <Form.Item name="roleName" label="角色名称" rules={[{ required: true }]}><Input /></Form.Item>
         <Form.Item name="description" label="说明"><Input /></Form.Item>
         <Form.Item name="permissionIds" label="接口权限"><Select mode="multiple" optionFilterProp="label" options={permissions.map((permission) => ({ value: permission.id, label: `${permission.permName}（${permission.permCode}）` }))} /></Form.Item>
+        <Form.Item label="湖仓数据范围" extra="留空表示该角色不能查询任何表；支持 * 和 ? 通配符，查询和 Catalog 树都会强制执行。">
+          <Form.List name="dataScopes">
+            {(fields, { add, remove }) => <Space direction="vertical" style={{ width: '100%' }}>
+              {fields.map((field) => <Space key={field.key} align="baseline" style={{ width: '100%' }}>
+                <Form.Item {...field} name={[field.name, 'catalogPattern']} rules={[{ required: true, message: 'Catalog 必填' }]}><Input placeholder="Catalog，如 rtdwh_paimon" /></Form.Item>
+                <Form.Item {...field} name={[field.name, 'databasePattern']} rules={[{ required: true, message: 'Database 必填' }]}><Input placeholder="Database，如 ods" /></Form.Item>
+                <Form.Item {...field} name={[field.name, 'tablePattern']} rules={[{ required: true, message: 'Table 必填' }]}><Input placeholder="Table，如 ods_order_*" /></Form.Item>
+                <Button danger type="text" icon={<DeleteOutlined />} onClick={() => remove(field.name)} />
+              </Space>)}
+              <Button type="dashed" icon={<PlusOutlined />} onClick={() => add({ catalogPattern: 'rtdwh_paimon', databasePattern: '*', tablePattern: '*' })}>添加数据范围</Button>
+            </Space>}
+          </Form.List>
+        </Form.Item>
       </Form>
     </Modal>
   </PageContainer>;

@@ -4,6 +4,8 @@ import com.rtdwh.dto.UserAdminDTO;
 import com.rtdwh.entity.SysPermission;
 import com.rtdwh.entity.SysRole;
 import com.rtdwh.entity.SysUser;
+import com.rtdwh.entity.RoleDataScope;
+import com.rtdwh.repository.RoleDataScopeRepository;
 import com.rtdwh.repository.SysPermissionRepository;
 import com.rtdwh.repository.SysRoleRepository;
 import com.rtdwh.repository.SysUserRepository;
@@ -24,11 +26,13 @@ public class UserAdminService {
     private static final Pattern USERNAME = Pattern.compile("^[A-Za-z][A-Za-z0-9_.-]{2,63}$");
     private static final Pattern ROLE_CODE = Pattern.compile("^[A-Z][A-Z0-9_]{1,31}$");
     private static final Set<String> BUILTIN_ROLES = Set.of("ADMIN", "DEVELOPER", "VISITOR");
+    private static final Pattern SCOPE_PATTERN = Pattern.compile("^[A-Za-z0-9_.?*-]{1,128}$");
 
     private final SysUserRepository userRepository;
     private final SysRoleRepository roleRepository;
     private final SysPermissionRepository permissionRepository;
     private final PasswordEncoder passwordEncoder;
+    private final RoleDataScopeRepository scopeRepository;
 
     @Transactional(readOnly = true)
     public List<UserAdminDTO.UserView> users() {
@@ -104,7 +108,9 @@ public class UserAdminService {
         SysRole role = SysRole.builder().roleCode(code).roleName(request.getRoleName().trim())
                 .description(trim(request.getDescription()))
                 .permissions(resolvePermissions(request.getPermissionIds())).build();
-        return roleView(roleRepository.save(role));
+        role = roleRepository.save(role);
+        replaceScopes(role.getId(), request.getDataScopes());
+        return roleView(role);
     }
 
     @Transactional
@@ -116,7 +122,9 @@ public class UserAdminService {
         role.setRoleName(request.getRoleName().trim());
         role.setDescription(trim(request.getDescription()));
         role.setPermissions(resolvePermissions(request.getPermissionIds()));
-        return roleView(roleRepository.save(role));
+        role = roleRepository.save(role);
+        replaceScopes(role.getId(), request.getDataScopes());
+        return roleView(role);
     }
 
     @Transactional
@@ -124,6 +132,7 @@ public class UserAdminService {
         SysRole role = requireRole(id);
         if (BUILTIN_ROLES.contains(role.getRoleCode())) throw new IllegalStateException("内置角色不能删除");
         if (userRepository.existsByRoles_Id(id)) throw new IllegalStateException("角色仍被用户使用，不能删除");
+        scopeRepository.deleteByRoleId(id);
         roleRepository.delete(role);
     }
 
@@ -165,7 +174,34 @@ public class UserAdminService {
                 : role.getPermissions().stream().map(this::permissionView)
                 .collect(java.util.stream.Collectors.toSet());
         return new UserAdminDTO.RoleView(role.getId(), role.getRoleCode(), role.getRoleName(),
-                role.getDescription(), permissions);
+                role.getDescription(), permissions, scopeRepository.findByRoleIdOrderById(role.getId()).stream()
+                .map(scope -> new UserAdminDTO.DataScopeView(scope.getId(), scope.getCatalogPattern(),
+                        scope.getDatabasePattern(), scope.getTablePattern())).toList());
+    }
+
+    private void replaceScopes(Long roleId, List<UserAdminDTO.DataScopeRequest> requests) {
+        scopeRepository.deleteByRoleId(roleId);
+        if (requests == null || requests.isEmpty()) return;
+        Set<String> unique = new HashSet<>();
+        List<RoleDataScope> scopes = requests.stream().map(request -> {
+            String catalog = scope(request.getCatalogPattern());
+            String database = scope(request.getDatabasePattern());
+            String table = scope(request.getTablePattern());
+            if (!unique.add(catalog + "\u0000" + database + "\u0000" + table)) {
+                throw new IllegalArgumentException("数据范围不能重复");
+            }
+            return RoleDataScope.builder().roleId(roleId).catalogPattern(catalog)
+                    .databasePattern(database).tablePattern(table).build();
+        }).toList();
+        scopeRepository.saveAll(scopes);
+    }
+
+    private String scope(String value) {
+        String normalized = value == null ? "" : value.trim();
+        if (!SCOPE_PATTERN.matcher(normalized).matches()) {
+            throw new IllegalArgumentException("数据范围仅允许字母、数字、点、横线、下划线及 * ? 通配符");
+        }
+        return normalized;
     }
 
     private UserAdminDTO.PermissionView permissionView(SysPermission permission) {

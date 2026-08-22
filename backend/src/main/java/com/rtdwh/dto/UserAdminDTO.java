@@ -18,8 +18,9 @@ public final class UserAdminDTO {
                            LocalDateTime createdAt, LocalDateTime updatedAt) {}
     public record RoleSummary(Long id, String roleCode, String roleName) {}
     public record RoleView(Long id, String roleCode, String roleName, String description,
-                           Set<PermissionView> permissions) {}
+                           Set<PermissionView> permissions, List<DataScopeView> dataScopes) {}
     public record PermissionView(Long id, String permCode, String permName, String resourceType) {}
+    public record DataScopeView(Long id, String catalogPattern, String databasePattern, String tablePattern) {}
 
     @Data
     public static class CreateUserRequest {
@@ -50,5 +51,13 @@ public final class UserAdminDTO {
         @NotBlank @Size(max = 64) private String roleName;
         @Size(max = 256) private String description;
         private Set<Long> permissionIds;
+        private List<DataScopeRequest> dataScopes;
+    }
+
+    @Data
+    public static class DataScopeRequest {
+        @NotBlank @Size(max = 128) private String catalogPattern;
+        @NotBlank @Size(max = 128) private String databasePattern;
+        @NotBlank @Size(max = 128) private String tablePattern;
     }
 }

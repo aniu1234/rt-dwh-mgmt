@@ -98,7 +98,7 @@ public class QueryController {
 
     @GetMapping("/catalog")
     public ApiResponse<QueryCatalogDTO> getCatalog() {
-        return ApiResponse.success(dorisCatalogService.getQueryCatalog());
+        return ApiResponse.success(dorisCatalogService.getQueryCatalog(securityContextUtil.getCurrentUserId()));
     }
 
     @GetMapping("/governance/stats")
