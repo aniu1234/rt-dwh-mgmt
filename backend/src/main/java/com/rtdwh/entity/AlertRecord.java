@@ -12,6 +12,11 @@ public class AlertRecord {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    private Long ruleId;
+
+    @Column(length = 160)
+    private String dedupKey;
+
     @Column(nullable = false, length = 50)
     private String ruleType;
 
@@ -25,6 +30,13 @@ public class AlertRecord {
     private Boolean resolved = false;
 
     private LocalDateTime resolvedAt;
+
+    private LocalDateTime recoveredAt;
+
+    private LocalDateTime lastEvaluatedAt;
+
+    @Column(length = 20)
+    private String notificationStatus;
 
     private LocalDateTime triggeredAt;
 }

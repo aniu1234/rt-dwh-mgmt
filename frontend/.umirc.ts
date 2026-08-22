@@ -147,6 +147,7 @@ export default defineConfig({
       routes: [
         { path: '/system/alert', name: '告警管理', icon: 'BellOutlined', component: './Alert' },
         { path: '/system/settings', name: '系统设置', icon: 'SettingOutlined', component: './Settings', access: 'canAdmin' },
+        { path: '/system/users', name: '用户与权限', icon: 'TeamOutlined', component: './UserAdmin', access: 'canAdmin' },
         { path: '/system/audit', name: '操作审计', icon: 'AuditOutlined', component: './Audit', access: 'canAdmin' },
       ],
     },

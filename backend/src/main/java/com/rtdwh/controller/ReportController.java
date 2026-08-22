@@ -4,6 +4,7 @@ import com.rtdwh.dto.ApiResponse;
 import com.rtdwh.entity.ReportTemplate;
 import com.rtdwh.service.QueryService;
 import com.rtdwh.service.ReportService;
+import com.rtdwh.service.ReportScheduleService;
 import com.rtdwh.util.SecurityContextUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -20,6 +21,7 @@ public class ReportController {
 
     private final ReportService reportService;
     private final QueryService queryService;
+    private final ReportScheduleService reportScheduleService;
     private final SecurityContextUtil securityContextUtil;
 
     @GetMapping
@@ -61,5 +63,23 @@ public class ReportController {
     public ApiResponse<Void> deleteReport(@PathVariable Long id) {
         reportService.deleteReport(id);
         return ApiResponse.success("Report deleted", null);
+    }
+
+    @PostMapping("/{id}/run")
+    @PreAuthorize("hasAuthority('report:create')")
+    public ApiResponse<com.rtdwh.entity.ReportRun> runNow(@PathVariable Long id) {
+        return ApiResponse.success("报表执行完成", reportScheduleService.runNow(
+                id, securityContextUtil.getCurrentUserId()));
+    }
+
+    @GetMapping("/{id}/runs")
+    public ApiResponse<List<com.rtdwh.entity.ReportRun>> runs(
+            @PathVariable Long id, @RequestParam(defaultValue = "50") int limit) {
+        return ApiResponse.success(reportScheduleService.listRuns(id, limit));
+    }
+
+    @GetMapping("/{id}/runs/{runId}")
+    public ApiResponse<Map<String, Object>> runResult(@PathVariable Long id, @PathVariable Long runId) {
+        return ApiResponse.success(reportScheduleService.result(id, runId));
     }
 }

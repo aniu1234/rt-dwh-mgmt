@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { PageContainer } from '@ant-design/pro-components';
 import { Card, Table, Tag, Space, Select, Button, Badge, Modal, Input, message, Switch, Form } from 'antd';
-import { PlusOutlined } from '@ant-design/icons';
+import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useRequest } from '@umijs/max';
 import {
   getAlertRules, getAlertRecords, createAlertRule, updateAlertRule,
   deleteAlertRule, toggleAlertRule, resolveAlertRecord,
+  evaluateAlertRules,
 } from '@/api';
 
 const alertLevelColor: Record<string, string> = {
@@ -40,7 +41,7 @@ const Alert: React.FC = () => {
   const [form] = Form.useForm();
 
   const { data: rulesData, loading: rulesLoading, refresh: refreshRules } = useRequest(getAlertRules);
-  const { data: recordsData, loading: recordsLoading, refresh: refreshRecords } = useRequest(getAlertRecords);
+  const { data: recordsData, loading: recordsLoading, refresh: refreshRecords } = useRequest(getAlertRecords, { pollingInterval: 30000 });
 
   const rules = ((rulesData || []) as any[]).filter((rule) => !ruleTypeFilter || rule.ruleType === ruleTypeFilter);
   const records = (recordsData || []) as any[];
@@ -100,12 +101,23 @@ const Alert: React.FC = () => {
     }
   };
 
+  const handleEvaluate = async () => {
+    try {
+      const result = await evaluateAlertRules();
+      message.success(`评估完成：新增 ${result.triggered || 0} 条，恢复 ${result.recovered || 0} 条`);
+      refreshRecords();
+    } catch (e) {
+      message.error('告警评估失败');
+    }
+  };
+
   return (
     <PageContainer className="alert-page">
       <Space className="alert-toolbar" style={{ marginBottom: 32 }}>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditingRule(null); form.resetFields(); setCreateRuleVisible(true); }}>
           新增告警配置
         </Button>
+        <Button icon={<ReloadOutlined />} onClick={handleEvaluate}>立即评估</Button>
         <Select
           value={ruleTypeFilter}
           onChange={setRuleTypeFilter}
@@ -169,6 +181,7 @@ const Alert: React.FC = () => {
                     { title: '时间', dataIndex: 'triggeredAt', key: 'time', width: 220, render: (v: string) => v ? new Date(v).toLocaleString('zh-CN') : '—' },
                     { title: '告警', dataIndex: 'ruleType', key: 'rule', width: 220, render: (v: string) => ({ task_failure: 'CDC任务失败告警', data_delay: '延迟超5秒告警', quality_failure: '质量检测失败' }[v] || v) },
                     { title: '内容', dataIndex: 'message', key: 'msg', ellipsis: true },
+                    { title: '通知', dataIndex: 'notificationStatus', key: 'notificationStatus', width: 90, render: (v: string) => v ? <Tag>{v}</Tag> : '—' },
                     {
                       title: '级别',
                       dataIndex: 'level',

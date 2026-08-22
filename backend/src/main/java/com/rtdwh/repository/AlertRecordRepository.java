@@ -7,9 +7,15 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface AlertRecordRepository extends JpaRepository<AlertRecord, Long> {
+
+    Optional<AlertRecord> findFirstByRuleIdAndDedupKeyAndResolvedFalseOrderByTriggeredAtDesc(
+            Long ruleId, String dedupKey);
+
+    List<AlertRecord> findByRuleIdAndResolvedFalse(Long ruleId);
 
     List<AlertRecord> findByResolved(Boolean resolved);
 

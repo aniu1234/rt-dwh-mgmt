@@ -1,5 +1,7 @@
 package com.rtdwh.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import jakarta.annotation.PostConstruct;
@@ -13,7 +15,15 @@ import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.Statement;
+import java.net.URI;
+import java.net.URLEncoder;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -22,6 +32,11 @@ import java.util.Set;
 @Slf4j
 @Service
 public class DorisConnectionService {
+
+    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final HttpClient HTTP = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(2))
+            .build();
 
     @Value("${doris.enabled:true}")
     private boolean enabled;
@@ -191,6 +206,120 @@ public class DorisConnectionService {
     public String getHttpUrl() { return httpUrl; }
     public String getWorkloadGroup() { return workloadGroup; }
     public long getExecMemLimitBytes() { return execMemLimitBytes; }
+
+    /**
+     * Reads the native Doris runtime statistics associated with the session trace id.
+     * The endpoint is available in Doris 4.0+; older clusters simply return no sample.
+     */
+    public QueryRuntimeStats getQueryRuntimeStats(String traceId) {
+        try {
+            JsonNode response = getJson("/rest/v2/manager/query/statistics/" + encode(traceId));
+            if (response.path("code").asInt(-1) != 0 || !response.path("data").isObject()) return null;
+            JsonNode data = response.path("data");
+            return new QueryRuntimeStats(
+                    null,
+                    number(data, "scanRows"),
+                    number(data, "scanBytes"),
+                    number(data, "cpuMs"),
+                    number(data, "maxPeakMemoryBytes"),
+                    number(data, "scanBytesFromLocalStorage"),
+                    number(data, "scanBytesFromRemoteStorage"),
+                    number(data, "bytesWriteIntoCache"),
+                    data.path("progress").asText(null)
+            );
+        } catch (Exception unsupportedOrUnavailable) {
+            log.debug("Doris runtime statistics are not available for trace {}: {}",
+                    traceId, unsupportedOrUnavailable.getMessage());
+            return null;
+        }
+    }
+
+    public String getQueryIdByTraceId(String traceId) {
+        try {
+            JsonNode response = getJson("/rest/v2/manager/query/trace_id/" + encode(traceId));
+            if (response.path("code").asInt(-1) != 0 || !response.path("data").isTextual()) return null;
+            String queryId = response.path("data").asText();
+            return queryId.isBlank() ? null : queryId;
+        } catch (Exception unsupportedOrUnavailable) {
+            log.debug("Doris query id is not available for trace {}: {}", traceId, unsupportedOrUnavailable.getMessage());
+            return null;
+        }
+    }
+
+    public String getQueryProfile(String queryId) {
+        if (queryId == null || !queryId.matches("[A-Fa-f0-9-]{8,128}")) {
+            throw new IllegalArgumentException("Doris Query ID 格式不正确");
+        }
+        try {
+            JsonNode response = getJson("/rest/v2/manager/query/profile/text/" + encode(queryId));
+            if (response.path("code").asInt(-1) != 0) {
+                throw new IllegalStateException(response.path("data").asText("Profile 不可用"));
+            }
+            String profile = response.path("data").path("profile").asText("");
+            if (profile.isBlank()) throw new IllegalStateException("Doris 未保留该查询的 Profile");
+            return profile.length() > 2_000_000 ? profile.substring(0, 2_000_000) + "\n... [已截断]" : profile;
+        } catch (IllegalStateException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw new IllegalStateException("读取 Doris Query Profile 失败: " + exception.getMessage(), exception);
+        }
+    }
+
+    private JsonNode getJson(String path) throws Exception {
+        String base = httpUrl.endsWith("/") ? httpUrl.substring(0, httpUrl.length() - 1) : httpUrl;
+        String basic = Base64.getEncoder().encodeToString((username + ":" + password).getBytes(StandardCharsets.UTF_8));
+        HttpRequest request = HttpRequest.newBuilder(URI.create(base + path))
+                .timeout(Duration.ofSeconds(2))
+                .header("Authorization", "Basic " + basic)
+                .header("Accept", "application/json")
+                .GET()
+                .build();
+        HttpResponse<String> response = HTTP.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            throw new IllegalStateException("HTTP " + response.statusCode());
+        }
+        return JSON.readTree(response.body());
+    }
+
+    private static String encode(String value) {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
+    }
+
+    private static long number(JsonNode node, String field) {
+        JsonNode value = node.path(field);
+        if (value.isNumber()) return value.asLong();
+        if (value.isTextual()) {
+            try { return Long.parseLong(value.asText()); } catch (NumberFormatException ignored) { return 0L; }
+        }
+        return 0L;
+    }
+
+    public record QueryRuntimeStats(
+            String queryId,
+            long scannedRows,
+            long scannedBytes,
+            long cpuMs,
+            long peakMemoryBytes,
+            long localScanBytes,
+            long remoteScanBytes,
+            long cacheWriteBytes,
+            String progress
+    ) {
+        QueryRuntimeStats merge(QueryRuntimeStats newer) {
+            if (newer == null) return this;
+            return new QueryRuntimeStats(
+                    newer.queryId != null ? newer.queryId : queryId,
+                    Math.max(scannedRows, newer.scannedRows),
+                    Math.max(scannedBytes, newer.scannedBytes),
+                    Math.max(cpuMs, newer.cpuMs),
+                    Math.max(peakMemoryBytes, newer.peakMemoryBytes),
+                    Math.max(localScanBytes, newer.localScanBytes),
+                    Math.max(remoteScanBytes, newer.remoteScanBytes),
+                    Math.max(cacheWriteBytes, newer.cacheWriteBytes),
+                    newer.progress != null ? newer.progress : progress
+            );
+        }
+    }
 
     private synchronized void rebuildPool() {
         HikariDataSource previous = dataSource;

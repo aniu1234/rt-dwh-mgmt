@@ -7,6 +7,7 @@ import com.rtdwh.entity.TaskDefinitionVersion;
 import com.rtdwh.entity.TaskDependency;
 import com.rtdwh.entity.TaskRunInstance;
 import com.rtdwh.service.WorkflowService;
+import com.rtdwh.service.WorkflowSqlRunnerService;
 import com.rtdwh.util.SecurityContextUtil;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +23,7 @@ import java.util.Map;
 @PreAuthorize("hasAuthority('task:view')")
 public class WorkflowController {
     private final WorkflowService workflowService;
+    private final WorkflowSqlRunnerService workflowSqlRunnerService;
     private final SecurityContextUtil securityContextUtil;
 
     @GetMapping("/graph")
@@ -93,5 +95,33 @@ public class WorkflowController {
                                                   @Valid @RequestBody WorkflowDTO.CompleteRequest request) {
         return ApiResponse.success("实例状态已更新", workflowService.complete(
                 instanceId, request.getSuccess(), request.getErrorMessage()));
+    }
+
+    @PostMapping("/instances/{instanceId}/heartbeat")
+    @PreAuthorize("hasAuthority('task:manage')")
+    public ApiResponse<TaskRunInstance> heartbeat(@PathVariable Long instanceId,
+                                                   @RequestParam String executorId) {
+        return ApiResponse.success(workflowService.heartbeat(instanceId, executorId));
+    }
+
+    @PostMapping("/instances/{instanceId}/external-job")
+    @PreAuthorize("hasAuthority('task:manage')")
+    public ApiResponse<TaskRunInstance> attachExternalJob(
+            @PathVariable Long instanceId,
+            @Valid @RequestBody WorkflowDTO.AttachJobRequest request) {
+        return ApiResponse.success(workflowService.attachExternalJob(
+                instanceId, request.getExecutorId(), request.getExternalJobId()));
+    }
+
+    @PostMapping("/instances/{instanceId}/retry")
+    @PreAuthorize("hasAuthority('task:manage')")
+    public ApiResponse<TaskRunInstance> retry(@PathVariable Long instanceId) {
+        return ApiResponse.success("实例已重新入队", workflowService.retryFailed(instanceId));
+    }
+
+    @PostMapping("/instances/{instanceId}/cancel")
+    @PreAuthorize("hasAuthority('task:manage')")
+    public ApiResponse<TaskRunInstance> cancel(@PathVariable Long instanceId) {
+        return ApiResponse.success("实例已取消", workflowSqlRunnerService.cancel(instanceId));
     }
 }

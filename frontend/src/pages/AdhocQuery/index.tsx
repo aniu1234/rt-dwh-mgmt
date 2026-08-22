@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { PageContainer } from '@ant-design/pro-components';
 import {
   Alert, Button, Card, Col, Drawer, Form, Input, InputNumber, Modal, Popconfirm, Row,
-  Select, Space, Statistic, Table, Tabs, Tag, Tree, Typography, message,
+  Select, Space, Spin, Statistic, Table, Tabs, Tag, Tree, Typography, message,
 } from 'antd';
 import {
   CloudOutlined, DatabaseOutlined, DeleteOutlined, DownloadOutlined, FolderOpenOutlined,
@@ -12,7 +12,8 @@ import { useRequest } from '@umijs/max';
 import type { editor } from 'monaco-editor';
 import {
   cancelQuery, cancelQueryByRequestId, createSavedQuery, deleteSavedQuery, executeQuery,
-  exportQuery, getQueryCatalog, getQueryGovernanceStats, getQueryHistory, getSavedQueries, updateSavedQuery,
+  exportQuery, getQueryCatalog, getQueryGovernanceStats, getQueryHistory, getQueryProfile,
+  getSavedQueries, updateSavedQuery,
 } from '@/api';
 import SqlEditor from './SqlEditor';
 import './index.less';
@@ -45,6 +46,16 @@ const formatDateTime = (value?: string | number[]) => {
   return new Date(value).toLocaleString('zh-CN', { hour12: false });
 };
 
+const formatBytes = (value?: number) => {
+  if (value == null) return '—';
+  if (value < 1024) return `${value} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let size = value / 1024;
+  let index = 0;
+  while (size >= 1024 && index < units.length - 1) { size /= 1024; index += 1; }
+  return `${size.toFixed(size >= 10 ? 1 : 2)} ${units[index]}`;
+};
+
 const AdhocQuery: React.FC = () => {
   const [sql, setSql] = useState(() => localStorage.getItem(CURRENT_DRAFT_KEY) || '');
   const [maxRows, setMaxRows] = useState(1000);
@@ -55,6 +66,9 @@ const AdhocQuery: React.FC = () => {
   const [selectedDatabase, setSelectedDatabase] = useState<string>();
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [saveOpen, setSaveOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileData, setProfileData] = useState<{ queryId: string; profile: string }>();
   const [localQueries, setLocalQueries] = useState<LocalQuery[]>(readLocalQueries);
   const [activeQuery, setActiveQuery] = useState<ActiveQuery>();
   const [saveForm] = Form.useForm();
@@ -161,6 +175,16 @@ const AdhocQuery: React.FC = () => {
       const link = document.createElement('a');
       link.href = url; link.download = 'query-result.csv'; link.click(); URL.revokeObjectURL(url);
     } catch { message.error('导出失败'); }
+  };
+
+  const openProfile = async (id?: number) => {
+    if (!id) return;
+    setProfileOpen(true);
+    setProfileLoading(true);
+    setProfileData(undefined);
+    try { setProfileData(await getQueryProfile(id)); }
+    catch (error: any) { message.error(error?.message || 'Query Profile 读取失败'); }
+    finally { setProfileLoading(false); }
   };
 
   const openSave = () => {
@@ -278,9 +302,18 @@ const AdhocQuery: React.FC = () => {
 
       {result && (
         <Card title={`查询结果（Doris · 耗时 ${result.durationMs || 0}ms · 返回 ${result.rowCount || 0} 行）`}
-          extra={result.traceId && <Typography.Text type="secondary" copyable>Trace: {result.traceId}</Typography.Text>}>
+          extra={<Space>
+            {result.traceId && <Typography.Text type="secondary" copyable>Trace: {result.traceId}</Typography.Text>}
+            <Button size="small" disabled={!result.queryId || !result.historyId} onClick={() => openProfile(result.historyId)}>查看 Profile</Button>
+          </Space>}>
           {result.status !== 'success' && <Alert type="error" message={result.errorMsg || '查询失败'} showIcon style={{ marginBottom: 12 }} />}
           {result.truncated && <Alert type="warning" message="结果已达到最大返回行数，请增加限制或导出 CSV" showIcon style={{ marginBottom: 12 }} />}
+          <Row gutter={12} style={{ marginBottom: 12 }}>
+            <Col span={6}><Statistic title="扫描行数" value={result.scannedRows ?? '—'} /></Col>
+            <Col span={6}><Statistic title="扫描数据量" value={formatBytes(result.scannedBytes)} /></Col>
+            <Col span={6}><Statistic title="CPU 时间" value={result.cpuMs ?? '—'} suffix={result.cpuMs == null ? undefined : 'ms'} /></Col>
+            <Col span={6}><Statistic title="峰值内存" value={formatBytes(result.peakMemoryBytes)} /></Col>
+          </Row>
           <Table<Record<string, any>>
             dataSource={(result.rows || []).map((row, index) => ({ key: index,
               ...Object.fromEntries((result.columns || []).map((column, columnIndex) => [column, row[columnIndex]])) }))}
@@ -307,12 +340,18 @@ const AdhocQuery: React.FC = () => {
             { title: '引擎', dataIndex: 'queryEngine', width: 90,
               render: (value) => <Tag color="blue">{value || 'doris'}</Tag> },
             { title: '行数', dataIndex: 'resultRowCount', width: 80 },
+            { title: '扫描行数', dataIndex: 'scannedRows', width: 110, render: (value) => value ?? '—' },
+            { title: '扫描量', dataIndex: 'scannedBytes', width: 110, render: formatBytes },
+            { title: 'CPU', dataIndex: 'cpuMs', width: 90, render: (value) => value == null ? '—' : `${value}ms` },
+            { title: '峰值内存', dataIndex: 'peakMemoryBytes', width: 110, render: formatBytes },
             { title: '耗时', dataIndex: 'durationMs', width: 90, render: (value) => `${value || 0}ms` },
             { title: '状态', dataIndex: 'status', width: 100, render: (value) => <Tag color={{
               success: 'green', failed: 'red', cancelled: 'orange', running: 'blue',
             }[value as string]}>{value}</Tag> },
-            { title: '操作', width: 90, render: (_, record: any) => (
-              <Button type="link" onClick={() => { setSql(record.sqlText); setActiveQuery(undefined); }}>载入</Button>) },
+            { title: '操作', width: 150, fixed: 'right', render: (_, record: any) => <Space size={0}>
+              <Button type="link" onClick={() => { setSql(record.sqlText); setActiveQuery(undefined); }}>载入</Button>
+              <Button type="link" disabled={!record.queryId} onClick={() => openProfile(record.id)}>Profile</Button>
+            </Space> },
           ]} />
       </Card>
 
@@ -341,6 +380,14 @@ const AdhocQuery: React.FC = () => {
           <Form.Item name="description" label="描述"><Input.TextArea rows={2} maxLength={512} /></Form.Item>
           <Form.Item name="tags" label="标签"><Input placeholder="例如：ODS, 质量检查" maxLength={256} /></Form.Item>
         </Form>
+      </Modal>
+
+      <Modal title={`Doris Query Profile${profileData?.queryId ? ` · ${profileData.queryId}` : ''}`}
+        open={profileOpen} onCancel={() => setProfileOpen(false)} footer={<Button onClick={() => setProfileOpen(false)}>关闭</Button>}
+        width={1100}>
+        {profileLoading ? <Spin /> : <pre style={{ maxHeight: '70vh', overflow: 'auto', padding: 16, background: '#111827', color: '#d1d5db', borderRadius: 8, whiteSpace: 'pre-wrap' }}>
+          {profileData?.profile || 'Profile 不可用'}
+        </pre>}
       </Modal>
     </PageContainer>
   );

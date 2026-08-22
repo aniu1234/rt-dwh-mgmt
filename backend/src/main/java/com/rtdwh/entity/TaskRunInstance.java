@@ -18,6 +18,8 @@ import java.time.LocalDateTime;
         @UniqueConstraint(name = "uk_task_run_batch_date", columnNames = {"task_id", "batch_id", "business_date"})
 }, indexes = {
         @Index(name = "idx_task_run_status_time", columnList = "status,created_at"),
+        @Index(name = "idx_task_run_retry_time", columnList = "status,next_retry_at"),
+        @Index(name = "idx_task_run_lease", columnList = "status,lease_expires_at"),
         @Index(name = "idx_task_run_task_date", columnList = "task_id,business_date")
 })
 public class TaskRunInstance {
@@ -38,6 +40,8 @@ public class TaskRunInstance {
     private String parametersJson;
     @Column(length = 64)
     private String executorId;
+    @Column(length = 64)
+    private String externalJobId;
     @Builder.Default
     @Column(nullable = false)
     private Integer retryCount = 0;
@@ -45,6 +49,9 @@ public class TaskRunInstance {
     private String errorMessage;
     private LocalDateTime startedAt;
     private LocalDateTime finishedAt;
+    private LocalDateTime heartbeatAt;
+    private LocalDateTime leaseExpiresAt;
+    private LocalDateTime nextRetryAt;
     @Column(nullable = false)
     private Long createdBy;
     @Column(nullable = false)

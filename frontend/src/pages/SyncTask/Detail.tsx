@@ -3,7 +3,7 @@ import { PageContainer } from '@ant-design/pro-components';
 import {
   Card, Descriptions, Statistic, Row, Col, Tag, Button, Space,
   Tabs, Alert, Badge, Tooltip, Spin, Popconfirm, message, Modal,
-  Timeline, Divider, Progress, Empty,
+  Timeline, Divider, Progress, Empty, Typography,
 } from 'antd';
 import {
   PlayCircleOutlined, PauseCircleOutlined, StopOutlined,
@@ -16,7 +16,7 @@ import {
   getSyncTask, getSyncTaskStatus, getSyncTaskLogs,
   startSyncTask, pauseSyncTask, resumeSyncTask, stopSyncTask,
   retrySyncTask, triggerSavepoint, updateSyncTask, deleteSyncTask,
-  syncAllTaskStatus,
+  syncAllTaskStatus, getPostgresCdcStatus, cleanupPostgresCdc,
 } from '@/api';
 
 const statusConfig: Record<string, { color: string; label: string; badge: string }> = {
@@ -56,6 +56,8 @@ const SyncTaskDetail: React.FC = () => {
   const [statusInfo, setStatusInfo] = useState<any>(null);
   const [logData, setLogData] = useState<any>(null);
   const [logLoading, setLogLoading] = useState(false);
+  const [postgresStatus, setPostgresStatus] = useState<API.PostgresCdcStatus>();
+  const [postgresLoading, setPostgresLoading] = useState(false);
 
   // Fetch task data
   const fetchTask = useCallback(async () => {
@@ -80,6 +82,17 @@ const SyncTaskDetail: React.FC = () => {
   }, [taskId]);
 
   useEffect(() => { fetchStatus(); }, [fetchStatus]);
+
+  const fetchPostgresStatus = useCallback(async () => {
+    setPostgresLoading(true);
+    try { setPostgresStatus(await getPostgresCdcStatus(taskId)); }
+    catch (error: any) { message.error(error?.message || 'PostgreSQL CDC 预检失败'); }
+    finally { setPostgresLoading(false); }
+  }, [taskId]);
+
+  useEffect(() => {
+    if (statusInfo?.sourceDbType === 'postgresql') fetchPostgresStatus();
+  }, [statusInfo?.sourceDbType, fetchPostgresStatus]);
 
   // Poll status for active tasks
   const taskStatus = task?.status || '';
@@ -170,6 +183,16 @@ const SyncTaskDetail: React.FC = () => {
     } catch (e: any) {
       message.error(e?.message || '删除失败');
     }
+  };
+
+  const handlePostgresCleanup = async () => {
+    setPostgresLoading(true);
+    try {
+      const result = await cleanupPostgresCdc(taskId);
+      message.success(`已清理 ${result.removedSlots.length} 个 Slot、${result.removedPublications.length} 个 Publication`);
+      await fetchPostgresStatus();
+    } catch (error: any) { message.error(error?.message || 'PostgreSQL CDC 资源清理失败'); }
+    finally { setPostgresLoading(false); }
   };
 
   const handleEdit = () => {
@@ -404,6 +427,30 @@ const SyncTaskDetail: React.FC = () => {
       </Card>
 
       {/* Real-time Metrics */}
+      {statusInfo?.sourceDbType === 'postgresql' && (
+        <Card title="PostgreSQL CDC 资源" style={{ marginBottom: 16 }}
+          extra={<Space>
+            <Button icon={<SyncOutlined />} loading={postgresLoading} onClick={fetchPostgresStatus}>重新预检</Button>
+            <Popconfirm title="确认清理该任务的 Slot 与 Publication？再次启动会重新创建。" onConfirm={handlePostgresCleanup}>
+              <Button danger disabled={isActive} loading={postgresLoading}>清理资源</Button>
+            </Popconfirm>
+          </Space>}>
+          <Alert showIcon type={postgresStatus?.ready ? 'success' : 'error'}
+            message={postgresStatus?.ready ? 'CDC 环境已就绪' : (postgresStatus?.error || '正在检查 CDC 环境')}
+            description={postgresStatus && `wal_level=${postgresStatus.walLevel}；Slot ${postgresStatus.usedReplicationSlots}/${postgresStatus.maxReplicationSlots}；需新建 ${postgresStatus.requiredNewSlots} 个`} />
+          {postgresStatus?.resources?.length ? (
+            <Descriptions size="small" bordered column={1} style={{ marginTop: 12 }}>
+              {postgresStatus.resources.map((resource) => (
+                <Descriptions.Item key={resource.slot} label={resource.sourceTable}>
+                  Slot: <Typography.Text code copyable>{resource.slot}</Typography.Text>
+                  {' · '}Publication: <Typography.Text code copyable>{resource.publication}</Typography.Text>
+                </Descriptions.Item>
+              ))}
+            </Descriptions>
+          ) : null}
+        </Card>
+      )}
+
       <Card title="实时监控指标" style={{ marginBottom: 16 }}>
         <Row gutter={16}>
           <Col span={6}>

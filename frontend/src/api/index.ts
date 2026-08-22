@@ -90,6 +90,16 @@ export async function getSyncTaskStatus(id: number) {
   return request<API.TaskStatusInfo>(`${API_PREFIX}/sync-tasks/${id}/status`);
 }
 
+export async function getPostgresCdcStatus(id: number) {
+  return request<API.PostgresCdcStatus>(`${API_PREFIX}/sync-tasks/${id}/postgres-cdc-status`);
+}
+
+export async function cleanupPostgresCdc(id: number) {
+  return request<{ removedSlots: string[]; removedPublications: string[] }>(
+    `${API_PREFIX}/sync-tasks/${id}/cleanup-postgres-cdc`, { method: 'POST' },
+  );
+}
+
 export async function getSyncTaskLogs(id: number, params?: { type?: string; lines?: number }) {
   return request<{ logs: string; type: string; lines: number }>(`${API_PREFIX}/sync-tasks/${id}/logs`, { params });
 }
@@ -137,8 +147,57 @@ export async function getWorkflowInstances(params?: { taskId?: number; status?: 
   return request<API.TaskRunInstance[]>(`${API_PREFIX}/workflow/instances`, { params });
 }
 
+export async function retryWorkflowInstance(instanceId: number) {
+  return request<API.TaskRunInstance>(`${API_PREFIX}/workflow/instances/${instanceId}/retry`, { method: 'POST' });
+}
+
+export async function cancelWorkflowInstance(instanceId: number) {
+  return request<API.TaskRunInstance>(`${API_PREFIX}/workflow/instances/${instanceId}/cancel`, { method: 'POST' });
+}
+
 export async function getOperationAudits(params?: { username?: string; page?: number; size?: number }) {
   return request<API.PageResult<API.OperationAudit>>(`${API_PREFIX}/audit`, { params });
+}
+
+// User and role administration
+export async function getAdminUsers() {
+  return request<API.AdminUser[]>(`${API_PREFIX}/admin/users`);
+}
+
+export async function createAdminUser(data: any) {
+  return request<API.AdminUser>(`${API_PREFIX}/admin/users`, { method: 'POST', data });
+}
+
+export async function updateAdminUser(id: number, data: any) {
+  return request<API.AdminUser>(`${API_PREFIX}/admin/users/${id}`, { method: 'PUT', data });
+}
+
+export async function toggleAdminUserStatus(id: number) {
+  return request<API.AdminUser>(`${API_PREFIX}/admin/users/${id}/toggle-status`, { method: 'POST' });
+}
+
+export async function resetAdminUserPassword(id: number, password: string) {
+  return request<void>(`${API_PREFIX}/admin/users/${id}/reset-password`, { method: 'POST', data: { password } });
+}
+
+export async function getAdminRoles() {
+  return request<API.AdminRole[]>(`${API_PREFIX}/admin/roles`);
+}
+
+export async function createAdminRole(data: any) {
+  return request<API.AdminRole>(`${API_PREFIX}/admin/roles`, { method: 'POST', data });
+}
+
+export async function updateAdminRole(id: number, data: any) {
+  return request<API.AdminRole>(`${API_PREFIX}/admin/roles/${id}`, { method: 'PUT', data });
+}
+
+export async function deleteAdminRole(id: number) {
+  return request<void>(`${API_PREFIX}/admin/roles/${id}`, { method: 'DELETE' });
+}
+
+export async function getAdminPermissions() {
+  return request<API.AdminPermission[]>(`${API_PREFIX}/admin/permissions`);
 }
 
 // Datasources
@@ -259,6 +318,10 @@ export async function getQueryHistory(params?: { page?: number; size?: number })
   return request<API.PageResult<any>>(`${API_PREFIX}/query/history`, { params });
 }
 
+export async function getQueryProfile(historyId: number) {
+  return request<{ queryId: string; profile: string }>(`${API_PREFIX}/query/history/${historyId}/profile`);
+}
+
 export async function getQueryCatalog() {
   return request<API.QueryCatalog>(`${API_PREFIX}/query/catalog`);
 }
@@ -298,6 +361,18 @@ export async function updateReport(id: number, data: API.ReportTemplate) {
 
 export async function deleteReport(id: number) {
   return request<void>(`${API_PREFIX}/reports/${id}`, { method: 'DELETE' });
+}
+
+export async function runReportNow(id: number) {
+  return request<API.ReportRun>(`${API_PREFIX}/reports/${id}/run`, { method: 'POST' });
+}
+
+export async function getReportRuns(id: number, limit = 50) {
+  return request<API.ReportRun[]>(`${API_PREFIX}/reports/${id}/runs`, { params: { limit } });
+}
+
+export async function getReportRunResult(reportId: number, runId: number) {
+  return request<{ run: API.ReportRun; result: API.QueryResult }>(`${API_PREFIX}/reports/${reportId}/runs/${runId}`);
 }
 
 // Settings
@@ -364,6 +439,10 @@ export async function getAlertRecords(params?: { level?: string; resolved?: bool
 
 export async function resolveAlertRecord(id: number) {
   return request<void>(`${API_PREFIX}/alert/records/${id}/resolve`, { method: 'POST' });
+}
+
+export async function evaluateAlertRules() {
+  return request<{ evaluated: number; triggered: number; recovered: number }>(`${API_PREFIX}/alert/evaluate`, { method: 'POST' });
 }
 
 // Quality

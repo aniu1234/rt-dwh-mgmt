@@ -12,6 +12,8 @@ public interface QualityAlertRepository extends JpaRepository<QualityAlert, Long
 
     List<QualityAlert> findByResolved(Boolean resolved);
 
+    List<QualityAlert> findByResolvedFalseOrderByTriggeredAtDesc();
+
     List<QualityAlert> findByLevel(String level);
 
     List<QualityAlert> findByResolvedAndLevel(Boolean resolved, String level);

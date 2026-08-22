@@ -38,9 +38,22 @@ public class QueryHistory {
     @Column(length = 128)
     private String queryId;
 
+    @Column(length = 128)
+    private String traceId;
+
     private Long scannedRows;
 
     private Long scannedBytes;
+
+    private Long cpuMs;
+
+    private Long peakMemoryBytes;
+
+    private Long localScanBytes;
+
+    private Long remoteScanBytes;
+
+    private Long cacheWriteBytes;
 
     private Integer resultRowCount;
 

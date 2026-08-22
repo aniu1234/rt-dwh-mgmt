@@ -88,6 +88,12 @@ public class QueryController {
         return ApiResponse.success(queryService.getQueryHistoryPage(userId, page, size));
     }
 
+    @GetMapping("/history/{historyId}/profile")
+    public ApiResponse<Map<String, Object>> getQueryProfile(@PathVariable Long historyId) {
+        return ApiResponse.success(queryService.getQueryProfile(
+                historyId, securityContextUtil.getCurrentUserId()));
+    }
+
     @GetMapping("/catalog")
     public ApiResponse<QueryCatalogDTO> getCatalog() {
         return ApiResponse.success(dorisCatalogService.getQueryCatalog());

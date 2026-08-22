@@ -97,6 +97,7 @@ public class DataInitializer implements CommandLineRunner {
         definitions.put("settings:view", "查看系统状态");
         definitions.put("settings:manage", "管理系统设置");
         definitions.put("audit:view", "查看操作审计");
+        definitions.put("user:manage", "管理用户与角色");
         int order = 1;
         for (Map.Entry<String, String> definition : definitions.entrySet()) {
             if (!permissionRepo.existsByPermCode(definition.getKey())) {

@@ -156,6 +156,10 @@ alert:
   wecom-webhook: ${WECOM_WEBHOOK:}
   email-recipients: ${ALERT_EMAIL_RECIPIENTS:admin@example.com}
   email-from: ${ALERT_EMAIL_FROM:rtdwh-alert@example.com}
+  schedule:
+    enabled: ${ALERT_SCHEDULE_ENABLED:true}
+    interval-ms: ${ALERT_SCHEDULE_INTERVAL_MS:30000}
+    initial-delay-ms: ${ALERT_SCHEDULE_INITIAL_DELAY_MS:15000}
 
 quality:
   schedule:
@@ -163,11 +167,26 @@ quality:
     interval-ms: ${QUALITY_SCHEDULE_INTERVAL_MS:3600000}
     initial-delay-ms: ${QUALITY_SCHEDULE_INITIAL_DELAY_MS:60000}
 
+report:
+  schedule:
+    enabled: ${REPORT_SCHEDULE_ENABLED:true}
+    interval-ms: ${REPORT_SCHEDULE_INTERVAL_MS:30000}
+    initial-delay-ms: ${REPORT_SCHEDULE_INITIAL_DELAY_MS:30000}
+
 workflow:
   scheduler:
     enabled: ${WORKFLOW_SCHEDULER_ENABLED:true}
     dependency-check-ms: ${WORKFLOW_DEPENDENCY_CHECK_MS:10000}
     initial-delay-ms: ${WORKFLOW_INITIAL_DELAY_MS:10000}
+  runner:
+    enabled: ${WORKFLOW_RUNNER_ENABLED:false}
+    executor-id: ${WORKFLOW_RUNNER_EXECUTOR_ID:internal-flink-sql}
+    interval-ms: ${WORKFLOW_RUNNER_INTERVAL_MS:5000}
+    initial-delay-ms: ${WORKFLOW_RUNNER_INITIAL_DELAY_MS:15000}
+    max-concurrent: ${WORKFLOW_RUNNER_MAX_CONCURRENT:2}
+    lease-seconds: ${WORKFLOW_RUNNER_LEASE_SECONDS:60}
+    max-retries: ${WORKFLOW_RUNNER_MAX_RETRIES:3}
+    retry-backoff-seconds: ${WORKFLOW_RUNNER_RETRY_BACKOFF_SECONDS:30}
 
 # CDC Configuration
 cdc:

@@ -76,6 +76,19 @@ declare namespace API {
     checkpointCount: number;
     lastCheckpointTime?: string;
     errorMessage?: string;
+    sourceDbType?: string;
+  }
+
+  interface PostgresCdcStatus {
+    ready: boolean;
+    walLevel: string;
+    replicationRole: boolean;
+    canCreatePublication: boolean;
+    maxReplicationSlots: number;
+    usedReplicationSlots: number;
+    requiredNewSlots: number;
+    error?: string;
+    resources: Array<{ sourceTable: string; slot: string; publication: string }>;
   }
 
   interface TaskDependency {
@@ -103,10 +116,14 @@ declare namespace API {
     triggerType: string;
     status: 'waiting' | 'queued' | 'running' | 'success' | 'failed' | 'cancelled';
     executorId?: string;
+    externalJobId?: string;
     retryCount: number;
     errorMessage?: string;
     startedAt?: string | number[];
     finishedAt?: string | number[];
+    heartbeatAt?: string | number[];
+    leaseExpiresAt?: string | number[];
+    nextRetryAt?: string | number[];
     createdAt: string | number[];
   }
 
@@ -129,6 +146,36 @@ declare namespace API {
     durationMs: number;
     errorMessage?: string;
     createdAt: string | number[];
+  }
+
+  interface AdminPermission {
+    id: number;
+    permCode: string;
+    permName: string;
+    resourceType: string;
+  }
+
+  interface AdminRoleSummary {
+    id: number;
+    roleCode: string;
+    roleName: string;
+  }
+
+  interface AdminRole extends AdminRoleSummary {
+    description?: string;
+    permissions: AdminPermission[];
+  }
+
+  interface AdminUser {
+    id: number;
+    username: string;
+    realName?: string;
+    email?: string;
+    phone?: string;
+    status: 'active' | 'disabled';
+    roles: AdminRoleSummary[];
+    createdAt: string;
+    updatedAt: string;
   }
 
   /** 数据源配置（与后端 DatasourceConfig 实体对齐） */
@@ -225,6 +272,14 @@ declare namespace API {
     catalog?: string;
     database?: string;
     traceId?: string;
+    queryId?: string;
+    scannedRows?: number;
+    scannedBytes?: number;
+    cpuMs?: number;
+    peakMemoryBytes?: number;
+    localScanBytes?: number;
+    remoteScanBytes?: number;
+    cacheWriteBytes?: number;
   }
 
   interface QueryGovernanceStats {
@@ -278,9 +333,29 @@ declare namespace API {
     chartConfig?: string;
     filterConfig?: string;
     scheduleConfig?: string;
+    scheduleEnabled?: boolean;
+    nextRunAt?: string;
+    lastRunAt?: string;
     isPublished: boolean;
     createdAt: string;
     updatedAt: string;
+  }
+
+  interface ReportRun {
+    id: number;
+    reportId: number;
+    triggerType: 'manual' | 'scheduled';
+    status: 'running' | 'success' | 'failed';
+    scheduledAt?: string;
+    startedAt: string;
+    finishedAt?: string;
+    durationMs?: number;
+    rowCount?: number;
+    attemptCount?: number;
+    errorMessage?: string;
+    deliveryStatus?: 'skipped' | 'success' | 'partial' | 'failed';
+    deliveryError?: string;
+    executedBy: number;
   }
 
   /** 告警规则 */
@@ -298,11 +373,16 @@ declare namespace API {
   /** 告警记录 */
   interface AlertRecord {
     id: number;
+    ruleId?: number;
+    dedupKey?: string;
     ruleType: string;
     message?: string;
     level?: string;
     resolved: boolean;
     resolvedAt?: string;
+    recoveredAt?: string;
+    lastEvaluatedAt?: string;
+    notificationStatus?: 'pending' | 'sent' | 'skipped' | string;
     triggeredAt?: string;
   }
 

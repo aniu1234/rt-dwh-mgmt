@@ -4,6 +4,7 @@ import com.rtdwh.dto.ApiResponse;
 import com.rtdwh.entity.AlertRule;
 import com.rtdwh.entity.AlertRecord;
 import com.rtdwh.service.AlertNotifyService;
+import com.rtdwh.service.AlertEvaluationService;
 import com.rtdwh.service.AlertService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,6 +22,7 @@ public class AlertController {
 
     private final AlertService alertService;
     private final AlertNotifyService alertNotifyService;
+    private final AlertEvaluationService alertEvaluationService;
 
     @GetMapping("/rules")
     public ApiResponse<List<AlertRule>> getRules() {
@@ -72,5 +74,17 @@ public class AlertController {
     public ApiResponse<Void> testNotify(@RequestBody AlertRule rule) {
         alertNotifyService.sendAlert(rule, "这是一条测试告警消息", "info");
         return ApiResponse.success("测试通知已发送", null);
+    }
+
+    @PostMapping("/evaluate")
+    @PreAuthorize("hasAuthority('alert:manage')")
+    public ApiResponse<AlertEvaluationService.EvaluationSummary> evaluate() {
+        return ApiResponse.success("告警规则评估完成", alertEvaluationService.evaluateAll());
+    }
+
+    @PostMapping("/rules/{id}/evaluate")
+    @PreAuthorize("hasAuthority('alert:manage')")
+    public ApiResponse<AlertEvaluationService.EvaluationSummary> evaluateRule(@PathVariable Long id) {
+        return ApiResponse.success("告警规则评估完成", alertEvaluationService.evaluateRule(id));
     }
 }

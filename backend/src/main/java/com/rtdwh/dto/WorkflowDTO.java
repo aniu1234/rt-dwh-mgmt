@@ -32,4 +32,10 @@ public final class WorkflowDTO {
         @NotNull private Boolean success;
         private String errorMessage;
     }
+
+    @Data
+    public static class AttachJobRequest {
+        @NotBlank private String executorId;
+        @NotBlank private String externalJobId;
+    }
 }

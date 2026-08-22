@@ -8,6 +8,7 @@ import {
   Empty,
   Form,
   Input,
+  InputNumber,
   Modal,
   Popconfirm,
   Row,
@@ -15,6 +16,7 @@ import {
   Skeleton,
   Space,
   Statistic,
+  Switch,
   Table,
   Tabs,
   Tag,
@@ -38,7 +40,10 @@ import {
   createReport,
   deleteReport,
   getReportData,
+  getReportRunResult,
+  getReportRuns,
   getReports,
+  runReportNow,
   updateReport,
 } from '@/api';
 import './index.less';
@@ -49,6 +54,11 @@ interface ReportFormValues {
   reportName: string;
   reportType: ReportType;
   sqlQuery: string;
+  scheduleEnabled?: boolean;
+  scheduleCron?: string;
+  scheduleTimezone?: string;
+  retainCount?: number;
+  maxRows?: number;
 }
 
 interface ReportDataState {
@@ -349,6 +359,9 @@ const Report: React.FC = () => {
   const [viewReport, setViewReport] = useState<API.ReportTemplate>();
   const [viewData, setViewData] = useState<API.QueryResult>();
   const [viewLoading, setViewLoading] = useState(false);
+  const [runsReport, setRunsReport] = useState<API.ReportTemplate>();
+  const [reportRuns, setReportRuns] = useState<API.ReportRun[]>([]);
+  const [runsLoading, setRunsLoading] = useState(false);
   const autoLoadedKeyRef = useRef('');
   const [form] = Form.useForm<ReportFormValues>();
 
@@ -418,16 +431,27 @@ const Report: React.FC = () => {
   const openCreate = () => {
     setEditingReport(undefined);
     form.resetFields();
-    form.setFieldsValue({ reportType: 'line' });
+    form.setFieldsValue({ reportType: 'line', scheduleEnabled: false, scheduleCron: '0 0 * * * *', scheduleTimezone: 'Asia/Shanghai', retainCount: 30, maxRows: 1000, maxRetries: 0, notifyOn: 'never', notifyChannels: [] });
     setEditorOpen(true);
   };
 
   const openEdit = (report: API.ReportTemplate) => {
     setEditingReport(report);
+    let schedule: any = {};
+    try { schedule = report.scheduleConfig ? JSON.parse(report.scheduleConfig) : {}; } catch { schedule = {}; }
     form.setFieldsValue({
       reportName: report.reportName,
       reportType: report.reportType,
       sqlQuery: report.sqlQuery,
+      scheduleEnabled: schedule.enabled || false,
+      scheduleCron: schedule.cron || '0 0 * * * *',
+      scheduleTimezone: schedule.timezone || 'Asia/Shanghai',
+      retainCount: schedule.retainCount || 30,
+      maxRows: schedule.maxRows || 1000,
+      maxRetries: schedule.maxRetries || 0,
+      notifyOn: schedule.notifyOn || 'never',
+      notifyChannels: schedule.notifyChannels || [],
+      recipients: schedule.recipients || '',
     });
     setEditorOpen(true);
   };
@@ -435,12 +459,25 @@ const Report: React.FC = () => {
   const saveReport = async () => {
     try {
       const values = await form.validateFields();
+      const { scheduleEnabled, scheduleCron, scheduleTimezone, retainCount, maxRows,
+        maxRetries, notifyOn, notifyChannels, recipients, ...reportValues } = values;
+      const scheduleConfig = JSON.stringify({
+        enabled: !!scheduleEnabled,
+        cron: scheduleCron || '0 0 * * * *',
+        timezone: scheduleTimezone || 'Asia/Shanghai',
+        retainCount: retainCount || 30,
+        maxRows: maxRows || 1000,
+        maxRetries: maxRetries || 0,
+        notifyOn: notifyOn || 'never',
+        notifyChannels: notifyChannels || [],
+        recipients: recipients || '',
+      });
       setSubmitting(true);
       if (editingReport) {
-        await updateReport(editingReport.id, { ...editingReport, ...values });
+        await updateReport(editingReport.id, { ...editingReport, ...reportValues, scheduleConfig });
         message.success('报表已更新');
       } else {
-        await createReport({ ...values, isPublished: false });
+        await createReport({ ...reportValues, scheduleConfig, isPublished: false });
         message.success('报表已创建，可发布后加入看板');
       }
       setEditorOpen(false);
@@ -451,6 +488,20 @@ const Report: React.FC = () => {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const openRuns = async (report: API.ReportTemplate) => {
+    setRunsReport(report);
+    setRunsLoading(true);
+    try { setReportRuns(await getReportRuns(report.id)); } finally { setRunsLoading(false); }
+  };
+
+  const runNow = async (report: API.ReportTemplate) => {
+    const run = await runReportNow(report.id);
+    if (run.status === 'success') message.success('报表执行成功');
+    else message.error(run.errorMessage || '报表执行失败');
+    await refresh();
+    if (runsReport?.id === report.id) await openRuns(report);
   };
 
   const togglePublish = async (report: API.ReportTemplate) => {
@@ -656,15 +707,23 @@ const Report: React.FC = () => {
                       title: '状态', dataIndex: 'isPublished', key: 'published', width: 100,
                       render: (value: boolean) => value ? <Tag color="success">已发布</Tag> : <Tag>草稿</Tag>,
                     },
+                    {
+                      title: '调度', key: 'schedule', width: 170,
+                      render: (_, record) => record.scheduleEnabled
+                        ? <div><Tag color="processing">已启用</Tag><div style={{ color: '#8c8c8c', marginTop: 4 }}>下次 {formatTime(record.nextRunAt)}</div></div>
+                        : <Tag>未启用</Tag>,
+                    },
                     { title: '创建时间', dataIndex: 'createdAt', key: 'created', width: 150, render: formatTime },
                     {
-                      title: '操作', key: 'action', width: 260, fixed: 'right',
+                      title: '操作', key: 'action', width: 360, fixed: 'right',
                       render: (_, record) => (
                         <Space size={4}>
                           <Tooltip title={record.isPublished ? '查看报表数据' : '发布后才能查询数据'}>
                             <Button size="small" type="link" disabled={!record.isPublished} onClick={() => openPreview(record)}>查看</Button>
                           </Tooltip>
                           <Button size="small" type="link" onClick={() => openEdit(record)}>编辑</Button>
+                          <Button size="small" type="link" onClick={() => openRuns(record)}>运行历史</Button>
+                          <Button size="small" type="link" disabled={!record.isPublished} onClick={() => runNow(record)}>立即运行</Button>
                           <Popconfirm title={record.isPublished ? '确认下线这张报表？' : '确认发布这张报表？'} description={record.isPublished ? '下线后将从数据看板移除。' : '发布后会立即加入数据看板并执行查询。'} onConfirm={() => togglePublish(record)}>
                             <Button size="small" type="link">{record.isPublished ? '下线' : '发布'}</Button>
                           </Popconfirm>
@@ -722,7 +781,72 @@ const Report: React.FC = () => {
           >
             <Input.TextArea className="report-sql-editor" autoSize={{ minRows: 8, maxRows: 16 }} spellCheck={false} placeholder={'SELECT\n  dt,\n  SUM(amount) AS total_amount\nFROM ads_order_daily\nGROUP BY dt\nORDER BY dt'} />
           </Form.Item>
+          <Card size="small" title="定时运行" style={{ marginTop: 12 }}>
+            <Form.Item name="scheduleEnabled" label="启用调度" valuePropName="checked">
+              <Switch />
+            </Form.Item>
+            <Form.Item noStyle shouldUpdate={(previous, current) => previous.scheduleEnabled !== current.scheduleEnabled}>
+              {({ getFieldValue }) => getFieldValue('scheduleEnabled') && <>
+                <Form.Item name="scheduleCron" label="Cron 表达式" extra="使用 Spring 六段 Cron：秒 分 时 日 月 周" rules={[{ required: true, message: '请输入 Cron 表达式' }]}>
+                  <Input placeholder="0 0 * * * *（每小时）" />
+                </Form.Item>
+                <Row gutter={16}>
+                  <Col span={12}><Form.Item name="scheduleTimezone" label="时区" rules={[{ required: true }]}>
+                    <Select options={[{ value: 'Asia/Shanghai' }, { value: 'UTC' }, { value: 'Asia/Hong_Kong' }]} />
+                  </Form.Item></Col>
+                  <Col span={6}><Form.Item name="retainCount" label="保留次数"><InputNumber min={1} max={200} style={{ width: '100%' }} /></Form.Item></Col>
+                  <Col span={6}><Form.Item name="maxRows" label="快照行数"><InputNumber min={1} max={5000} style={{ width: '100%' }} /></Form.Item></Col>
+                </Row>
+                <Row gutter={16}>
+                  <Col span={8}><Form.Item name="maxRetries" label="失败重试"><InputNumber min={0} max={3} addonAfter="次" style={{ width: '100%' }} /></Form.Item></Col>
+                  <Col span={8}><Form.Item name="notifyOn" label="通知时机">
+                    <Select options={[{ label: '不通知', value: 'never' }, { label: '仅成功', value: 'success' }, { label: '仅失败', value: 'failure' }, { label: '始终通知', value: 'always' }]} />
+                  </Form.Item></Col>
+                  <Col span={8}><Form.Item name="notifyChannels" label="通知渠道">
+                    <Select mode="multiple" options={[{ label: '邮件', value: 'email' }, { label: '钉钉', value: 'dingtalk' }, { label: '企业微信', value: 'wecom' }]} />
+                  </Form.Item></Col>
+                </Row>
+                <Form.Item noStyle shouldUpdate={(previous, current) => previous.notifyChannels !== current.notifyChannels}>
+                  {({ getFieldValue: fieldValue }) => (fieldValue('notifyChannels') || []).includes('email') && (
+                    <Form.Item name="recipients" label="订阅邮箱" extra="多个邮箱使用逗号分隔；留空时使用平台默认告警收件人">
+                      <Input placeholder="owner@example.com, data-team@example.com" />
+                    </Form.Item>
+                  )}
+                </Form.Item>
+              </>}
+            </Form.Item>
+          </Card>
         </Form>
+      </Modal>
+
+      <Modal
+        title={`运行历史 · ${runsReport?.reportName || ''}`}
+        open={!!runsReport}
+        onCancel={() => setRunsReport(undefined)}
+        width={960}
+        footer={<Button onClick={() => setRunsReport(undefined)}>关闭</Button>}
+      >
+        <Table<API.ReportRun>
+          rowKey="id"
+          loading={runsLoading}
+          dataSource={reportRuns}
+          pagination={{ pageSize: 10, showSizeChanger: false }}
+          columns={[
+            { title: '计划时间', dataIndex: 'scheduledAt', width: 170, render: formatTime },
+            { title: '触发', dataIndex: 'triggerType', width: 90, render: (value) => value === 'scheduled' ? '定时' : '手动' },
+            { title: '状态', dataIndex: 'status', width: 90, render: (value) => <Tag color={value === 'success' ? 'success' : value === 'failed' ? 'error' : 'processing'}>{value}</Tag> },
+            { title: '行数', dataIndex: 'rowCount', width: 90, render: (value) => value ?? '—' },
+            { title: '耗时', dataIndex: 'durationMs', width: 100, render: (value) => value == null ? '—' : `${value} ms` },
+            { title: '尝试', dataIndex: 'attemptCount', width: 70, render: (value) => value ?? '—' },
+            { title: '分发', dataIndex: 'deliveryStatus', width: 90, render: (value) => <Tag color={value === 'success' ? 'success' : value === 'failed' ? 'error' : value === 'partial' ? 'warning' : 'default'}>{value || '—'}</Tag> },
+            { title: '错误', dataIndex: 'errorMessage', ellipsis: true },
+            { title: '操作', width: 90, render: (_, run) => <Button size="small" type="link" disabled={run.status !== 'success'} onClick={async () => {
+              if (!runsReport) return;
+              const snapshot = await getReportRunResult(runsReport.id, run.id);
+              setViewReport(runsReport); setViewData(snapshot.result); setViewLoading(false); setRunsReport(undefined);
+            }}>查看快照</Button> },
+          ]}
+        />
       </Modal>
 
       <Modal

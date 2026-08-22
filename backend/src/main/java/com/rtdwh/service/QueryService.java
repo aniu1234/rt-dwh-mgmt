@@ -30,8 +30,10 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 
 @Slf4j
@@ -112,7 +114,7 @@ public class QueryService {
                 .sqlText(sql)
                 .queryType(type)
                 .queryEngine("doris")
-                .queryId(requestId)
+                .traceId(requestId)
                 .status(QueryStatus.running)
                 .build());
         long historyId = history.getId();
@@ -126,6 +128,10 @@ public class QueryService {
         QueryStatus status = QueryStatus.success;
         String error = null;
         boolean truncated = false;
+        AtomicBoolean monitorRunning = new AtomicBoolean(true);
+        AtomicReference<DorisConnectionService.QueryRuntimeStats> runtimeStats = new AtomicReference<>();
+        CompletableFuture<Void> monitor = CompletableFuture.runAsync(
+                () -> monitorRuntimeStats(requestId, monitorRunning, runtimeStats));
         try {
             truncated = executeViaDorisJdbc(
                     sql, catalog, database, requestId, maxRows, timeout, query, columns, rows);
@@ -142,12 +148,20 @@ public class QueryService {
                 log.error("Query failed: {}", error);
             }
         } finally {
+            monitorRunning.set(false);
             active.remove(historyId);
             requests.remove(requestId, historyId);
             query.statement = null;
         }
-
         long duration = System.currentTimeMillis() - started;
+
+        monitor.cancel(true);
+        mergeRuntimeStats(runtimeStats, dorisConnectionService.getQueryRuntimeStats(requestId));
+        String dorisQueryId = dorisConnectionService.getQueryIdByTraceId(requestId);
+        DorisConnectionService.QueryRuntimeStats metrics = runtimeStats.get();
+
+        history.setQueryId(dorisQueryId);
+        applyRuntimeStats(history, metrics);
         history.setResultRowCount(rows.size());
         history.setDurationMs(duration);
         history.setStatus(status);
@@ -168,7 +182,52 @@ public class QueryService {
         result.put("catalog", catalog);
         result.put("database", database);
         result.put("traceId", requestId);
+        result.put("queryId", dorisQueryId);
+        result.put("scannedRows", metrics == null ? null : metrics.scannedRows());
+        result.put("scannedBytes", metrics == null ? null : metrics.scannedBytes());
+        result.put("cpuMs", metrics == null ? null : metrics.cpuMs());
+        result.put("peakMemoryBytes", metrics == null ? null : metrics.peakMemoryBytes());
+        result.put("localScanBytes", metrics == null ? null : metrics.localScanBytes());
+        result.put("remoteScanBytes", metrics == null ? null : metrics.remoteScanBytes());
+        result.put("cacheWriteBytes", metrics == null ? null : metrics.cacheWriteBytes());
         return result;
+    }
+
+    private void monitorRuntimeStats(
+            String traceId,
+            AtomicBoolean running,
+            AtomicReference<DorisConnectionService.QueryRuntimeStats> current
+    ) {
+        while (running.get() && !Thread.currentThread().isInterrupted()) {
+            try {
+                Thread.sleep(150L);
+                if (!running.get()) return;
+                mergeRuntimeStats(current, dorisConnectionService.getQueryRuntimeStats(traceId));
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                return;
+            } catch (Exception ignored) {
+                // Runtime statistics are best effort and must never fail the user query.
+            }
+        }
+    }
+
+    private void mergeRuntimeStats(
+            AtomicReference<DorisConnectionService.QueryRuntimeStats> current,
+            DorisConnectionService.QueryRuntimeStats sample
+    ) {
+        if (sample != null) current.updateAndGet(previous -> previous == null ? sample : previous.merge(sample));
+    }
+
+    private void applyRuntimeStats(QueryHistory history, DorisConnectionService.QueryRuntimeStats metrics) {
+        if (metrics == null) return;
+        history.setScannedRows(metrics.scannedRows());
+        history.setScannedBytes(metrics.scannedBytes());
+        history.setCpuMs(metrics.cpuMs());
+        history.setPeakMemoryBytes(metrics.peakMemoryBytes());
+        history.setLocalScanBytes(metrics.localScanBytes());
+        history.setRemoteScanBytes(metrics.remoteScanBytes());
+        history.setCacheWriteBytes(metrics.cacheWriteBytes());
     }
 
     private boolean executeViaDorisJdbc(
@@ -257,6 +316,17 @@ public class QueryService {
     }
 
     @Transactional(readOnly = true)
+    public Map<String, Object> getQueryProfile(Long historyId, Long userId) {
+        QueryHistory history = queryHistoryRepository.findByIdAndUserId(historyId, userId)
+                .orElseThrow(() -> new IllegalArgumentException("查询记录不存在或无权访问"));
+        if (history.getQueryId() == null || history.getQueryId().isBlank()) {
+            throw new IllegalStateException("该查询没有可用的 Doris Query ID");
+        }
+        return Map.of("queryId", history.getQueryId(),
+                "profile", dorisConnectionService.getQueryProfile(history.getQueryId()));
+    }
+
+    @Transactional(readOnly = true)
     public Map<String, Object> getGovernanceStats(Long userId) {
         List<QueryHistory> history = queryHistoryRepository.findTop1000ByUserIdOrderByCreatedAtDesc(userId);
         long success = history.stream().filter(item -> item.getStatus() == QueryStatus.success).count();
@@ -280,11 +350,16 @@ public class QueryService {
     }
 
     public Map<String, Object> executeReportQuery(String sql, Long userId) {
+        return executeReportQuery(sql, userId, maxExportRows);
+    }
+
+    public Map<String, Object> executeReportQuery(String sql, Long userId, int requestedMaxRows) {
         QueryExecuteDTO dto = new QueryExecuteDTO();
         dto.setSql(sql);
-        dto.setMaxRows(maxExportRows);
+        int maxRows = Math.max(1, Math.min(requestedMaxRows, maxExportRows));
+        dto.setMaxRows(maxRows);
         dto.setTimeoutSeconds(Math.min(defaultTimeout * 5, 1800));
-        return execute(dto, userId, QueryType.report, maxExportRows);
+        return execute(dto, userId, QueryType.report, maxRows);
     }
 
     private String validateSql(String raw) {

@@ -34,6 +34,7 @@ public class SyncTaskService {
     private final CdcSqlGenerator cdcSqlGenerator;
     private final DatasourceService datasourceService;
     private final ObjectMapper objectMapper;
+    private final PostgresCdcService postgresCdcService;
 
     // ========================================================================
     // CRUD Operations
@@ -131,6 +132,10 @@ public class SyncTaskService {
         if (task.getStatus() != TaskStatus.draft && task.getStatus() != TaskStatus.finished) {
             throw new IllegalStateException("只能删除 draft 或 finished 状态的任务，当前状态: " + task.getStatus());
         }
+        if (task.getTaskType() == TaskType.cdc_sync) {
+            DatasourceConfig source = datasourceService.getDatasource(task.getSourceConfigId());
+            if (source.getDbType() == DatasourceConfig.DbType.postgresql) postgresCdcService.cleanup(source, task);
+        }
         taskDependencyRepository.deleteByUpstreamTaskId(id);
         taskDependencyRepository.deleteByDownstreamTaskId(id);
         syncTaskRepository.delete(task);
@@ -154,6 +159,13 @@ public class SyncTaskService {
         // Validate state transition
         if (task.getStatus() != TaskStatus.draft && task.getStatus() != TaskStatus.failed) {
             throw new IllegalStateException("无法启动状态为 " + task.getStatus() + " 的任务");
+        }
+
+        if (task.getTaskType() == TaskType.cdc_sync) {
+            DatasourceConfig source = datasourceService.getDatasource(task.getSourceConfigId());
+            if (source.getDbType() == DatasourceConfig.DbType.postgresql) {
+                postgresCdcService.assertReady(source, task);
+            }
         }
 
         // Transition to submitting (intermediate state)
@@ -348,6 +360,23 @@ public class SyncTaskService {
         return startTask(id);
     }
 
+    public Map<String, Object> getPostgresCdcStatus(Long id) {
+        SyncTask task = getTask(id);
+        DatasourceConfig source = datasourceService.getDatasource(task.getSourceConfigId());
+        return postgresCdcService.preflight(source, task);
+    }
+
+    @Transactional
+    public Map<String, Object> cleanupPostgresCdcResources(Long id) {
+        SyncTask task = getTask(id);
+        if (task.getStatus() == TaskStatus.running || task.getStatus() == TaskStatus.submitting
+                || task.getStatus() == TaskStatus.saving_point) {
+            throw new IllegalStateException("请先停止 Flink CDC 任务，再清理 PostgreSQL Slot/Publication");
+        }
+        DatasourceConfig source = datasourceService.getDatasource(task.getSourceConfigId());
+        return postgresCdcService.cleanup(source, task);
+    }
+
     // ========================================================================
     // Savepoint Operations
     // ========================================================================
@@ -390,6 +419,9 @@ public class SyncTaskService {
         result.put("taskStatus", task.getStatus().name());
         result.put("taskId", task.getId());
         result.put("taskName", task.getTaskName());
+        if (task.getTaskType() == TaskType.cdc_sync && task.getSourceConfigId() != null) {
+            result.put("sourceDbType", datasourceService.getDatasource(task.getSourceConfigId()).getDbType().name());
+        }
 
         if (task.getFlinkJobId() == null) {
             result.put("flinkJobStatus", "NO_JOB");

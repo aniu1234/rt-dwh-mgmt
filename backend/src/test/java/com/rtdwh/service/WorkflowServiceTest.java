@@ -11,6 +11,7 @@ import com.rtdwh.repository.TaskDependencyRepository;
 import com.rtdwh.repository.TaskRunInstanceRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.Pageable;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -75,6 +76,27 @@ class WorkflowServiceTest {
         assertEquals(1, service.promoteReadyInstances());
         assertEquals(TaskRunInstance.RunStatus.queued, waiting.getStatus());
         verify(instanceRepository).save(waiting);
+    }
+
+    @Test
+    void retriesFailedExecutionWithBackoffBeforeTerminalFailure() {
+        TaskRunInstance running = TaskRunInstance.builder().id(9L)
+                .status(TaskRunInstance.RunStatus.running).retryCount(0).build();
+        when(instanceRepository.findById(9L)).thenReturn(Optional.of(running));
+        when(instanceRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        ReflectionTestUtils.setField(service, "maxRetries", 1);
+        ReflectionTestUtils.setField(service, "retryBackoffSeconds", 10L);
+
+        TaskRunInstance retrying = service.failOrRetry(9L, "temporary error");
+
+        assertEquals(TaskRunInstance.RunStatus.queued, retrying.getStatus());
+        assertEquals(1, retrying.getRetryCount());
+        assertNotNull(retrying.getNextRetryAt());
+
+        retrying.setStatus(TaskRunInstance.RunStatus.running);
+        TaskRunInstance failed = service.failOrRetry(9L, "still broken");
+        assertEquals(TaskRunInstance.RunStatus.failed, failed.getStatus());
+        assertNotNull(failed.getFinishedAt());
     }
 
     private SyncTask task(Long id, SyncTask.TaskType type) {

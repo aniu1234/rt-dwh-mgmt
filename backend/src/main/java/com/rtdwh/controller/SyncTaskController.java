@@ -136,6 +136,17 @@ public class SyncTaskController {
         return ApiResponse.success(msg, task);
     }
 
+    @GetMapping("/{id}/postgres-cdc-status")
+    public ApiResponse<Map<String, Object>> getPostgresCdcStatus(@PathVariable Long id) {
+        return ApiResponse.success(syncTaskService.getPostgresCdcStatus(id));
+    }
+
+    @PostMapping("/{id}/cleanup-postgres-cdc")
+    @PreAuthorize("hasAuthority('task:manage')")
+    public ApiResponse<Map<String, Object>> cleanupPostgresCdc(@PathVariable Long id) {
+        return ApiResponse.success("PostgreSQL CDC 资源已清理", syncTaskService.cleanupPostgresCdcResources(id));
+    }
+
     /**
      * 手动触发 Savepoint (不停止任务)
      */

@@ -8,7 +8,8 @@ import { useRequest } from '@umijs/max';
 import dayjs, { Dayjs } from 'dayjs';
 import {
   addTaskDependency, createTaskBackfill, getTaskVersions, getWorkflowGraph, getWorkflowInstances,
-  publishTaskVersion, removeTaskDependency, rollbackTaskVersion,
+  publishTaskVersion, removeTaskDependency, rollbackTaskVersion, retryWorkflowInstance,
+  cancelWorkflowInstance,
 } from '@/api';
 
 const statusColors: Record<string, string> = {
@@ -32,7 +33,7 @@ const Workflow: React.FC = () => {
   const [backfillForm] = Form.useForm();
 
   const graphRequest = useRequest(getWorkflowGraph);
-  const instancesRequest = useRequest(() => getWorkflowInstances({ limit: 200 }));
+  const instancesRequest = useRequest(() => getWorkflowInstances({ limit: 200 }), { pollingInterval: 5000 });
   const graph = graphRequest.data as API.WorkflowGraph | undefined;
   const tasks = graph?.tasks || [];
   const dependencies = graph?.dependencies || [];
@@ -71,9 +72,21 @@ const Workflow: React.FC = () => {
     { title: '业务日期', dataIndex: 'businessDate', width: 130 },
     { title: '触发方式', dataIndex: 'triggerType', width: 110 },
     { title: '状态', dataIndex: 'status', width: 110, render: (status: string) => <Tag color={statusColors[status]}>{status}</Tag> },
-    { title: '执行器', dataIndex: 'executorId', render: (value?: string) => value || '—' },
+    { title: '执行信息', key: 'executor', width: 220, render: (_: unknown, record: API.TaskRunInstance) => <Space direction="vertical" size={0}>
+      <span>{record.executorId || '等待领取'}</span>
+      <span style={{ color: '#8c8c8c' }}>{record.externalJobId ? `Job ${record.externalJobId.slice(0, 12)}…` : `已重试 ${record.retryCount || 0} 次`}</span>
+    </Space> },
+    { title: '下次执行 / 租约', key: 'schedule', width: 180, render: (_: unknown, record: API.TaskRunInstance) => formatTime(record.nextRetryAt || record.leaseExpiresAt) },
     { title: '错误', dataIndex: 'errorMessage', ellipsis: true },
     { title: '创建时间', dataIndex: 'createdAt', width: 180, render: formatTime },
+    { title: '操作', key: 'actions', fixed: 'right' as const, width: 130, render: (_: unknown, record: API.TaskRunInstance) => <Space>
+      {record.status === 'failed' && <Button size="small" type="primary" onClick={async () => {
+        await retryWorkflowInstance(record.id); message.success('实例已重新入队'); instancesRequest.refresh();
+      }}>重试</Button>}
+      {['waiting', 'queued', 'running'].includes(record.status) && <Popconfirm title="确认取消该实例？运行中的 Flink Job 也会被取消。" onConfirm={async () => {
+        await cancelWorkflowInstance(record.id); message.success('实例已取消'); instancesRequest.refresh();
+      }}><Button size="small" danger>取消</Button></Popconfirm>}
+    </Space> },
   ];
 
   return <PageContainer title="任务编排" subTitle="任务依赖、版本发布、运行实例与补数控制面">
@@ -86,7 +99,7 @@ const Workflow: React.FC = () => {
       </Space>
       <Tabs items={[
         { key: 'dag', label: 'DAG 与版本', children: <Table rowKey="id" loading={graphRequest.loading} dataSource={tasks} columns={taskColumns} pagination={false} /> },
-        { key: 'runs', label: '运行实例', children: <Table rowKey="id" loading={instancesRequest.loading} dataSource={(instancesRequest.data || []) as API.TaskRunInstance[]} columns={instanceColumns} pagination={{ pageSize: 20 }} /> },
+        { key: 'runs', label: '运行实例', children: <Table rowKey="id" loading={instancesRequest.loading} dataSource={(instancesRequest.data || []) as API.TaskRunInstance[]} columns={instanceColumns} pagination={{ pageSize: 20 }} scroll={{ x: 1450 }} /> },
       ]} />
     </Card>
 

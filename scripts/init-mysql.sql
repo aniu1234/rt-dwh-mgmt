@@ -19,6 +19,7 @@ CREATE DATABASE IF NOT EXISTS rtdwh_paimon_meta
 -- The official MySQL image creates MYSQL_USER before executing init scripts.
 -- Keep the default deployment user able to initialize Paimon catalog tables.
 GRANT ALL PRIVILEGES ON rtdwh_paimon_meta.* TO 'rtdwh_admin'@'%';
+GRANT SELECT, RELOAD, SHOW DATABASES, REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'rtdwh_admin'@'%';
 FLUSH PRIVILEGES;
 
 USE rtdwh_mgmt;
@@ -275,7 +276,7 @@ CREATE TABLE IF NOT EXISTS alert_rule (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
--- AlertRecord (updated: removed FK to alert_config, matches entity)
+-- AlertRecord baseline. Flyway V4 adds evaluation and notification columns.
 CREATE TABLE IF NOT EXISTS alert_record (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
   rule_type VARCHAR(50) NOT NULL,

@@ -2,6 +2,8 @@ package com.rtdwh.service;
 
 import com.rtdwh.entity.AlertRule;
 import com.rtdwh.entity.QualityRule;
+import com.rtdwh.entity.ReportRun;
+import com.rtdwh.entity.ReportTemplate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -43,20 +45,32 @@ public class AlertNotifyService {
      * This is called when a task fails, data lag exceeds threshold, etc.
      */
     public void sendAlert(AlertRule rule, String message, String level) {
+        sendAlertWithResult(rule, message, level);
+    }
+
+    /** Sends to every comma-separated channel and reports whether at least one delivery succeeded. */
+    public boolean sendAlertWithResult(AlertRule rule, String message, String level) {
         String channel = rule.getNotifyChannel();
         if (channel == null || channel.isEmpty()) {
             log.warn("Alert rule [{}] has no notify channel configured, skipping notification", rule.getRuleName());
-            return;
+            return false;
         }
 
         String formattedMessage = formatAlertMessage(rule.getRuleName(), rule.getRuleType(), message, level);
 
-        switch (channel.toLowerCase()) {
-            case "dingtalk" -> sendDingtalk(formattedMessage, level);
-            case "wecom" -> sendWecom(formattedMessage, level);
-            case "email" -> sendEmail(formattedMessage, level, rule.getRuleName());
-            default -> log.warn("Unknown notify channel: {}", channel);
+        boolean delivered = false;
+        for (String item : channel.split(",")) {
+            delivered |= switch (item.trim().toLowerCase()) {
+                case "dingtalk" -> sendDingtalk(formattedMessage, level);
+                case "wecom" -> sendWecom(formattedMessage, level);
+                case "email" -> sendEmail(formattedMessage, level, rule.getRuleName());
+                default -> {
+                    log.warn("Unknown notify channel: {}", item);
+                    yield false;
+                }
+            };
         }
+        return delivered;
     }
 
     /**
@@ -121,6 +135,30 @@ public class AlertNotifyService {
         }
     }
 
+    public DeliveryResult sendReportResult(ReportTemplate report, ReportRun run, ReportScheduleConfig config) {
+        String subject = "报表运行" + ("success".equals(run.getStatus()) ? "成功" : "失败") + ": " + report.getReportName();
+        String content = String.format("【实时数仓报表】\n报表: %s\n状态: %s\n触发方式: %s\n返回行数: %s\n耗时: %s ms\n错误: %s\n完成时间: %s",
+                report.getReportName(), run.getStatus(), run.getTriggerType(),
+                run.getRowCount() == null ? "—" : run.getRowCount(),
+                run.getDurationMs() == null ? "—" : run.getDurationMs(),
+                run.getErrorMessage() == null ? "—" : run.getErrorMessage(),
+                run.getFinishedAt() == null ? "—" : run.getFinishedAt().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+        List<String> errors = new ArrayList<>();
+        int delivered = 0;
+        for (String channel : config.notifyChannels()) {
+            boolean success = switch (channel) {
+                case "email" -> sendEmailTo(content, "success".equals(run.getStatus()) ? "info" : "error",
+                        subject, config.recipients().isEmpty() ? emailRecipients.split("\\s*,\\s*")
+                                : config.recipients().toArray(String[]::new));
+                case "dingtalk" -> sendDingtalk(content, "success".equals(run.getStatus()) ? "info" : "error");
+                case "wecom" -> sendWecom(content, "success".equals(run.getStatus()) ? "info" : "error");
+                default -> false;
+            };
+            if (success) delivered++; else errors.add(channel + " 发送失败或未配置");
+        }
+        return new DeliveryResult(delivered, config.notifyChannels().size(), String.join("；", errors));
+    }
+
     // ========================================================================
     // Notification Channels
     // ========================================================================
@@ -129,10 +167,10 @@ public class AlertNotifyService {
      * Send DingTalk (钉钉) webhook notification.
      * DingTalk API: POST webhook URL with JSON body.
      */
-    private void sendDingtalk(String message, String level) {
+    private boolean sendDingtalk(String message, String level) {
         if (dingtalkWebhook.isEmpty()) {
             log.debug("DingTalk webhook not configured, skipping");
-            return;
+            return false;
         }
 
         try {
@@ -154,11 +192,14 @@ public class AlertNotifyService {
 
             if (response.getStatusCode().is2xxSuccessful()) {
                 log.info("DingTalk alert sent successfully");
+                return true;
             } else {
                 log.warn("DingTalk alert failed: HTTP {}", response.getStatusCode());
+                return false;
             }
         } catch (Exception e) {
             log.error("DingTalk notification error: {}", e.getMessage());
+            return false;
         }
     }
 
@@ -166,10 +207,10 @@ public class AlertNotifyService {
      * Send WeCom (企微) webhook notification.
      * WeCom API: POST webhook URL with JSON body (similar to DingTalk).
      */
-    private void sendWecom(String message, String level) {
+    private boolean sendWecom(String message, String level) {
         if (wecomWebhook.isEmpty()) {
             log.debug("WeCom webhook not configured, skipping");
-            return;
+            return false;
         }
 
         try {
@@ -190,35 +231,48 @@ public class AlertNotifyService {
 
             if (response.getStatusCode().is2xxSuccessful()) {
                 log.info("WeCom alert sent successfully");
+                return true;
             } else {
                 log.warn("WeCom alert failed: HTTP {}", response.getStatusCode());
+                return false;
             }
         } catch (Exception e) {
             log.error("WeCom notification error: {}", e.getMessage());
+            return false;
         }
     }
 
     /**
      * Send email notification.
      */
-    private void sendEmail(String message, String level, String subject) {
+    private boolean sendEmail(String message, String level, String subject) {
+        return sendEmailTo(message, level, subject, emailRecipients.split("\\s*,\\s*"));
+    }
+
+    private boolean sendEmailTo(String message, String level, String subject, String[] recipients) {
         if (mailHost.isEmpty()) {
             log.debug("Email not configured, skipping");
-            return;
+            return false;
         }
 
         try {
             SimpleMailMessage mailMessage = new SimpleMailMessage();
             mailMessage.setFrom(emailFrom);
-            mailMessage.setTo(emailRecipients.split("\\s*,\\s*"));
+            mailMessage.setTo(recipients);
             mailMessage.setSubject("[实时数仓" + levelLabel(level) + "] " + subject);
             mailMessage.setText(message);
 
             mailSender.send(mailMessage);
             log.info("Email alert sent successfully: {}", subject);
+            return true;
         } catch (Exception e) {
             log.error("Email notification error: {}", e.getMessage());
+            return false;
         }
+    }
+
+    public record DeliveryResult(int delivered, int requested, String error) {
+        public boolean success() { return requested > 0 && delivered == requested; }
     }
 
     // ========================================================================

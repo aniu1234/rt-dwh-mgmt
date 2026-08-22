@@ -13,6 +13,7 @@ import com.rtdwh.repository.TaskDefinitionVersionRepository;
 import com.rtdwh.repository.TaskDependencyRepository;
 import com.rtdwh.repository.TaskRunInstanceRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -31,6 +32,15 @@ public class WorkflowService {
     private final TaskDefinitionVersionRepository versionRepository;
     private final TaskRunInstanceRepository instanceRepository;
     private final ObjectMapper objectMapper;
+
+    @Value("${workflow.runner.lease-seconds:60}")
+    private long leaseSeconds = 60;
+
+    @Value("${workflow.runner.max-retries:3}")
+    private int maxRetries = 3;
+
+    @Value("${workflow.runner.retry-backoff-seconds:30}")
+    private long retryBackoffSeconds = 30;
 
     public Map<String, Object> graph() {
         List<SyncTask> tasks = taskRepository.findAll();
@@ -163,15 +173,45 @@ public class WorkflowService {
         if (executorId == null || executorId.isBlank()) {
             throw new IllegalArgumentException("executorId 不能为空");
         }
-        Optional<TaskRunInstance> candidate = instanceRepository.findFirstByStatusOrderByCreatedAtAsc(RunStatus.queued);
+        LocalDateTime now = LocalDateTime.now();
+        Optional<TaskRunInstance> candidate = instanceRepository.findRunnableForUpdate(
+                RunStatus.queued, now, PageRequest.of(0, 1)).stream().findFirst();
         candidate.ifPresent(instance -> {
             instance.setStatus(RunStatus.running);
             instance.setExecutorId(executorId.trim());
-            instance.setStartedAt(LocalDateTime.now());
-            instance.setUpdatedAt(LocalDateTime.now());
+            instance.setStartedAt(now);
+            instance.setFinishedAt(null);
+            instance.setHeartbeatAt(now);
+            instance.setLeaseExpiresAt(now.plusSeconds(leaseSeconds));
+            instance.setNextRetryAt(null);
+            instance.setUpdatedAt(now);
             instanceRepository.save(instance);
         });
         return candidate;
+    }
+
+    @Transactional
+    public TaskRunInstance attachExternalJob(Long instanceId, String executorId, String externalJobId) {
+        TaskRunInstance instance = requireRunningInstance(instanceId, executorId);
+        if (externalJobId == null || externalJobId.isBlank()) {
+            throw new IllegalArgumentException("externalJobId 不能为空");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        instance.setExternalJobId(externalJobId.trim());
+        instance.setHeartbeatAt(now);
+        instance.setLeaseExpiresAt(now.plusSeconds(leaseSeconds));
+        instance.setUpdatedAt(now);
+        return instanceRepository.save(instance);
+    }
+
+    @Transactional
+    public TaskRunInstance heartbeat(Long instanceId, String executorId) {
+        TaskRunInstance instance = requireRunningInstance(instanceId, executorId);
+        LocalDateTime now = LocalDateTime.now();
+        instance.setHeartbeatAt(now);
+        instance.setLeaseExpiresAt(now.plusSeconds(leaseSeconds));
+        instance.setUpdatedAt(now);
+        return instanceRepository.save(instance);
     }
 
     @Transactional
@@ -184,8 +224,103 @@ public class WorkflowService {
         instance.setStatus(success ? RunStatus.success : RunStatus.failed);
         instance.setErrorMessage(success ? null : errorMessage);
         instance.setFinishedAt(LocalDateTime.now());
+        instance.setHeartbeatAt(null);
+        instance.setLeaseExpiresAt(null);
+        instance.setNextRetryAt(null);
         instance.setUpdatedAt(LocalDateTime.now());
         return instanceRepository.save(instance);
+    }
+
+    @Transactional
+    public TaskRunInstance failOrRetry(Long instanceId, String errorMessage) {
+        TaskRunInstance instance = instanceRepository.findById(instanceId)
+                .orElseThrow(() -> new IllegalArgumentException("运行实例不存在: " + instanceId));
+        if (instance.getStatus() != RunStatus.running) {
+            return instance;
+        }
+        int retries = instance.getRetryCount() == null ? 0 : instance.getRetryCount();
+        LocalDateTime now = LocalDateTime.now();
+        instance.setErrorMessage(trimError(errorMessage));
+        instance.setHeartbeatAt(null);
+        instance.setLeaseExpiresAt(null);
+        instance.setExternalJobId(null);
+        instance.setExecutorId(null);
+        instance.setUpdatedAt(now);
+        if (retries < maxRetries) {
+            instance.setRetryCount(retries + 1);
+            instance.setStatus(RunStatus.queued);
+            instance.setStartedAt(null);
+            instance.setFinishedAt(null);
+            instance.setNextRetryAt(now.plusSeconds(retryDelaySeconds(retries + 1)));
+        } else {
+            instance.setStatus(RunStatus.failed);
+            instance.setFinishedAt(now);
+            instance.setNextRetryAt(null);
+        }
+        return instanceRepository.save(instance);
+    }
+
+    @Transactional
+    public TaskRunInstance retryFailed(Long instanceId) {
+        TaskRunInstance instance = instanceRepository.findById(instanceId)
+                .orElseThrow(() -> new IllegalArgumentException("运行实例不存在: " + instanceId));
+        if (instance.getStatus() != RunStatus.failed) {
+            throw new IllegalStateException("只有 failed 实例可以重试，当前状态: " + instance.getStatus());
+        }
+        instance.setStatus(RunStatus.queued);
+        instance.setRetryCount(0);
+        instance.setErrorMessage(null);
+        instance.setExecutorId(null);
+        instance.setExternalJobId(null);
+        instance.setStartedAt(null);
+        instance.setFinishedAt(null);
+        instance.setHeartbeatAt(null);
+        instance.setLeaseExpiresAt(null);
+        instance.setNextRetryAt(LocalDateTime.now());
+        instance.setUpdatedAt(LocalDateTime.now());
+        return instanceRepository.save(instance);
+    }
+
+    @Transactional
+    public TaskRunInstance cancel(Long instanceId) {
+        TaskRunInstance instance = instanceRepository.findById(instanceId)
+                .orElseThrow(() -> new IllegalArgumentException("运行实例不存在: " + instanceId));
+        if (Set.of(RunStatus.success, RunStatus.failed, RunStatus.cancelled).contains(instance.getStatus())) {
+            throw new IllegalStateException("终态实例不能取消，当前状态: " + instance.getStatus());
+        }
+        instance.setStatus(RunStatus.cancelled);
+        instance.setFinishedAt(LocalDateTime.now());
+        instance.setHeartbeatAt(null);
+        instance.setLeaseExpiresAt(null);
+        instance.setNextRetryAt(null);
+        instance.setUpdatedAt(LocalDateTime.now());
+        return instanceRepository.save(instance);
+    }
+
+    @Transactional
+    public int recoverExpiredInstances() {
+        LocalDateTime now = LocalDateTime.now();
+        List<TaskRunInstance> expired = instanceRepository
+                .findByStatusAndLeaseExpiresAtBeforeOrderByLeaseExpiresAtAsc(
+                        RunStatus.running, now, PageRequest.of(0, 200));
+        for (TaskRunInstance instance : expired) {
+            failOrRetry(instance.getId(), "执行器租约超时，最后心跳: " + instance.getHeartbeatAt());
+        }
+        return expired.size();
+    }
+
+    public List<TaskRunInstance> runningByExecutor(String executorId, int limit) {
+        return instanceRepository.findByStatusAndExecutorIdOrderByUpdatedAtAsc(
+                RunStatus.running, executorId, PageRequest.of(0, Math.max(1, Math.min(limit, 200))));
+    }
+
+    public SyncTask taskForInstance(TaskRunInstance instance) {
+        return requireTask(instance.getTaskId());
+    }
+
+    public TaskRunInstance getInstance(Long instanceId) {
+        return instanceRepository.findById(instanceId)
+                .orElseThrow(() -> new IllegalArgumentException("运行实例不存在: " + instanceId));
     }
 
     @Transactional
@@ -229,6 +364,29 @@ public class WorkflowService {
     private SyncTask requireTask(Long taskId) {
         return taskRepository.findById(taskId)
                 .orElseThrow(() -> new IllegalArgumentException("任务不存在: " + taskId));
+    }
+
+    private TaskRunInstance requireRunningInstance(Long instanceId, String executorId) {
+        TaskRunInstance instance = instanceRepository.findById(instanceId)
+                .orElseThrow(() -> new IllegalArgumentException("运行实例不存在: " + instanceId));
+        if (instance.getStatus() != RunStatus.running) {
+            throw new IllegalStateException("实例不是 running 状态: " + instance.getStatus());
+        }
+        if (executorId == null || !executorId.trim().equals(instance.getExecutorId())) {
+            throw new IllegalStateException("实例已由其他执行器持有");
+        }
+        return instance;
+    }
+
+    private long retryDelaySeconds(int retryNumber) {
+        long multiplier = 1L << Math.min(Math.max(retryNumber - 1, 0), 10);
+        return Math.max(1, retryBackoffSeconds) * multiplier;
+    }
+
+    private String trimError(String errorMessage) {
+        if (errorMessage == null || errorMessage.isBlank()) return "任务执行失败";
+        String value = errorMessage.trim();
+        return value.length() > 4000 ? value.substring(0, 4000) : value;
     }
 
     private String normalizeJson(String json) {
