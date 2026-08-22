@@ -132,6 +132,16 @@ declare namespace API {
     dependencies: TaskDependency[];
   }
 
+  interface TaskSchedule { id: number; taskId: number; cronExpression: string; timezone: string; businessDateOffset: number; parametersJson?: string; enabled: boolean; nextRunAt?: string; lastRunAt?: string; }
+  interface TaskOutputDataset { id: number; taskId: number; catalogName: string; databaseName: string; tableName: string; layer: string; owner?: string; businessDesc?: string; slaMinutes: number; qualityGateEnabled: boolean; lastProducedAt?: string; lastInstanceId?: number; }
+  interface DatasetProduction { id: number; outputDatasetId: number; taskId: number; instanceId: number; businessDate: string; status: string; producedAt: string; }
+
+  interface DataServiceDefinition { id: number; serviceCode: string; serviceName: string; description?: string; creatorId: number; sqlTemplate: string; parameterConfig?: string; catalogName: string; databaseName: string; maxRows: number; timeoutSeconds: number; rateLimitPerMinute: number; status: 'draft'|'published'|'offline'; apiVersion: number; publishedAt?: string; updatedAt: string; }
+  interface DataServiceApp { id: number; appName: string; appKey: string; enabled: boolean; expiresAt?: string; createdAt: string; }
+  interface DataServiceCredential { id: number; appName: string; appKey: string; appSecret: string; enabled: boolean; expiresAt?: string; }
+  interface DataServiceGrant { id: number; appId: number; serviceId: number; createdAt: string; }
+  interface DataServiceInvocationLog { id: number; serviceId?: number; appId?: number; serviceCode: string; status: string; httpStatus: number; rowCount?: number; durationMs?: number; clientIp?: string; errorMessage?: string; createdAt: string; }
+
   interface OperationAudit {
     id: number;
     username: string;

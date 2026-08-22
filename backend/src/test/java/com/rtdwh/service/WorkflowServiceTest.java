@@ -27,8 +27,9 @@ class WorkflowServiceTest {
     private final TaskDependencyRepository dependencyRepository = mock(TaskDependencyRepository.class);
     private final TaskDefinitionVersionRepository versionRepository = mock(TaskDefinitionVersionRepository.class);
     private final TaskRunInstanceRepository instanceRepository = mock(TaskRunInstanceRepository.class);
+    private final DatasetProductionService datasetProductionService = mock(DatasetProductionService.class);
     private final WorkflowService service = new WorkflowService(taskRepository, dependencyRepository,
-            versionRepository, instanceRepository, new ObjectMapper().findAndRegisterModules());
+            versionRepository, instanceRepository, new ObjectMapper().findAndRegisterModules(), datasetProductionService);
 
     @Test
     void rejectsDependencyCycle() {
@@ -97,6 +98,19 @@ class WorkflowServiceTest {
         TaskRunInstance failed = service.failOrRetry(9L, "still broken");
         assertEquals(TaskRunInstance.RunStatus.failed, failed.getStatus());
         assertNotNull(failed.getFinishedAt());
+    }
+
+    @Test
+    void registersDatasetProductionAfterSuccessfulInstance() {
+        TaskRunInstance running = TaskRunInstance.builder().id(12L).taskId(8L)
+                .businessDate(LocalDate.of(2026, 8, 22)).status(TaskRunInstance.RunStatus.running).build();
+        when(instanceRepository.findById(12L)).thenReturn(Optional.of(running));
+        when(instanceRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        TaskRunInstance completed = service.complete(12L, true, null);
+
+        assertEquals(TaskRunInstance.RunStatus.success, completed.getStatus());
+        verify(datasetProductionService).recordSuccess(completed);
     }
 
     private SyncTask task(Long id, SyncTask.TaskType type) {

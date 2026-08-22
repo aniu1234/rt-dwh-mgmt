@@ -114,9 +114,9 @@ RT-DWH 不是 Flink、Paimon 或 Doris 的替代品，而是位于三者之上�
 | 产品域 | 核心价值 | 已实现能力 |
 |---|---|---|
 | 数据接入 | 让业务数据稳定、持续地进入湖仓 | MySQL／PostgreSQL 数据源管理、连通性测试、Schema 探测、表映射、全量＋增量与增量启动模式、CDC SQL 预览 |
-| 实时开发与编排 | 让流任务能够发布、恢复、补数和追踪 | Flink Job 生命周期、Checkpoint／Savepoint、失败重试、运行指标、DAG 依赖、环路校验、任务版本、回滚和按业务日期补数 |
+| 实时开发与编排 | 让流任务能够发布、恢复、补数和追踪 | Flink Job 生命周期、Checkpoint／Savepoint、失败重试、运行指标、DAG 依赖、环路校验、任务版本、回滚、按业务日期补数和 Cron 周期产出 |
 | 湖仓资产管理 | 让 Paimon 中的数据可发现、可理解、可维护 | Catalog 元数据同步、数仓分层、Schema／Snapshot、主键与分区、责任人／业务域／标签／敏感级别、Compact 与快照清理 |
-| 查询与数据服务 | 让湖仓数据可低延迟查询并服务分析场景 | Doris 加速 Paimon、SQL 工作台、Catalog 智能提示、查询取消／历史／收藏／导出、报表配置和数据看板 |
+| 查询与数据服务 | 让湖仓数据可低延迟查询并服务分析及系统集成 | Doris 加速 Paimon、SQL 工作台、查询下载、报表看板、周期数据资源、参数化数据 API、应用凭证、服务授权、限流和调用审计 |
 | 质量与可观测性 | 让数据异常和运行故障能够被发现、定位和处置 | 质量规则、定时检查、运行批次、任务与组件指标、依赖健康快照、钉钉／企业微信／邮件告警、告警闭环 |
 | 安全与平台管控 | 让多人协作有边界、变更有记录、资源有约束 | JWT、接口级 RBAC、Catalog／Database／Table 数据范围、密码加密、写操作审计、查询并发配额、Workload Group 和运行参数管理 |
 
@@ -141,6 +141,9 @@ RT-DWH 不是 Flink、Paimon 或 Doris 的替代品，而是位于三者之上�
 - 配置上下游依赖并执行 DAG 环路校验；
 - 发布任务配置版本、查看历史版本并回滚到 draft；
 - ETL／物化任务可按业务日期创建补数实例，由内置 Flink SQL Runner 自动领取、提交和回写结果；
+- ETL／物化任务可配置六段 Cron、时区、业务日期偏移和运行参数，自动创建周期实例；
+- 可声明任务产出的 Catalog／Database／Table、数仓分层、负责人和 SLA；成功实例自动登记产出记录并注册为数据资产；
+- 可开启产出质量门禁：命中目标表的质量规则失败时将本次资源标记为 `blocked`，不会发布为可用数据；
 - 运行实例具备 Job ID、租约、心跳、超时回收、指数退避重试、取消和人工重跑；
 - 调度器在上游同业务日期实例成功后，自动释放下游等待实例。
 
@@ -167,6 +170,8 @@ CDC 是常驻流任务，不参与按日期补数；除内置 Flink SQL Runner �
 - 记录执行引擎、Catalog、Database、Trace ID、耗时、状态和错误信息；
 - 采集 Doris 扫描量、CPU、峰值内存和 Query Profile，展示排队耗时、成本软预算及高成本查询排行；
 - 基于安全的类型化参数 SQL 模板配置表格、折线、柱状、饼图和混合图报表，支持手动／定时参数、快照与订阅分发。
+- 将只读 Doris SQL 发布为参数化数据 API，为外部系统分配 AppKey／AppSecret，并按应用授权具体服务；
+- 对开放接口实施最大行数、超时、每分钟限流和数据访问范围校验，记录来源 IP、耗时、行数、状态与错误；应用密钥只在创建或轮换时返回一次。
 
 这里的“实时可见”由两部分组成：Flink 在 Checkpoint 时提交 Paimon Snapshot，Doris 查询最新 Snapshot。端到端可见延迟通常不超过一个 Checkpoint 周期加查询时间。
 
@@ -199,6 +204,8 @@ CDC 是常驻流任务，不参与按日期补数；除内置 Flink SQL Runner �
 3. **治理闭环**：补充表责任人和业务标签 → 配置质量规则 → 定时执行 → 异常告警 → 确认并处置。
 4. **恢复闭环**：发现任务异常 → 查看运行状态和日志 → Savepoint／重试 → 状态自动校准 → 验证下游数据。
 5. **变更闭环**：调整任务配置 → 发布版本 → 检查 DAG → 运行或补数 → 必要时回滚 draft → 审计变更记录。
+6. **周期产出闭环**：发布任务版本 → 配置 Cron 和业务日期 → 声明产出资源与 SLA → 自动运行 → 质量门禁 → 资产登记与产出追踪。
+7. **接口服务闭环**：验证只读 SQL → 定义类型化参数 → 发布服务 → 创建调用应用 → 服务授权 → 外部调用 → 限流与日志审计。
 
 ## 未完成能力
 
@@ -207,7 +214,7 @@ CDC 是常驻流任务，不参与按日期补数；除内置 Flink SQL Runner �
 | 优先级 | 近期重点 |
 |---|---|
 | P1 | PostgreSQL Slot 生命周期、Doris 指标/Profile/排队/成本预算、参数化报表与计划分发、角色数据范围和 Helm Chart 已完成首版；继续补充 PostgreSQL 类型兼容回归和最小集群安装验收 |
-| P2 | 建设列级血缘与脱敏、统一指标与数据产品、SLA／成本看板和变更审批流程 |
+| P2 | 建设列级血缘与脱敏、统一指标口径、SLA／成本运营看板和变更审批流程 |
 
 各项现状、缺口和验收标准见 [`docs/product-roadmap.md`](docs/product-roadmap.md)。
 
@@ -426,6 +433,8 @@ npm run dev
 | `QUALITY_SCHEDULE_INTERVAL_MS` | 全量质量检查周期 | `3600000` |
 | `WORKFLOW_SCHEDULER_ENABLED` | 启用 DAG 依赖实例释放 | `true` |
 | `WORKFLOW_DEPENDENCY_CHECK_MS` | 待运行实例依赖检查周期 | `10000` |
+| `WORKFLOW_SCHEDULE_TRIGGER_ENABLED` | 启用 Cron 周期实例创建 | `true` |
+| `WORKFLOW_SCHEDULE_TRIGGER_INTERVAL_MS` | 周期调度扫描间隔 | `10000` |
 | `WORKFLOW_RUNNER_ENABLED` | 启用内置 Flink SQL Runner | Compose 为 `true` |
 | `WORKFLOW_RUNNER_MAX_CONCURRENT` | Runner 最大并发实例数 | `2` |
 | `WORKFLOW_RUNNER_LEASE_SECONDS` | 实例租约时长 | `60` |
@@ -456,6 +465,18 @@ npm run dev
 - `code === 0`：返回业务数据；
 - `code !== 0`：抛出错误并进入全局异常处理；
 - Spring Data 分页结果使用 `content`、`totalElements`、`number`、`size`。
+
+发布数据服务并给调用应用授权后，外部系统可通过 HTTPS 调用：
+
+```bash
+curl -X POST 'https://rtdwh.example.com/api/v1/open/data/order-summary' \
+  -H 'Content-Type: application/json' \
+  -H 'X-App-Key: dsa_xxx' \
+  -H 'X-App-Secret: <仅创建或轮换时可见的密钥>' \
+  -d '{"start_date":"2026-08-21","region":"华东"}'
+```
+
+开放接口只接受已发布的只读 SQL 服务。服务端会执行应用授权、有效期、限流、参数类型、数据访问范围、最大行数与超时校验。生产环境必须启用 HTTPS；多副本部署建议在 API Gateway 或 Redis 中实现共享限流，并按安全要求增加 HMAC 防重放或 OAuth2。
 
 ## 构建与验证
 

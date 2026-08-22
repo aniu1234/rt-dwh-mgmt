@@ -179,6 +179,10 @@ report:
     initial-delay-ms: ${REPORT_SCHEDULE_INITIAL_DELAY_MS:30000}
 
 workflow:
+  schedule-trigger:
+    enabled: ${WORKFLOW_SCHEDULE_TRIGGER_ENABLED:true}
+    interval-ms: ${WORKFLOW_SCHEDULE_TRIGGER_INTERVAL_MS:10000}
+    initial-delay-ms: ${WORKFLOW_SCHEDULE_TRIGGER_INITIAL_DELAY_MS:15000}
   scheduler:
     enabled: ${WORKFLOW_SCHEDULER_ENABLED:true}
     dependency-check-ms: ${WORKFLOW_DEPENDENCY_CHECK_MS:10000}

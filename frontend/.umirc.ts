@@ -137,6 +137,7 @@ export default defineConfig({
       routes: [
         { path: '/query/adhoc', name: '即席查询', icon: 'CodeOutlined', component: './AdhocQuery' },
         { path: '/query/report', name: '报表看板', icon: 'BarChartOutlined', component: './Report' },
+        { path: '/query/data-service', name: '数据服务', icon: 'ApiOutlined', component: './DataService' },
       ],
     },
     // === 告警与系统 ===

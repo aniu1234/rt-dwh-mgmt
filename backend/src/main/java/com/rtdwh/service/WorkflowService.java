@@ -32,6 +32,7 @@ public class WorkflowService {
     private final TaskDefinitionVersionRepository versionRepository;
     private final TaskRunInstanceRepository instanceRepository;
     private final ObjectMapper objectMapper;
+    private final DatasetProductionService datasetProductionService;
 
     @Value("${workflow.runner.lease-seconds:60}")
     private long leaseSeconds = 60;
@@ -156,6 +157,25 @@ public class WorkflowService {
         return instanceRepository.saveAll(instances);
     }
 
+    @Transactional
+    public TaskRunInstance createScheduledInstance(Long taskId, Long scheduleId, java.time.Instant scheduledAt,
+                                                   LocalDate businessDate, String parametersJson, Long userId) {
+        SyncTask task = requireTask(taskId);
+        if (task.getTaskType() == SyncTask.TaskType.cdc_sync) throw new IllegalArgumentException("CDC 长流任务不能周期调度");
+        boolean hasUpstream = !dependencyRepository.findByDownstreamTaskId(taskId).isEmpty();
+        return instanceRepository.save(TaskRunInstance.builder()
+                .taskId(taskId)
+                .batchId("schedule-" + scheduleId + "-" + scheduledAt.toEpochMilli())
+                .businessDate(businessDate)
+                .triggerType("schedule")
+                .status(hasUpstream ? RunStatus.waiting : RunStatus.queued)
+                .parametersJson(normalizeJson(parametersJson))
+                .createdBy(userId)
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .build());
+    }
+
     public List<TaskRunInstance> instances(Long taskId, RunStatus status, int limit) {
         int safeLimit = Math.max(1, Math.min(limit, 500));
         PageRequest page = PageRequest.of(0, safeLimit);
@@ -228,7 +248,9 @@ public class WorkflowService {
         instance.setLeaseExpiresAt(null);
         instance.setNextRetryAt(null);
         instance.setUpdatedAt(LocalDateTime.now());
-        return instanceRepository.save(instance);
+        instance = instanceRepository.save(instance);
+        if (success) datasetProductionService.recordSuccess(instance);
+        return instance;
     }
 
     @Transactional
@@ -322,6 +344,8 @@ public class WorkflowService {
         return instanceRepository.findById(instanceId)
                 .orElseThrow(() -> new IllegalArgumentException("运行实例不存在: " + instanceId));
     }
+
+    public SyncTask getTask(Long taskId) { return requireTask(taskId); }
 
     @Transactional
     public int promoteReadyInstances() {

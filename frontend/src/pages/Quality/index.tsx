@@ -342,7 +342,7 @@ const Quality: React.FC = () => {
                     { title: '耗时', dataIndex: 'durationMs', width: 100,
                       render: (value) => value == null ? '—' : `${value}ms` },
                     { title: '状态', dataIndex: 'status', width: 100,
-                      render: (value) => <Tag color={{ passed: 'green', failed: 'red', error: 'volcano', running: 'blue' }[value] || 'default'}>
+                      render: (value: API.QualityCheckRun['status']) => <Tag color={{ passed: 'green', failed: 'red', error: 'volcano', running: 'blue' }[value] || 'default'}>
                         {{ passed: '通过', failed: '未通过', error: '执行异常', running: '执行中' }[value] || value}
                       </Tag> },
                     { title: '错误', dataIndex: 'errorMessage', ellipsis: true, render: (value) => value || '—' },

@@ -394,7 +394,7 @@ const Report: React.FC = () => {
   const [runsLoading, setRunsLoading] = useState(false);
   const autoLoadedKeyRef = useRef('');
   const [form] = Form.useForm<ReportFormValues>();
-  const [parameterForm] = Form.useForm<Record<string, unknown>>();
+  const [parameterForm] = Form.useForm<Record<string, any>>();
 
   const { data: reportsData, loading, refresh } = useRequest(getReports);
   const reports = (reportsData || []) as API.ReportTemplate[];

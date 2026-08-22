@@ -363,7 +363,7 @@ const Maintenance: React.FC = () => {
                   <div style={{ fontWeight: 600, marginTop: 16 }}>批量孤立文件清理</div>
                   <div style={{ color: '#666', fontSize: 12 }}>清理 Paimon 仓库中的孤立文件（未被任何快照引用）</div>
                   <Space>
-                    <Popconfirm title="确认执行孤立文件清理？" onConfirm={handleCleanOrphan}>
+                    <Popconfirm title="确认执行孤立文件清理？" onConfirm={() => handleCleanOrphan()}>
                       <Button type="primary" danger>执行批量孤立文件清理</Button>
                     </Popconfirm>
                   </Space>

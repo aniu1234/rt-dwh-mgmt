@@ -472,7 +472,7 @@ const Datasource: React.FC = () => {
             placeholder='{"hive.metastore.uris": "thrift://hive:9083"}'
             fieldProps={{ autoSize: { minRows: 2, maxRows: 4 } }}
             rules={[{
-              validator: async (_, value?: string) => {
+              validator: async (_: unknown, value?: string) => {
                 if (!value?.trim()) return;
                 try {
                   JSON.parse(value);

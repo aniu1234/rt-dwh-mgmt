@@ -71,6 +71,15 @@ public class QualityCheckService {
         return checkRule(rule, UUID.randomUUID().toString(), "manual");
     }
 
+    @Transactional
+    public int runChecksForTable(String database, String table) {
+        String batchId = UUID.randomUUID().toString();
+        return ruleRepository.findByEnabled(true).stream()
+                .filter(rule -> matchesTable(rule.getTargetTable(), database, table))
+                .mapToInt(rule -> checkRule(rule, batchId, "production"))
+                .sum();
+    }
+
     @Transactional(readOnly = true)
     public List<QualityCheckRun> listRuns(Long ruleId) {
         return ruleId == null
@@ -235,7 +244,16 @@ public class QualityCheckService {
     }
 
     private String normalizeTrigger(String triggerType) {
+        if ("production".equalsIgnoreCase(triggerType)) return "production";
         return "scheduled".equalsIgnoreCase(triggerType) ? "scheduled" : "manual";
+    }
+
+    private boolean matchesTable(String target, String database, String table) {
+        if (target == null) return false;
+        String normalized = stripQuotes(target).toLowerCase(Locale.ROOT);
+        String dbTable = database.toLowerCase(Locale.ROOT) + "." + table.toLowerCase(Locale.ROOT);
+        return normalized.equals(table.toLowerCase(Locale.ROOT)) || normalized.equals(dbTable)
+                || normalized.endsWith("." + dbTable);
     }
 
     private String conciseError(Exception exception) {

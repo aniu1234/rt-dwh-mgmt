@@ -50,7 +50,7 @@ const SqlEditor: React.FC<Props> = ({ height = '300px', value, catalog, onChange
 
     const provider = monaco.languages.registerCompletionItemProvider('sql', {
       triggerCharacters: ['.', ' '],
-      provideCompletionItems: (model, position) => {
+      provideCompletionItems: (model: editor.ITextModel, position: Position) => {
         const before = model.getValueInRange({
           startLineNumber: 1, startColumn: 1,
           endLineNumber: position.lineNumber, endColumn: position.column,

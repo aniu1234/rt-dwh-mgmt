@@ -435,6 +435,20 @@ public class QueryService {
         return execute(dto, userId, QueryType.report, maxRows);
     }
 
+    public Map<String, Object> executeDataServiceQuery(String sql, Long userId, String catalog,
+                                                       String database, int requestedMaxRows, int timeoutSeconds) {
+        QueryExecuteDTO dto = new QueryExecuteDTO();
+        dto.setSql(sql);
+        dto.setCatalog(catalog);
+        dto.setDatabase(database);
+        int maxRows = Math.max(1, Math.min(requestedMaxRows, maxExportRows));
+        dto.setMaxRows(maxRows);
+        dto.setTimeoutSeconds(Math.max(1, Math.min(timeoutSeconds, 1800)));
+        return execute(dto, userId, QueryType.data_service, maxRows);
+    }
+
+    public String validateReadOnlySql(String sql) { return validateSql(sql); }
+
     private String validateSql(String raw) {
         if (raw == null || raw.isBlank()) throw new IllegalArgumentException("SQL 不能为空");
         String clean = strip(raw);

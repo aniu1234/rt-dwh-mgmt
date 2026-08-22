@@ -8,6 +8,8 @@ import com.rtdwh.entity.TaskDependency;
 import com.rtdwh.entity.TaskRunInstance;
 import com.rtdwh.service.WorkflowService;
 import com.rtdwh.service.WorkflowSqlRunnerService;
+import com.rtdwh.service.TaskScheduleService;
+import com.rtdwh.service.DatasetProductionService;
 import com.rtdwh.util.SecurityContextUtil;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +27,8 @@ public class WorkflowController {
     private final WorkflowService workflowService;
     private final WorkflowSqlRunnerService workflowSqlRunnerService;
     private final SecurityContextUtil securityContextUtil;
+    private final TaskScheduleService taskScheduleService;
+    private final DatasetProductionService datasetProductionService;
 
     @GetMapping("/graph")
     public ApiResponse<Map<String, Object>> graph() {
@@ -71,6 +75,47 @@ public class WorkflowController {
                                                         @Valid @RequestBody WorkflowDTO.BackfillRequest request) {
         return ApiResponse.success("补数实例已创建", workflowService.createBackfill(
                 taskId, request, securityContextUtil.getCurrentUserId()));
+    }
+
+    @GetMapping("/schedules")
+    public ApiResponse<List<com.rtdwh.entity.TaskSchedule>> schedules() {
+        return ApiResponse.success(taskScheduleService.list());
+    }
+
+    @PutMapping("/tasks/{taskId}/schedule")
+    @PreAuthorize("hasAuthority('task:manage')")
+    public ApiResponse<com.rtdwh.entity.TaskSchedule> configureSchedule(
+            @PathVariable Long taskId, @Valid @RequestBody WorkflowDTO.ScheduleRequest request) {
+        return ApiResponse.success("周期调度已保存", taskScheduleService.configure(
+                taskId, request, securityContextUtil.getCurrentUserId()));
+    }
+
+    @DeleteMapping("/tasks/{taskId}/schedule")
+    @PreAuthorize("hasAuthority('task:manage')")
+    public ApiResponse<Void> deleteSchedule(@PathVariable Long taskId) {
+        taskScheduleService.delete(taskId);
+        return ApiResponse.success("周期调度已删除", null);
+    }
+
+    @GetMapping("/tasks/{taskId}/outputs")
+    public ApiResponse<List<com.rtdwh.entity.TaskOutputDataset>> outputs(@PathVariable Long taskId) {
+        workflowService.getTask(taskId);
+        return ApiResponse.success(datasetProductionService.outputs(taskId));
+    }
+
+    @PutMapping("/tasks/{taskId}/outputs")
+    @PreAuthorize("hasAuthority('task:manage')")
+    public ApiResponse<List<com.rtdwh.entity.TaskOutputDataset>> configureOutputs(
+            @PathVariable Long taskId,
+            @RequestBody List<WorkflowDTO.OutputDatasetRequest> requests) {
+        workflowService.getTask(taskId);
+        return ApiResponse.success("产出数据资源已保存", datasetProductionService.replaceOutputs(taskId, requests));
+    }
+
+    @GetMapping("/outputs/{outputId}/productions")
+    public ApiResponse<List<com.rtdwh.entity.DatasetProduction>> productions(
+            @PathVariable Long outputId, @RequestParam(defaultValue = "50") int limit) {
+        return ApiResponse.success(datasetProductionService.productions(outputId, limit));
     }
 
     @GetMapping("/instances")

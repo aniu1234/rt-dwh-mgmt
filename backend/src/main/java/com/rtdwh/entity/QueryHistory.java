@@ -28,7 +28,7 @@ public class QueryHistory {
     private String sqlText;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 10)
+    @Column(nullable = false, length = 16)
     private QueryType queryType;
 
     @Builder.Default
@@ -82,7 +82,7 @@ public class QueryHistory {
     private LocalDateTime createdAt;
 
     public enum QueryType {
-        adhoc, report
+        adhoc, report, data_service
     }
 
     public enum QueryStatus {

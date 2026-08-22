@@ -155,6 +155,28 @@ export async function cancelWorkflowInstance(instanceId: number) {
   return request<API.TaskRunInstance>(`${API_PREFIX}/workflow/instances/${instanceId}/cancel`, { method: 'POST' });
 }
 
+export async function getTaskSchedules() { return request<API.TaskSchedule[]>(`${API_PREFIX}/workflow/schedules`); }
+export async function configureTaskSchedule(taskId: number, data: any) { return request<API.TaskSchedule>(`${API_PREFIX}/workflow/tasks/${taskId}/schedule`, { method: 'PUT', data }); }
+export async function deleteTaskSchedule(taskId: number) { return request<void>(`${API_PREFIX}/workflow/tasks/${taskId}/schedule`, { method: 'DELETE' }); }
+export async function getTaskOutputs(taskId: number) { return request<API.TaskOutputDataset[]>(`${API_PREFIX}/workflow/tasks/${taskId}/outputs`); }
+export async function configureTaskOutputs(taskId: number, data: any[]) { return request<API.TaskOutputDataset[]>(`${API_PREFIX}/workflow/tasks/${taskId}/outputs`, { method: 'PUT', data }); }
+export async function getDatasetProductions(outputId: number) { return request<API.DatasetProduction[]>(`${API_PREFIX}/workflow/outputs/${outputId}/productions`); }
+
+// External data services
+export async function getDataServices() { return request<API.DataServiceDefinition[]>(`${API_PREFIX}/data-services`); }
+export async function createDataService(data: any) { return request<API.DataServiceDefinition>(`${API_PREFIX}/data-services`, { method: 'POST', data }); }
+export async function updateDataService(id: number, data: any) { return request<API.DataServiceDefinition>(`${API_PREFIX}/data-services/${id}`, { method: 'PUT', data }); }
+export async function publishDataService(id: number, published: boolean) { return request<API.DataServiceDefinition>(`${API_PREFIX}/data-services/${id}/publish`, { method: 'POST', params: { published } }); }
+export async function deleteDataService(id: number) { return request<void>(`${API_PREFIX}/data-services/${id}`, { method: 'DELETE' }); }
+export async function getDataServiceApps() { return request<API.DataServiceApp[]>(`${API_PREFIX}/data-services/apps`); }
+export async function createDataServiceApp(data: any) { return request<API.DataServiceCredential>(`${API_PREFIX}/data-services/apps`, { method: 'POST', data }); }
+export async function rotateDataServiceSecret(id: number) { return request<API.DataServiceCredential>(`${API_PREFIX}/data-services/apps/${id}/rotate-secret`, { method: 'POST' }); }
+export async function toggleDataServiceApp(id: number) { return request<API.DataServiceApp>(`${API_PREFIX}/data-services/apps/${id}/toggle`, { method: 'POST' }); }
+export async function getDataServiceGrants(appId: number) { return request<API.DataServiceGrant[]>(`${API_PREFIX}/data-services/apps/${appId}/grants`); }
+export async function grantDataService(appId: number, serviceId: number) { return request<API.DataServiceGrant>(`${API_PREFIX}/data-services/apps/${appId}/grants`, { method: 'POST', data: { serviceId } }); }
+export async function revokeDataService(appId: number, serviceId: number) { return request<void>(`${API_PREFIX}/data-services/apps/${appId}/grants/${serviceId}`, { method: 'DELETE' }); }
+export async function getDataServiceLogs(limit = 200) { return request<API.DataServiceInvocationLog[]>(`${API_PREFIX}/data-services/logs`, { params: { limit } }); }
+
 export async function getOperationAudits(params?: { username?: string; page?: number; size?: number }) {
   return request<API.PageResult<API.OperationAudit>>(`${API_PREFIX}/audit`, { params });
 }
