@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { PageContainer } from '@ant-design/pro-components';
-import { Card, Descriptions, Table, Tag, Tabs, Button, Space, Modal, Input, Skeleton, Typography, message } from 'antd';
+import { Card, Descriptions, Table, Tag, Tabs, Button, Space, Modal, Input, Skeleton, Typography, message, Form, Select } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { useParams } from '@umijs/max';
 import { useRequest } from '@umijs/max';
@@ -14,7 +14,7 @@ import {
   triggerCompact,
   triggerExpireSnapshots,
   updateDwhColumnComment,
-  updateTableBusinessDesc,
+  updateTableMetadata,
 } from '@/api';
 
 const DwhTableDetail: React.FC = () => {
@@ -24,6 +24,8 @@ const DwhTableDetail: React.FC = () => {
   const [descValue, setDescValue] = useState('');
   const [editingColumn, setEditingColumn] = useState<API.DwhColumnMeta>();
   const [columnComment, setColumnComment] = useState('');
+  const [metadataOpen, setMetadataOpen] = useState(false);
+  const [metadataForm] = Form.useForm();
 
   const { data: tableData, refresh: refreshTable } = useRequest(() => getDwhTableDetail(tableId));
   const { data: columnsData, refresh: refreshColumns } = useRequest(() => getDwhTableColumns(tableId));
@@ -57,13 +59,39 @@ const DwhTableDetail: React.FC = () => {
 
   const handleUpdateDesc = async () => {
     try {
-      await updateTableBusinessDesc(tableId, descValue);
+      await updateTableMetadata(tableId, {
+        businessDesc: descValue, owner: table.owner, businessDomain: table.businessDomain,
+        tags: parseTags(table.tags), sensitivityLevel: table.sensitivityLevel, lifecycleStatus: table.lifecycleStatus,
+      });
       message.success('业务描述已更新');
       setEditingDesc(false);
       refreshTable();
     } catch (e) {
       message.error('更新失败');
     }
+  };
+
+  const parseTags = (value?: string) => {
+    if (!value) return [];
+    try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed : []; }
+    catch { return []; }
+  };
+
+  const openMetadata = () => {
+    metadataForm.setFieldsValue({
+      businessDesc: table.businessDesc, owner: table.owner, businessDomain: table.businessDomain,
+      tags: parseTags(table.tags), sensitivityLevel: table.sensitivityLevel || 'internal',
+      lifecycleStatus: table.lifecycleStatus || 'active',
+    });
+    setMetadataOpen(true);
+  };
+
+  const handleUpdateMetadata = async () => {
+    const values = await metadataForm.validateFields();
+    await updateTableMetadata(tableId, values);
+    message.success('表治理信息已更新');
+    setMetadataOpen(false);
+    refreshTable();
   };
 
   const handleUpdateColumnComment = async () => {
@@ -130,7 +158,7 @@ const DwhTableDetail: React.FC = () => {
             label: '表结构',
             children: (
               <>
-                <Card title="基本信息" style={{ marginBottom: 16 }}>
+                <Card title="基本信息" extra={<Button size="small" onClick={openMetadata}>编辑治理信息</Button>} style={{ marginBottom: 16 }}>
                   <Descriptions column={2}>
                     <Descriptions.Item label="Catalog / 数据库">
                       <Typography.Text code>rtdwh / {table.paimonDb}</Typography.Text>
@@ -157,6 +185,11 @@ const DwhTableDetail: React.FC = () => {
                     </Descriptions.Item>
                     <Descriptions.Item label="分区键">{table.partitionKeys || '—'}</Descriptions.Item>
                     <Descriptions.Item label="主键">{table.primaryKeys || '—'}</Descriptions.Item>
+                    <Descriptions.Item label="责任人">{table.owner || '未指定'}</Descriptions.Item>
+                    <Descriptions.Item label="业务域">{table.businessDomain || '未归属'}</Descriptions.Item>
+                    <Descriptions.Item label="数据标签"><Space wrap>{parseTags(table.tags).map((tag) => <Tag key={tag}>{tag}</Tag>)}{parseTags(table.tags).length === 0 && '—'}</Space></Descriptions.Item>
+                    <Descriptions.Item label="敏感级别"><Tag color={{ public: 'green', internal: 'blue', confidential: 'orange', restricted: 'red' }[table.sensitivityLevel || 'internal']}>{table.sensitivityLevel || 'internal'}</Tag></Descriptions.Item>
+                    <Descriptions.Item label="生命周期"><Tag>{table.lifecycleStatus || 'active'}</Tag></Descriptions.Item>
                     <Descriptions.Item label="快照数">{table.snapshotCount ?? '—'}</Descriptions.Item>
                     <Descriptions.Item label="最新快照">{table.latestSnapshotId ?? '—'}</Descriptions.Item>
                     <Descriptions.Item label="记录数">{table.recordCount === undefined ? '—' : table.recordCount.toLocaleString()}</Descriptions.Item>
@@ -263,6 +296,21 @@ const DwhTableDetail: React.FC = () => {
           onChange={(event) => setColumnComment(event.target.value)}
           placeholder="请输入字段的业务含义"
         />
+      </Modal>
+      <Modal title="编辑表治理信息" open={metadataOpen} onCancel={() => setMetadataOpen(false)} onOk={handleUpdateMetadata} okText="保存">
+        <Form form={metadataForm} layout="vertical">
+          <Form.Item name="businessDesc" label="业务描述"><Input.TextArea rows={2} /></Form.Item>
+          <Form.Item name="owner" label="责任人"><Input placeholder="姓名或账号" /></Form.Item>
+          <Form.Item name="businessDomain" label="业务域"><Input placeholder="例如：交易、用户、风控" /></Form.Item>
+          <Form.Item name="tags" label="标签"><Select mode="tags" tokenSeparators={[',']} placeholder="输入后回车" /></Form.Item>
+          <Form.Item name="sensitivityLevel" label="敏感级别" rules={[{ required: true }]}><Select options={[
+            { value: 'public', label: '公开' }, { value: 'internal', label: '内部' },
+            { value: 'confidential', label: '机密' }, { value: 'restricted', label: '严格受限' },
+          ]} /></Form.Item>
+          <Form.Item name="lifecycleStatus" label="生命周期" rules={[{ required: true }]}><Select options={[
+            { value: 'active', label: '使用中' }, { value: 'deprecated', label: '待下线' }, { value: 'offline', label: '已下线' },
+          ]} /></Form.Item>
+        </Form>
       </Modal>
     </PageContainer>
   );

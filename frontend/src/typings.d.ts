@@ -78,6 +78,59 @@ declare namespace API {
     errorMessage?: string;
   }
 
+  interface TaskDependency {
+    id: number;
+    upstreamTaskId: number;
+    downstreamTaskId: number;
+    conditionType: string;
+    createdAt: string | number[];
+  }
+
+  interface TaskDefinitionVersion {
+    id: number;
+    taskId: number;
+    versionNo: number;
+    changeSummary: string;
+    createdBy: number;
+    createdAt: string | number[];
+  }
+
+  interface TaskRunInstance {
+    id: number;
+    taskId: number;
+    batchId: string;
+    businessDate: string;
+    triggerType: string;
+    status: 'waiting' | 'queued' | 'running' | 'success' | 'failed' | 'cancelled';
+    executorId?: string;
+    retryCount: number;
+    errorMessage?: string;
+    startedAt?: string | number[];
+    finishedAt?: string | number[];
+    createdAt: string | number[];
+  }
+
+  interface WorkflowGraph {
+    tasks: SyncTask[];
+    dependencies: TaskDependency[];
+  }
+
+  interface OperationAudit {
+    id: number;
+    username: string;
+    httpMethod: string;
+    requestPath: string;
+    action: string;
+    resourceType: string;
+    resourceId?: string;
+    clientIp?: string;
+    success: boolean;
+    responseStatus: number;
+    durationMs: number;
+    errorMessage?: string;
+    createdAt: string | number[];
+  }
+
   /** 数据源配置（与后端 DatasourceConfig 实体对齐） */
   interface DatasourceConfig {
     id: number;
@@ -111,6 +164,10 @@ declare namespace API {
     lastModifiedTime: string;
     businessDesc: string;
     owner: string;
+    businessDomain?: string;
+    tags?: string;
+    sensitivityLevel?: 'public' | 'internal' | 'confidential' | 'restricted';
+    lifecycleStatus?: 'active' | 'deprecated' | 'offline';
     createdAt: string;
     updatedAt: string;
     // Additional fields from backend entity
@@ -164,6 +221,21 @@ declare namespace API {
     historyId?: number;
     requestId?: string;
     truncated?: boolean;
+    engine?: 'doris' | string;
+    catalog?: string;
+    database?: string;
+    traceId?: string;
+  }
+
+  interface QueryGovernanceStats {
+    sampleSize: number;
+    successCount: number;
+    failedCount: number;
+    successRate: number;
+    p95DurationMs: number;
+    runningCount: number;
+    concurrencyLimit: number;
+    slowQueries: any[];
   }
 
   interface QueryCatalog {
@@ -199,16 +271,14 @@ declare namespace API {
   /** 报表模板 */
   interface ReportTemplate {
     id: number;
-    name: string;
-    reportName?: string;
-    description: string;
-    sql: string;
-    sqlQuery?: string;
-    chartType: string;
-    reportType?: string;
-    config: string;
-    createdBy: string;
-    isPublished?: boolean;
+    creatorId: number;
+    reportName: string;
+    reportType: 'line' | 'bar' | 'pie' | 'table' | 'mixed';
+    sqlQuery: string;
+    chartConfig?: string;
+    filterConfig?: string;
+    scheduleConfig?: string;
+    isPublished: boolean;
     createdAt: string;
     updatedAt: string;
   }
@@ -250,6 +320,19 @@ declare namespace API {
     loadError?: string;
   }
 
+  interface DorisConfig {
+    enabled: boolean;
+    jdbcUrl: string;
+    httpUrl: string;
+    username: string;
+    password?: string;
+    passwordConfigured?: boolean;
+    catalog: string;
+    database: string;
+    source?: 'environment' | 'database';
+    updatedAt?: string;
+  }
+
   /** 单项依赖健康检查结果 */
   interface HealthComponent {
     status: 'healthy' | 'degraded' | 'unhealthy' | 'unreachable' | 'unknown' | string;
@@ -275,6 +358,10 @@ declare namespace API {
     readOnly?: boolean;
     versionMatch?: boolean;
     expectedVersion?: string;
+    dorisVersion?: string;
+    httpEndpoint?: string;
+    catalog?: string;
+    aliveBackends?: number;
     diagnosticCode?: string;
     suggestion?: string;
     contentType?: string;
@@ -286,10 +373,11 @@ declare namespace API {
     checkedAt?: string;
     durationMs?: number;
     source?: 'scheduled' | 'manual' | 'none' | string;
-    lastCheckedComponent?: 'flink' | 'paimon' | 'mysql';
+    lastCheckedComponent?: 'flink' | 'paimon' | 'mysql' | 'doris';
     flink: HealthComponent;
     paimon: HealthComponent;
     mysql: HealthComponent;
+    doris: HealthComponent;
   }
 
   /** 数据质量规则 */
@@ -321,6 +409,47 @@ declare namespace API {
     triggeredAt: string;
     resolved: boolean;
     resolvedAt?: string;
+  }
+
+  interface QualityCheckRun {
+    id: number;
+    batchId: string;
+    ruleId: number;
+    ruleName: string;
+    triggerType: 'manual' | 'scheduled';
+    engine: string;
+    status: 'running' | 'passed' | 'failed' | 'error';
+    checkSql: string;
+    actualValue?: number;
+    thresholdValue?: number;
+    durationMs?: number;
+    errorMessage?: string;
+    startedAt: string;
+    finishedAt?: string;
+  }
+
+  interface LineageNode {
+    id: string;
+    name: string;
+    qualifiedName: string;
+    type: 'datasource' | 'source_table' | 'task' | 'table';
+    layer?: string;
+    status?: string;
+    metadata: Record<string, any>;
+  }
+
+  interface LineageEdge {
+    id: string;
+    source: string;
+    target: string;
+    type: string;
+    label: string;
+    taskId?: number;
+  }
+
+  interface LineageGraph {
+    nodes: LineageNode[];
+    edges: LineageEdge[];
   }
 
   /** 表映射（CDC 同步任务） */

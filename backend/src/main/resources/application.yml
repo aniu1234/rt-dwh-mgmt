@@ -44,6 +44,14 @@ spring:
         globally_quoted_identifiers: true
         globally_quoted_identifiers_skip_column_definitions: true
 
+  # Flyway owns explicit platform migrations. Hibernate update remains temporarily
+  # enabled for legacy tables until the complete historical baseline is consolidated.
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 0
+    validate-on-migrate: true
+
   mail:
     host: ${MAIL_HOST:smtp.example.com}
     port: ${MAIL_PORT:465}
@@ -113,9 +121,34 @@ encryption:
 
 # Query Configuration
 query:
+  engine: doris
   max-rows: 1000
   max-export-rows: 50000
   timeout-seconds: 60
+  max-concurrent-per-user: ${QUERY_MAX_CONCURRENT_PER_USER:2}
+
+# Doris serves interactive queries over its MySQL-compatible FE endpoint.
+doris:
+  enabled: ${DORIS_ENABLED:true}
+  jdbc-url: ${DORIS_JDBC_URL:jdbc:mysql://localhost:9030}
+  http-url: ${DORIS_HTTP_URL:http://localhost:8030}
+  username: ${DORIS_USERNAME:root}
+  password: ${DORIS_PASSWORD:}
+  catalog: ${DORIS_CATALOG:rtdwh_paimon}
+  database: ${DORIS_DATABASE:ods}
+  initialize-catalog: ${DORIS_INITIALIZE_CATALOG:true}
+  workload-group: ${DORIS_WORKLOAD_GROUP:rtdwh_adhoc}
+  exec-mem-limit-bytes: ${DORIS_EXEC_MEM_LIMIT_BYTES:2147483648}
+  paimon-warehouse-path: ${DORIS_PAIMON_WAREHOUSE:/data/paimon}
+  paimon-jdbc-uri: "${DORIS_PAIMON_JDBC_URI:jdbc:mysql://mysql:3306/rtdwh_paimon_meta?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai}"
+  paimon-jdbc-driver-url: ${DORIS_PAIMON_JDBC_DRIVER_URL:https://repo1.maven.org/maven2/com/mysql/mysql-connector-j/8.4.0/mysql-connector-j-8.4.0.jar}
+  # 0 disables only the Paimon table-object cache so each query sees the latest snapshot.
+  paimon-table-cache-ttl-seconds: ${DORIS_PAIMON_TABLE_CACHE_TTL_SECONDS:0}
+  catalog-init:
+    retry-ms: ${DORIS_CATALOG_INIT_RETRY_MS:30000}
+  pool:
+    maximum-size: ${DORIS_POOL_MAXIMUM_SIZE:10}
+    connection-timeout-ms: ${DORIS_CONNECTION_TIMEOUT_MS:5000}
 
 # Alert Configuration
 alert:
@@ -123,6 +156,18 @@ alert:
   wecom-webhook: ${WECOM_WEBHOOK:}
   email-recipients: ${ALERT_EMAIL_RECIPIENTS:admin@example.com}
   email-from: ${ALERT_EMAIL_FROM:rtdwh-alert@example.com}
+
+quality:
+  schedule:
+    enabled: ${QUALITY_SCHEDULE_ENABLED:true}
+    interval-ms: ${QUALITY_SCHEDULE_INTERVAL_MS:3600000}
+    initial-delay-ms: ${QUALITY_SCHEDULE_INITIAL_DELAY_MS:60000}
+
+workflow:
+  scheduler:
+    enabled: ${WORKFLOW_SCHEDULER_ENABLED:true}
+    dependency-check-ms: ${WORKFLOW_DEPENDENCY_CHECK_MS:10000}
+    initial-delay-ms: ${WORKFLOW_INITIAL_DELAY_MS:10000}
 
 # CDC Configuration
 cdc:

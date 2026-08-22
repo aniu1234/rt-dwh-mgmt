@@ -1,7 +1,5 @@
 package com.rtdwh.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rtdwh.dto.QueryExecuteDTO;
 import com.rtdwh.entity.QueryHistory;
 import com.rtdwh.entity.QueryHistory.QueryStatus;
@@ -13,18 +11,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.client.RestClientResponseException;
-import org.springframework.web.client.RestTemplate;
 
-import java.net.URI;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
@@ -50,27 +40,16 @@ import java.util.regex.Pattern;
 public class QueryService {
     private static final Set<String> ALLOWED = Set.of("SELECT", "SHOW", "DESCRIBE", "DESC", "EXPLAIN", "WITH");
     private static final Pattern WRITE = Pattern.compile(
-            "\\b(INSERT|UPDATE|DELETE|MERGE|UPSERT|CREATE|ALTER|DROP|TRUNCATE|GRANT|REVOKE|CALL|SET|USE)\\b",
+            "\\b(INSERT|UPDATE|DELETE|MERGE|UPSERT|CREATE|ALTER|DROP|TRUNCATE|GRANT|REVOKE|CALL|SET|USE|OUTFILE)\\b",
             Pattern.CASE_INSENSITIVE
     );
-    private static final Pattern METADATA = Pattern.compile("\\bpaimon_catalog_[a-z0-9_]+\\b", Pattern.CASE_INSENSITIVE);
-    private static final Set<String> FAILED_OPERATION_STATUSES = Set.of("ERROR", "FAILED", "CANCELED", "CLOSED");
-
     private final QueryHistoryRepository queryHistoryRepository;
-    private final RestTemplate restTemplate;
-    private final ObjectMapper objectMapper;
-    private final FlinkClusterService flinkClusterService;
+    private final DorisConnectionService dorisConnectionService;
 
-    @Value("${paimon.warehouse-path}") private String warehousePath;
-    @Value("${paimon.jdbc-uri}") private String paimonJdbcUri;
-    @Value("${paimon.jdbc-user}") private String paimonJdbcUser;
-    @Value("${paimon.jdbc-password}") private String paimonJdbcPassword;
-    @Value("${paimon.catalog-key}") private String paimonCatalogKey;
-    @Value("${flink.sql-gateway.url}") private String sqlGatewayUrl;
-    @Value("${flink.sql-gateway.enabled}") private boolean sqlGatewayEnabled;
     @Value("${query.max-rows}") private int defaultMaxRows;
     @Value("${query.max-export-rows}") private int maxExportRows;
     @Value("${query.timeout-seconds}") private int defaultTimeout;
+    @Value("${query.max-concurrent-per-user:2}") private int maxConcurrentPerUser;
 
     private final ConcurrentHashMap<Long, ActiveQuery> active = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Long> requests = new ConcurrentHashMap<>();
@@ -79,9 +58,6 @@ public class QueryService {
         final Long userId;
         final AtomicBoolean cancelled = new AtomicBoolean();
         volatile Statement statement;
-        volatile String sessionHandle;
-        volatile String operationHandle;
-        volatile String flinkJobId;
 
         ActiveQuery(Long userId) {
             this.userId = userId;
@@ -118,12 +94,16 @@ public class QueryService {
 
     private Map<String, Object> execute(QueryExecuteDTO dto, Long userId, QueryType type, int rowLimit) {
         String sql = validateSql(dto.getSql());
-        if (!sqlGatewayEnabled && !sql.toUpperCase(Locale.ROOT).startsWith("SHOW ") && !METADATA.matcher(sql).find()) {
-            throw new IllegalStateException("Flink SQL Gateway 未启用；当前仅允许查询 Paimon 元数据表");
+        int concurrencyLimit = Math.max(1, maxConcurrentPerUser);
+        long currentConcurrency = active.values().stream().filter(query -> Objects.equals(query.userId, userId)).count();
+        if (currentConcurrency >= concurrencyLimit) {
+            throw new IllegalStateException("当前用户并发查询数已达到上限 " + concurrencyLimit);
         }
 
         int maxRows = Math.max(1, Math.min(dto.getMaxRows() == null ? defaultMaxRows : dto.getMaxRows(), rowLimit));
         int timeout = Math.max(1, Math.min(dto.getTimeoutSeconds() == null ? defaultTimeout : dto.getTimeoutSeconds(), 1800));
+        String catalog = defaultIfBlank(dto.getCatalog(), dorisConnectionService.getCatalog());
+        String database = defaultIfBlank(dto.getDatabase(), dorisConnectionService.getDatabase());
         String requestId = dto.getRequestId() == null || dto.getRequestId().isBlank()
                 ? UUID.randomUUID().toString()
                 : dto.getRequestId();
@@ -131,6 +111,8 @@ public class QueryService {
                 .userId(userId)
                 .sqlText(sql)
                 .queryType(type)
+                .queryEngine("doris")
+                .queryId(requestId)
                 .status(QueryStatus.running)
                 .build());
         long historyId = history.getId();
@@ -145,9 +127,8 @@ public class QueryService {
         String error = null;
         boolean truncated = false;
         try {
-            truncated = sqlGatewayEnabled
-                    ? executeViaSqlGateway(sql, maxRows, timeout, query, columns, rows)
-                    : executeViaMetadataJdbc(sql, maxRows, timeout, query, columns, rows);
+            truncated = executeViaDorisJdbc(
+                    sql, catalog, database, requestId, maxRows, timeout, query, columns, rows);
             if (query.cancelled.get()) status = QueryStatus.cancelled;
         } catch (Exception exception) {
             if (query.cancelled.get()
@@ -160,10 +141,7 @@ public class QueryService {
                 error = conciseError(exception);
                 log.error("Query failed: {}", error);
             }
-            cancelGatewayOperation(query);
-            cancelFlinkJob(query);
         } finally {
-            closeGatewayResources(query);
             active.remove(historyId);
             requests.remove(requestId, historyId);
             query.statement = null;
@@ -186,302 +164,18 @@ public class QueryService {
         result.put("historyId", historyId);
         result.put("requestId", requestId);
         result.put("truncated", truncated);
+        result.put("engine", "doris");
+        result.put("catalog", catalog);
+        result.put("database", database);
+        result.put("traceId", requestId);
         return result;
     }
 
-    private boolean executeViaSqlGateway(
+    private boolean executeViaDorisJdbc(
             String sql,
-            int maxRows,
-            int timeoutSeconds,
-            ActiveQuery query,
-            List<String> columns,
-            List<List<Object>> rows
-    ) throws Exception {
-        ensureQuerySlotAvailable();
-        query.sessionHandle = openGatewaySession();
-        executeGatewaySetupStatement(query, buildCatalogStatement(), timeoutSeconds);
-        executeGatewaySetupStatement(query, "USE CATALOG paimon", timeoutSeconds);
-        ensureNotCancelled(query);
-
-        query.operationHandle = submitGatewayStatement(query.sessionHandle, sql);
-        return fetchGatewayResults(query, maxRows, timeoutSeconds, columns, rows);
-    }
-
-    private void ensureQuerySlotAvailable() {
-        Map<String, Object> health = flinkClusterService.healthCheck();
-        if (!"healthy".equals(health.get("status"))) return;
-        int totalSlots = intValue(health.get("taskSlotsTotal"));
-        int availableSlots = intValue(health.get("taskSlotsAvailable"));
-        int runningJobs = intValue(health.get("runningJobs"));
-        if (totalSlots > 0 && availableSlots <= 0) {
-            throw new IllegalStateException("Flink 无可用 Slot（" + availableSlots + "/" + totalSlots
-                    + "，运行中 Job " + runningJobs
-                    + " 个），即席查询无法调度。请增加 TaskManager Slot 或停止占用 Slot 的任务后重试");
-        }
-    }
-
-    private String openGatewaySession() throws Exception {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("sessionName", "rtdwh-adhoc-" + UUID.randomUUID());
-        payload.put("properties", Map.of("execution.runtime-mode", "batch"));
-        JsonNode response = postGateway("/v1/sessions", payload);
-        String sessionHandle = response.path("sessionHandle").asText("");
-        if (sessionHandle.isBlank()) throw new IllegalStateException("SQL Gateway 未返回 sessionHandle");
-        return sessionHandle;
-    }
-
-    private void executeGatewaySetupStatement(
-            ActiveQuery query,
-            String statement,
-            int timeoutSeconds
-    ) throws Exception {
-        query.operationHandle = submitGatewayStatement(query.sessionHandle, statement);
-        long deadline = System.currentTimeMillis() + timeoutSeconds * 1000L;
-        while (true) {
-            ensureNotCancelled(query);
-            if (System.currentTimeMillis() > deadline) {
-                cancelGatewayOperation(query);
-                throw new IllegalStateException("SQL Gateway Catalog 初始化超时");
-            }
-            String operationStatus = getGatewayOperationStatus(query);
-            if ("FINISHED".equals(operationStatus)) {
-                JsonNode result = getGatewayResult("/v1/sessions/" + query.sessionHandle
-                        + "/operations/" + query.operationHandle + "/result/0");
-                String error = extractGatewayError(result);
-                if (error != null) throw new IllegalStateException(error);
-                closeGatewayOperation(query);
-                return;
-            }
-            if (FAILED_OPERATION_STATUSES.contains(operationStatus)) {
-                JsonNode result = getGatewayResult("/v1/sessions/" + query.sessionHandle
-                        + "/operations/" + query.operationHandle + "/result/0");
-                String error = extractGatewayError(result);
-                throw new IllegalStateException(error == null
-                        ? "SQL Gateway Catalog 初始化状态为 " + operationStatus
-                        : error);
-            }
-            sleepForResult();
-        }
-    }
-
-    private String submitGatewayStatement(String sessionHandle, String sql) throws Exception {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("statement", sql);
-        payload.put("executionConfig", Map.of("execution.runtime-mode", "batch"));
-        JsonNode response = postGateway("/v1/sessions/" + sessionHandle + "/statements", payload);
-        String error = extractGatewayError(response);
-        if (error != null) throw new IllegalStateException(error);
-        String operationHandle = response.path("operationHandle").asText("");
-        if (operationHandle.isBlank()) throw new IllegalStateException("SQL Gateway 未返回 operationHandle");
-        return operationHandle;
-    }
-
-    private boolean fetchGatewayResults(
-            ActiveQuery query,
-            int maxRows,
-            int timeoutSeconds,
-            List<String> columns,
-            List<List<Object>> rows
-    ) throws Exception {
-        long deadline = System.currentTimeMillis() + timeoutSeconds * 1000L;
-        String nextResultUri = "/v1/sessions/" + query.sessionHandle
-                + "/operations/" + query.operationHandle + "/result/0";
-        boolean truncated = false;
-
-        while (nextResultUri != null) {
-            ensureNotCancelled(query);
-            if (System.currentTimeMillis() > deadline) {
-                cancelGatewayOperation(query);
-                throw new IllegalStateException("查询超时（" + timeoutSeconds + " 秒）");
-            }
-
-            JsonNode response = getGatewayResult(nextResultUri);
-            String jobId = response.path("jobID").asText("");
-            if (jobId.isBlank()) jobId = response.path("jobId").asText("");
-            if (!jobId.isBlank()) query.flinkJobId = jobId;
-            String error = extractGatewayError(response);
-            if (error != null) throw new IllegalStateException(error);
-
-            String resultType = response.path("resultType").asText("").toUpperCase(Locale.ROOT);
-            if ("NOT_READY".equals(resultType) || resultType.isBlank()) {
-                String operationStatus = getGatewayOperationStatus(query);
-                if (FAILED_OPERATION_STATUSES.contains(operationStatus)) {
-                    throw new IllegalStateException("SQL Gateway 查询状态为 " + operationStatus);
-                }
-                sleepForResult();
-                continue;
-            }
-            if ("EOS".equals(resultType)) break;
-            if (!"PAYLOAD".equals(resultType)) {
-                throw new IllegalStateException("SQL Gateway 返回未知结果类型: " + resultType);
-            }
-
-            int rowsBeforeBatch = rows.size();
-            appendGatewayPayload(response.path("results"), columns, rows, maxRows + 1);
-            if (rows.size() > maxRows) {
-                rows.remove(rows.size() - 1);
-                truncated = true;
-                cancelGatewayOperation(query);
-                cancelFlinkJob(query);
-                break;
-            }
-
-            JsonNode next = response.get("nextResultUri");
-            nextResultUri = next == null || next.isNull() || next.asText().isBlank() ? null : next.asText();
-            if (nextResultUri != null && rows.size() == rowsBeforeBatch) sleepForResult();
-        }
-        return truncated;
-    }
-
-    static void appendGatewayPayload(
-            JsonNode results,
-            List<String> columns,
-            List<List<Object>> rows,
-            int rowLimit
-    ) {
-        if (results == null || results.isNull()) return;
-        if (results.isArray()) {
-            for (JsonNode result : results) appendGatewayPayload(result, columns, rows, rowLimit);
-            return;
-        }
-
-        if (columns.isEmpty()) {
-            for (JsonNode column : results.path("columns")) {
-                columns.add(column.path("name").asText("column_" + (columns.size() + 1)));
-            }
-        }
-        for (JsonNode data : results.path("data")) {
-            if (rows.size() >= rowLimit) break;
-            JsonNode fields = data.isArray() ? data : data.path("fields");
-            List<Object> row = new ArrayList<>();
-            if (fields.isArray()) {
-                for (JsonNode field : fields) row.add(jsonValue(field));
-            }
-            rows.add(row);
-        }
-    }
-
-    private JsonNode postGateway(String path, Map<String, Object> payload) throws Exception {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        try {
-            ResponseEntity<String> response = restTemplate.postForEntity(
-                    gatewayBaseUrl() + path,
-                    new HttpEntity<>(payload, headers),
-                    String.class
-            );
-            return readGatewayBody(response.getBody());
-        } catch (RestClientResponseException exception) {
-            throw gatewayHttpException(exception);
-        }
-    }
-
-    private JsonNode getGatewayResult(String resultUri) throws Exception {
-        String url = resolveGatewayUrl(resultUri);
-        url += url.contains("?") ? "&rowFormat=JSON" : "?rowFormat=JSON";
-        try {
-            ResponseEntity<String> response = restTemplate.getForEntity(url, String.class);
-            return readGatewayBody(response.getBody());
-        } catch (RestClientResponseException exception) {
-            throw gatewayHttpException(exception);
-        }
-    }
-
-    private String getGatewayOperationStatus(ActiveQuery query) throws Exception {
-        try {
-            ResponseEntity<String> response = restTemplate.getForEntity(
-                    gatewayBaseUrl() + "/v1/sessions/" + query.sessionHandle
-                            + "/operations/" + query.operationHandle + "/status",
-                    String.class
-            );
-            return readGatewayBody(response.getBody()).path("status").asText("").toUpperCase(Locale.ROOT);
-        } catch (RestClientResponseException exception) {
-            throw gatewayHttpException(exception);
-        }
-    }
-
-    private JsonNode readGatewayBody(String body) throws Exception {
-        return body == null || body.isBlank() ? objectMapper.createObjectNode() : objectMapper.readTree(body);
-    }
-
-    private IllegalStateException gatewayHttpException(RestClientResponseException exception) {
-        try {
-            JsonNode response = readGatewayBody(exception.getResponseBodyAsString());
-            String detail = extractGatewayError(response);
-            if (detail != null) return new IllegalStateException(detail, exception);
-        } catch (Exception ignored) {
-            // Fall back to the HTTP status below.
-        }
-        return new IllegalStateException("SQL Gateway 请求失败: HTTP " + exception.getRawStatusCode(), exception);
-    }
-
-    static String extractGatewayError(JsonNode response) {
-        if (response == null) return null;
-        String detail = "";
-        JsonNode errors = response.path("errors");
-        if (errors.isArray()) {
-            for (JsonNode error : errors) {
-                String candidate = error.asText("");
-                if (candidate.contains("Caused by:") || candidate.length() > detail.length()) detail = candidate;
-            }
-        }
-        if (detail.isBlank()) detail = response.path("error").asText("");
-        if (detail.isBlank()) detail = response.path("exception").path("rootCause").asText("");
-        if (detail.isBlank()) detail = response.path("exception").path("root_cause").asText("");
-        if (detail.isBlank()) return null;
-        int causedBy = detail.lastIndexOf("Caused by:");
-        String concise = causedBy >= 0 ? detail.substring(causedBy) : detail;
-        return concise.length() > 1800 ? concise.substring(0, 1800) + "..." : concise;
-    }
-
-    private void cancelGatewayOperation(ActiveQuery query) {
-        if (query.sessionHandle == null || query.operationHandle == null) return;
-        try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            restTemplate.postForEntity(
-                    gatewayBaseUrl() + "/v1/sessions/" + query.sessionHandle
-                            + "/operations/" + query.operationHandle + "/cancel",
-                    new HttpEntity<>(Map.of(), headers),
-                    String.class
-            );
-        } catch (Exception exception) {
-            log.debug("SQL Gateway operation cancel skipped: {}", exception.getMessage());
-        }
-    }
-
-    private void cancelFlinkJob(ActiveQuery query) {
-        if (query.flinkJobId == null || query.flinkJobId.isBlank()) return;
-        flinkClusterService.cancelJob(query.flinkJobId);
-        query.flinkJobId = null;
-    }
-
-    private void closeGatewayResources(ActiveQuery query) {
-        if (query.sessionHandle == null) return;
-        closeGatewayOperation(query);
-        try {
-            restTemplate.delete(gatewayBaseUrl() + "/v1/sessions/" + query.sessionHandle);
-        } catch (Exception exception) {
-            log.debug("SQL Gateway session close skipped: {}", exception.getMessage());
-        }
-        query.operationHandle = null;
-        query.sessionHandle = null;
-    }
-
-    private void closeGatewayOperation(ActiveQuery query) {
-        if (query.sessionHandle == null || query.operationHandle == null) return;
-        try {
-            restTemplate.delete(gatewayBaseUrl() + "/v1/sessions/" + query.sessionHandle
-                    + "/operations/" + query.operationHandle + "/close");
-        } catch (Exception exception) {
-            log.debug("SQL Gateway operation close skipped: {}", exception.getMessage());
-        } finally {
-            query.operationHandle = null;
-        }
-    }
-
-    private boolean executeViaMetadataJdbc(
-            String sql,
+            String catalog,
+            String database,
+            String traceId,
             int maxRows,
             int timeout,
             ActiveQuery query,
@@ -489,28 +183,48 @@ public class QueryService {
             List<List<Object>> rows
     ) throws SQLException {
         boolean truncated = false;
-        try (Connection connection = DriverManager.getConnection(paimonJdbcUri, paimonJdbcUser, paimonJdbcPassword);
-             Statement statement = connection.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)) {
-            query.statement = statement;
-            statement.setQueryTimeout(timeout);
-            statement.setMaxRows(maxRows + 1);
-            ensureNotCancelled(query);
-            try (ResultSet resultSet = statement.executeQuery(sql)) {
-                ResultSetMetaData metadata = resultSet.getMetaData();
-                for (int i = 1; i <= metadata.getColumnCount(); i++) columns.add(metadata.getColumnLabel(i));
-                while (resultSet.next()) {
-                    ensureNotCancelled(query);
-                    if (rows.size() >= maxRows) {
-                        truncated = true;
-                        break;
+        try (Connection connection = dorisConnectionService.getConnection()) {
+            try (Statement session = connection.createStatement()) {
+                session.setQueryTimeout(Math.min(timeout, 10));
+                session.execute("SWITCH " + DorisConnectionService.quoteIdentifier(catalog));
+                session.execute("USE " + DorisConnectionService.quoteIdentifier(database));
+                session.execute("SET query_timeout = " + timeout);
+                session.execute("SET exec_mem_limit = " + dorisConnectionService.getExecMemLimitBytes());
+                executeOptionalSessionSetting(session, "SET workload_group = "
+                        + DorisConnectionService.quoteLiteral(dorisConnectionService.getWorkloadGroup()));
+                executeOptionalSessionSetting(session, "SET session_context = "
+                        + DorisConnectionService.quoteLiteral("trace_id:" + traceId));
+            }
+            try (Statement statement = connection.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)) {
+                query.statement = statement;
+                statement.setQueryTimeout(timeout);
+                statement.setMaxRows(maxRows + 1);
+                ensureNotCancelled(query);
+                try (ResultSet resultSet = statement.executeQuery(sql)) {
+                    ResultSetMetaData metadata = resultSet.getMetaData();
+                    for (int i = 1; i <= metadata.getColumnCount(); i++) columns.add(metadata.getColumnLabel(i));
+                    while (resultSet.next()) {
+                        ensureNotCancelled(query);
+                        if (rows.size() >= maxRows) {
+                            truncated = true;
+                            break;
+                        }
+                        List<Object> row = new ArrayList<>();
+                        for (int i = 1; i <= metadata.getColumnCount(); i++) row.add(value(resultSet.getObject(i)));
+                        rows.add(row);
                     }
-                    List<Object> row = new ArrayList<>();
-                    for (int i = 1; i <= metadata.getColumnCount(); i++) row.add(value(resultSet.getObject(i)));
-                    rows.add(row);
                 }
             }
         }
         return truncated;
+    }
+
+    private void executeOptionalSessionSetting(Statement statement, String sql) {
+        try {
+            statement.execute(sql);
+        } catch (SQLException exception) {
+            log.warn("Optional Doris session setting was skipped: {}", exception.getMessage());
+        }
     }
 
     public void cancelQuery(Long historyId, Long userId) {
@@ -518,8 +232,6 @@ public class QueryService {
         if (query == null) throw new IllegalStateException("查询已结束，无法取消");
         if (!Objects.equals(query.userId, userId)) throw new IllegalArgumentException("无权取消该查询");
         query.cancel();
-        cancelGatewayOperation(query);
-        cancelFlinkJob(query);
     }
 
     public void cancelQueryByRequestId(String requestId, Long userId) {
@@ -544,6 +256,29 @@ public class QueryService {
         return queryHistoryRepository.findByUserIdOrderByCreatedAtDesc(userId);
     }
 
+    @Transactional(readOnly = true)
+    public Map<String, Object> getGovernanceStats(Long userId) {
+        List<QueryHistory> history = queryHistoryRepository.findTop1000ByUserIdOrderByCreatedAtDesc(userId);
+        long success = history.stream().filter(item -> item.getStatus() == QueryStatus.success).count();
+        long failed = history.stream().filter(item -> item.getStatus() == QueryStatus.failed).count();
+        List<Long> durations = history.stream().map(QueryHistory::getDurationMs).filter(Objects::nonNull).sorted().toList();
+        long p95 = durations.isEmpty() ? 0L : durations.get(Math.min(durations.size() - 1,
+                (int) Math.ceil(durations.size() * 0.95) - 1));
+        List<QueryHistory> slowQueries = history.stream().filter(item -> item.getDurationMs() != null)
+                .sorted((left, right) -> Long.compare(right.getDurationMs(), left.getDurationMs()))
+                .limit(10).toList();
+        Map<String, Object> stats = new LinkedHashMap<>();
+        stats.put("sampleSize", history.size());
+        stats.put("successCount", success);
+        stats.put("failedCount", failed);
+        stats.put("successRate", history.isEmpty() ? 0D : success * 100D / history.size());
+        stats.put("p95DurationMs", p95);
+        stats.put("runningCount", active.values().stream().filter(query -> Objects.equals(query.userId, userId)).count());
+        stats.put("concurrencyLimit", Math.max(1, maxConcurrentPerUser));
+        stats.put("slowQueries", slowQueries);
+        return stats;
+    }
+
     public Map<String, Object> executeReportQuery(String sql, Long userId) {
         QueryExecuteDTO dto = new QueryExecuteDTO();
         dto.setSql(sql);
@@ -565,6 +300,10 @@ public class QueryService {
             throw new IllegalArgumentException("仅支持安全的查询类 SQL");
         }
         return raw.trim().replaceFirst(";\\s*$", "");
+    }
+
+    private String defaultIfBlank(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
     }
 
     private String strip(String sql) {
@@ -622,44 +361,8 @@ public class QueryService {
         return out.toString();
     }
 
-    private String buildCatalogStatement() {
-        return String.format(
-                "CREATE CATALOG IF NOT EXISTS paimon WITH "
-                        + "('type'='paimon','metastore'='jdbc','uri'='%s','jdbc.user'='%s',"
-                        + "'jdbc.password'='%s','catalog-key'='%s','warehouse'='%s')",
-                esc(paimonJdbcUri),
-                esc(paimonJdbcUser),
-                esc(paimonJdbcPassword),
-                esc(paimonCatalogKey),
-                esc(warehousePath)
-        );
-    }
-
-    private String gatewayBaseUrl() {
-        return sqlGatewayUrl.replaceAll("/+$", "");
-    }
-
-    private String resolveGatewayUrl(String resultUri) {
-        URI uri = URI.create(resultUri);
-        if (uri.isAbsolute()) return uri.toString();
-        if (resultUri.startsWith("/")) {
-            URI base = URI.create(gatewayBaseUrl());
-            return base.getScheme() + "://" + base.getAuthority() + resultUri;
-        }
-        return gatewayBaseUrl() + "/" + resultUri;
-    }
-
     private void ensureNotCancelled(ActiveQuery query) {
         if (query.cancelled.get()) throw new CancellationException("查询已取消");
-    }
-
-    private void sleepForResult() {
-        try {
-            Thread.sleep(200);
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw new CancellationException("查询等待被中断");
-        }
     }
 
     private String conciseError(Exception exception) {
@@ -667,27 +370,10 @@ public class QueryService {
         return message.length() > 1800 ? message.substring(0, 1800) + "..." : message;
     }
 
-    private int intValue(Object value) {
-        return value instanceof Number number ? number.intValue() : 0;
-    }
-
-    private String esc(String value) {
-        return value == null ? "" : value.replace("'", "''");
-    }
-
     private Object value(Object raw) {
         if (raw == null || raw instanceof String || raw instanceof Number || raw instanceof Boolean) return raw;
         if (raw instanceof byte[] bytes) return Base64.getEncoder().encodeToString(bytes);
         return String.valueOf(raw);
-    }
-
-    private static Object jsonValue(JsonNode node) {
-        if (node == null || node.isNull()) return null;
-        if (node.isTextual()) return node.textValue();
-        if (node.isBoolean()) return node.booleanValue();
-        if (node.isIntegralNumber()) return node.canConvertToLong() ? node.longValue() : node.bigIntegerValue();
-        if (node.isFloatingPointNumber()) return node.decimalValue();
-        return node.toString();
     }
 
     private String csv(Object value) {

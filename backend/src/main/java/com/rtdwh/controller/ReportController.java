@@ -7,6 +7,7 @@ import com.rtdwh.service.ReportService;
 import com.rtdwh.util.SecurityContextUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.access.prepost.PreAuthorize;
 
 import java.util.List;
 import java.util.Map;
@@ -14,6 +15,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/reports")
 @RequiredArgsConstructor
+@PreAuthorize("hasAuthority('report:view')")
 public class ReportController {
 
     private final ReportService reportService;
@@ -31,6 +33,7 @@ public class ReportController {
     }
 
     @PostMapping
+    @PreAuthorize("hasAuthority('report:create')")
     public ApiResponse<ReportTemplate> createReport(@RequestBody ReportTemplate template) {
         Long userId = securityContextUtil.getCurrentUserId();
         return ApiResponse.success("Report created", reportService.createReport(template, userId));
@@ -48,11 +51,13 @@ public class ReportController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAuthority('report:create')")
     public ApiResponse<ReportTemplate> updateReport(@PathVariable Long id, @RequestBody ReportTemplate template) {
         return ApiResponse.success("Report updated", reportService.updateReport(id, template));
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAuthority('report:create')")
     public ApiResponse<Void> deleteReport(@PathVariable Long id) {
         reportService.deleteReport(id);
         return ApiResponse.success("Report deleted", null);

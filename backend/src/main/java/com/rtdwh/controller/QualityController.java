@@ -3,11 +3,13 @@ package com.rtdwh.controller;
 import com.rtdwh.dto.ApiResponse;
 import com.rtdwh.entity.QualityRule;
 import com.rtdwh.entity.QualityAlert;
+import com.rtdwh.entity.QualityCheckRun;
 import com.rtdwh.service.QualityCheckService;
 import com.rtdwh.service.QualityService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.access.prepost.PreAuthorize;
 
 import java.util.List;
 import java.util.Map;
@@ -16,6 +18,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/quality")
 @RequiredArgsConstructor
+@PreAuthorize("hasAuthority('quality:view')")
 public class QualityController {
 
     private final QualityService qualityService;
@@ -29,16 +32,19 @@ public class QualityController {
     }
 
     @PostMapping("/rules")
+    @PreAuthorize("hasAuthority('quality:manage')")
     public ApiResponse<QualityRule> createRule(@RequestBody QualityRule rule) {
         return ApiResponse.success("规则创建成功", qualityService.createRule(rule));
     }
 
     @PutMapping("/rules/{id}")
+    @PreAuthorize("hasAuthority('quality:manage')")
     public ApiResponse<QualityRule> updateRule(@PathVariable Long id, @RequestBody QualityRule rule) {
         return ApiResponse.success("规则更新成功", qualityService.updateRule(id, rule));
     }
 
     @PostMapping("/rules/{id}/toggle")
+    @PreAuthorize("hasAuthority('quality:manage')")
     public ApiResponse<QualityRule> toggleRule(
             @PathVariable Long id,
             @RequestBody Map<String, Boolean> body) {
@@ -47,12 +53,14 @@ public class QualityController {
     }
 
     @DeleteMapping("/rules/{id}")
+    @PreAuthorize("hasAuthority('quality:manage')")
     public ApiResponse<Void> deleteRule(@PathVariable Long id) {
         qualityService.deleteRule(id);
         return ApiResponse.success("规则已删除", null);
     }
 
     @PostMapping("/run-check")
+    @PreAuthorize("hasAuthority('quality:manage')")
     public ApiResponse<Integer> runCheck(@RequestBody(required = false) Map<String, Long> body) {
         Long ruleId = body == null ? null : body.get("ruleId");
         int alertCount = ruleId == null
@@ -68,7 +76,13 @@ public class QualityController {
         return ApiResponse.success(qualityService.listAlerts(level, resolved));
     }
 
+    @GetMapping("/runs")
+    public ApiResponse<List<QualityCheckRun>> getRuns(@RequestParam(required = false) Long ruleId) {
+        return ApiResponse.success(qualityCheckService.listRuns(ruleId));
+    }
+
     @PostMapping("/alerts/{id}/resolve")
+    @PreAuthorize("hasAuthority('quality:manage')")
     public ApiResponse<QualityAlert> resolveAlert(@PathVariable Long id) {
         return ApiResponse.success("告警已解决", qualityService.resolveAlert(id));
     }

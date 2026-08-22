@@ -37,6 +37,23 @@ public class DwhTableMeta {
     @Column(columnDefinition = "TEXT")
     private String businessDesc;
 
+    @Column(length = 64)
+    private String owner;
+
+    @Column(length = 64)
+    private String businessDomain;
+
+    @Column(columnDefinition = "JSON")
+    private String tags;
+
+    @Builder.Default
+    @Column(nullable = false, length = 16)
+    private String sensitivityLevel = "internal";
+
+    @Builder.Default
+    @Column(nullable = false, length = 16)
+    private String lifecycleStatus = "active";
+
     @Column(columnDefinition = "JSON")
     private String schemaJson;
 

@@ -104,6 +104,7 @@ export default defineConfig({
       icon: 'ThunderboltOutlined',
       routes: [
         { path: '/sync-task/list', name: '任务管理', icon: 'UnorderedListOutlined', component: './SyncTask/List' },
+        { path: '/sync-task/workflow', name: '任务编排', icon: 'ApartmentOutlined', component: './Workflow' },
         { path: '/sync-task/create', name: '创建任务', icon: 'PlusOutlined', component: './SyncTask/Create', hideInMenu: true },
         { path: '/sync-task/detail/:id', name: '任务详情', icon: 'ProfileOutlined', component: './SyncTask/Detail', hideInMenu: true },
         { path: '/sync-task/datasource', name: '数据源配置', icon: 'ApiOutlined', component: './Datasource' },
@@ -146,6 +147,7 @@ export default defineConfig({
       routes: [
         { path: '/system/alert', name: '告警管理', icon: 'BellOutlined', component: './Alert' },
         { path: '/system/settings', name: '系统设置', icon: 'SettingOutlined', component: './Settings', access: 'canAdmin' },
+        { path: '/system/audit', name: '操作审计', icon: 'AuditOutlined', component: './Audit', access: 'canAdmin' },
       ],
     },
   ],

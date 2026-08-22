@@ -4,6 +4,7 @@ import com.rtdwh.entity.DwhColumnMeta;
 import com.rtdwh.entity.DwhTableMeta;
 import com.rtdwh.dto.DwhSnapshotDTO;
 import com.rtdwh.dto.QueryCatalogDTO;
+import com.rtdwh.dto.DwhMetadataUpdateDTO;
 import com.rtdwh.entity.DwhTableMeta.TableLayer;
 import com.rtdwh.entity.TableMaintenanceLog;
 import com.rtdwh.entity.TableMaintenanceLog.Operation;
@@ -105,10 +106,39 @@ public class DwhMetaService {
     }
 
     @Transactional
+    public DwhTableMeta updateMetadata(Long id, DwhMetadataUpdateDTO dto) {
+        DwhTableMeta table = getTableDetail(id);
+        table.setBusinessDesc(dto.getBusinessDesc());
+        table.setOwner(blankToNull(dto.getOwner()));
+        table.setBusinessDomain(blankToNull(dto.getBusinessDomain()));
+        table.setSensitivityLevel(validateValue(dto.getSensitivityLevel(),
+                Set.of("public", "internal", "confidential", "restricted"), "internal", "敏感级别"));
+        table.setLifecycleStatus(validateValue(dto.getLifecycleStatus(),
+                Set.of("active", "deprecated", "offline"), "active", "生命周期状态"));
+        try {
+            table.setTags(objectMapper.writeValueAsString(dto.getTags() == null ? List.of() : dto.getTags().stream()
+                    .map(String::trim).filter(value -> !value.isBlank()).distinct().limit(20).toList()));
+        } catch (Exception exception) {
+            throw new IllegalArgumentException("标签格式不正确");
+        }
+        return tableMetaRepository.save(table);
+    }
+
+    @Transactional
     public DwhTableMeta updateBusinessDesc(Long id, String businessDesc) {
         DwhTableMeta table = getTableDetail(id);
         table.setBusinessDesc(businessDesc);
         return tableMetaRepository.save(table);
+    }
+
+    private String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private String validateValue(String value, Set<String> allowed, String fallback, String label) {
+        String normalized = value == null || value.isBlank() ? fallback : value.trim().toLowerCase(Locale.ROOT);
+        if (!allowed.contains(normalized)) throw new IllegalArgumentException(label + "不合法: " + value);
+        return normalized;
     }
 
     @Transactional

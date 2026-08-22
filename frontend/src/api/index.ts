@@ -98,6 +98,49 @@ export async function syncAllTaskStatus() {
   return request<number>(`${API_PREFIX}/sync-tasks/sync-status`, { method: 'POST' });
 }
 
+// Workflow orchestration
+export async function getWorkflowGraph() {
+  return request<API.WorkflowGraph>(`${API_PREFIX}/workflow/graph`);
+}
+
+export async function addTaskDependency(data: { upstreamTaskId: number; downstreamTaskId: number }) {
+  return request<API.TaskDependency>(`${API_PREFIX}/workflow/dependencies`, { method: 'POST', data });
+}
+
+export async function removeTaskDependency(upstreamTaskId: number, downstreamTaskId: number) {
+  return request<void>(`${API_PREFIX}/workflow/dependencies`, {
+    method: 'DELETE', params: { upstreamTaskId, downstreamTaskId },
+  });
+}
+
+export async function publishTaskVersion(taskId: number, changeSummary: string) {
+  return request<API.TaskDefinitionVersion>(`${API_PREFIX}/workflow/tasks/${taskId}/publish`, {
+    method: 'POST', data: { changeSummary },
+  });
+}
+
+export async function getTaskVersions(taskId: number) {
+  return request<API.TaskDefinitionVersion[]>(`${API_PREFIX}/workflow/tasks/${taskId}/versions`);
+}
+
+export async function rollbackTaskVersion(taskId: number, versionNo: number) {
+  return request<API.SyncTask>(`${API_PREFIX}/workflow/tasks/${taskId}/rollback/${versionNo}`, { method: 'POST' });
+}
+
+export async function createTaskBackfill(taskId: number, data: {
+  startDate: string; endDate: string; parametersJson?: string;
+}) {
+  return request<API.TaskRunInstance[]>(`${API_PREFIX}/workflow/tasks/${taskId}/backfill`, { method: 'POST', data });
+}
+
+export async function getWorkflowInstances(params?: { taskId?: number; status?: string; limit?: number }) {
+  return request<API.TaskRunInstance[]>(`${API_PREFIX}/workflow/instances`, { params });
+}
+
+export async function getOperationAudits(params?: { username?: string; page?: number; size?: number }) {
+  return request<API.PageResult<API.OperationAudit>>(`${API_PREFIX}/audit`, { params });
+}
+
 // Datasources
 export async function getDatasources(params?: { dbType?: string }) {
   const response = await request<unknown>(`${API_PREFIX}/datasources`, { params });
@@ -163,11 +206,22 @@ export async function syncMetadataFromPaimon() {
   return request<number>(`${API_PREFIX}/dwh/sync-metadata`, { method: 'POST' });
 }
 
-export async function updateTableBusinessDesc(id: number, businessDesc: string) {
+export async function updateTableMetadata(id: number, data: {
+  businessDesc?: string; owner?: string; businessDomain?: string; tags?: string[];
+  sensitivityLevel?: string; lifecycleStatus?: string;
+}) {
   return request<API.DwhTableMeta>(
     `${API_PREFIX}/dwh/tables/${id}/metadata`,
-    { method: 'PUT', data: { businessDesc } },
+    { method: 'PUT', data },
   );
+}
+
+export async function updateTableBusinessDesc(id: number, businessDesc: string) {
+  return updateTableMetadata(id, { businessDesc });
+}
+
+export async function getQueryGovernanceStats() {
+  return request<API.QueryGovernanceStats>(`${API_PREFIX}/query/governance/stats`);
 }
 
 export async function triggerCompact(id: number, compactStrategy?: string) {
@@ -185,11 +239,11 @@ export async function triggerExpireSnapshots(id: number, retainLast?: number) {
 }
 
 // Query
-export async function executeQuery(data: { sql: string; maxRows?: number; timeoutSeconds?: number; requestId?: string }) {
+export async function executeQuery(data: { sql: string; maxRows?: number; timeoutSeconds?: number; requestId?: string; catalog?: string; database?: string }) {
   return request<API.QueryResult>(`${API_PREFIX}/query/execute`, { method: 'POST', data });
 }
 
-export async function exportQuery(data: { sql: string; maxRows?: number; timeoutSeconds?: number }) {
+export async function exportQuery(data: { sql: string; maxRows?: number; timeoutSeconds?: number; catalog?: string; database?: string }) {
   return request<Blob>(`${API_PREFIX}/query/export`, { method: 'POST', data, responseType: 'blob' });
 }
 
@@ -238,6 +292,14 @@ export async function createReport(data: any) {
   return request<API.ReportTemplate>(`${API_PREFIX}/reports`, { method: 'POST', data });
 }
 
+export async function updateReport(id: number, data: API.ReportTemplate) {
+  return request<API.ReportTemplate>(`${API_PREFIX}/reports/${id}`, { method: 'PUT', data });
+}
+
+export async function deleteReport(id: number) {
+  return request<void>(`${API_PREFIX}/reports/${id}`, { method: 'DELETE' });
+}
+
 // Settings
 export async function getHealthStatus() {
   return request<API.SystemHealth>(`${API_PREFIX}/settings/health-status`);
@@ -259,7 +321,19 @@ export async function testFlinkClusterConfig(data: API.FlinkClusterConfig) {
   return request<API.HealthComponent>(`${API_PREFIX}/settings/flink-cluster/test`, { method: 'POST', data });
 }
 
-export async function healthCheckComponent(component: 'flink' | 'paimon' | 'mysql') {
+export async function getDorisConfig() {
+  return request<API.DorisConfig>(`${API_PREFIX}/settings/doris`);
+}
+
+export async function updateDorisConfig(data: API.DorisConfig) {
+  return request<API.DorisConfig>(`${API_PREFIX}/settings/doris`, { method: 'PUT', data });
+}
+
+export async function testDorisConfig(data: API.DorisConfig) {
+  return request<API.HealthComponent>(`${API_PREFIX}/settings/doris/test`, { method: 'POST', data });
+}
+
+export async function healthCheckComponent(component: 'flink' | 'paimon' | 'mysql' | 'doris') {
   return request<API.SystemHealth>(`${API_PREFIX}/settings/health-status/${component}/refresh`, { method: 'POST' });
 }
 
@@ -324,8 +398,17 @@ export async function getQualityAlerts(params?: { level?: string; resolved?: boo
   return request<API.QualityAlert[]>(`${API_PREFIX}/quality/alerts`, { params });
 }
 
+export async function getQualityRuns(params?: { ruleId?: number }) {
+  return request<API.QualityCheckRun[]>(`${API_PREFIX}/quality/runs`, { params });
+}
+
 export async function resolveQualityAlert(id: number) {
   return request<API.QualityAlert>(`${API_PREFIX}/quality/alerts/${id}/resolve`, { method: 'POST' });
+}
+
+// Lineage
+export async function getLineageGraph(params?: { layer?: string; keyword?: string }) {
+  return request<API.LineageGraph>(`${API_PREFIX}/lineage/graph`, { params });
 }
 
 // Maintenance

@@ -2,6 +2,7 @@ package com.rtdwh.controller;
 
 import com.rtdwh.dto.ApiResponse;
 import com.rtdwh.dto.DwhSnapshotDTO;
+import com.rtdwh.dto.DwhMetadataUpdateDTO;
 import com.rtdwh.entity.DwhColumnMeta;
 import com.rtdwh.entity.DwhTableMeta;
 import com.rtdwh.entity.DwhTableMeta.TableLayer;
@@ -11,6 +12,7 @@ import com.rtdwh.entity.TableMaintenanceLog.Status;
 import com.rtdwh.service.DwhMetaService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.access.prepost.PreAuthorize;
 
 import java.util.List;
 import java.util.Map;
@@ -18,6 +20,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/dwh")
 @RequiredArgsConstructor
+@PreAuthorize("hasAuthority('dwh:view')")
 public class DwhMetaController {
 
     private final DwhMetaService dwhMetaService;
@@ -48,6 +51,7 @@ public class DwhMetaController {
     }
 
     @PutMapping("/columns/{id}/comment")
+    @PreAuthorize("hasAuthority('dwh:manage')")
     public ApiResponse<DwhColumnMeta> updateColumnComment(
             @PathVariable Long id,
             @RequestBody Map<String, String> body) {
@@ -56,18 +60,21 @@ public class DwhMetaController {
     }
 
     @PutMapping("/tables/{id}/metadata")
-    public ApiResponse<DwhTableMeta> updateBusinessDesc(
+    @PreAuthorize("hasAuthority('dwh:manage')")
+    public ApiResponse<DwhTableMeta> updateMetadata(
             @PathVariable Long id,
-            @RequestBody Map<String, String> body) {
-        return ApiResponse.success(dwhMetaService.updateBusinessDesc(id, body.get("businessDesc")));
+            @RequestBody DwhMetadataUpdateDTO body) {
+        return ApiResponse.success("表治理信息已更新", dwhMetaService.updateMetadata(id, body));
     }
 
     @PostMapping("/sync-metadata")
+    @PreAuthorize("hasAuthority('dwh:manage')")
     public ApiResponse<Integer> syncMetadataFromPaimon() {
         return ApiResponse.success("Metadata synced", dwhMetaService.syncMetadataFromPaimon());
     }
 
     @PostMapping("/tables/{id}/compact")
+    @PreAuthorize("hasAuthority('dwh:manage')")
     public ApiResponse<Map<String, Object>> triggerCompact(
             @PathVariable Long id,
             @RequestParam(defaultValue = "minor") String compactStrategy) {
@@ -75,6 +82,7 @@ public class DwhMetaController {
     }
 
     @PostMapping("/tables/{id}/expire-snapshots")
+    @PreAuthorize("hasAuthority('dwh:manage')")
     public ApiResponse<Map<String, Object>> triggerExpireSnapshots(
             @PathVariable Long id,
             @RequestParam(defaultValue = "10") int retainLast) {
@@ -82,6 +90,7 @@ public class DwhMetaController {
     }
 
     @PostMapping("/tables/{id}/orphan-cleanup")
+    @PreAuthorize("hasAuthority('dwh:manage')")
     public ApiResponse<Map<String, Object>> triggerOrphanCleanup(@PathVariable Long id) {
         return ApiResponse.success(dwhMetaService.triggerOrphanCleanup(id));
     }
@@ -99,6 +108,7 @@ public class DwhMetaController {
     }
 
     @PostMapping("/maintenance/batch-compact")
+    @PreAuthorize("hasAuthority('dwh:manage')")
     public ApiResponse<Map<String, Object>> batchCompact(@RequestBody Map<String, Object> body) {
         TableLayer layer = parseLayer(body.get("layer"));
         int threshold = body.get("fileCountThreshold") instanceof Number number ? number.intValue() : 200;
@@ -106,6 +116,7 @@ public class DwhMetaController {
     }
 
     @PostMapping("/maintenance/batch-expire")
+    @PreAuthorize("hasAuthority('dwh:manage')")
     public ApiResponse<Map<String, Object>> batchExpireSnapshots(@RequestBody Map<String, Object> body) {
         TableLayer layer = parseLayer(body.get("layer"));
         int retainLast = body.get("retainLast") instanceof Number number ? number.intValue() : 10;
@@ -113,6 +124,7 @@ public class DwhMetaController {
     }
 
     @PostMapping("/maintenance/clean-orphan")
+    @PreAuthorize("hasAuthority('dwh:manage')")
     public ApiResponse<Map<String, Object>> cleanOrphanFiles(@RequestBody(required = false) Map<String, Object> body) {
         Long tableId = null;
         if (body != null && body.get("tableId") instanceof Number number) {

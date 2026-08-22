@@ -13,6 +13,8 @@ public interface QueryHistoryRepository extends JpaRepository<QueryHistory, Long
 
     List<QueryHistory> findByUserIdOrderByCreatedAtDesc(Long userId);
 
+    List<QueryHistory> findTop1000ByUserIdOrderByCreatedAtDesc(Long userId);
+
     Page<QueryHistory> findByUserIdOrderByCreatedAtDesc(Long userId, Pageable pageable);
 
     List<QueryHistory> findByStatusOrderByCreatedAtDesc(QueryHistory.QueryStatus status);

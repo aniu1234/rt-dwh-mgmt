@@ -16,6 +16,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.access.prepost.PreAuthorize;
 
 import java.util.List;
 import java.util.Map;
@@ -24,6 +25,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/sync-tasks")
 @RequiredArgsConstructor
+@PreAuthorize("hasAuthority('task:view')")
 public class SyncTaskController {
 
     private final SyncTaskService syncTaskService;
@@ -55,17 +57,20 @@ public class SyncTaskController {
     }
 
     @PostMapping
+    @PreAuthorize("hasAuthority('task:create')")
     public ApiResponse<SyncTask> createTask(@Valid @RequestBody SyncTaskCreateDTO dto) {
         Long creatorId = securityContextUtil.getCurrentUserId();
         return ApiResponse.success("任务创建成功", syncTaskService.createTask(dto, creatorId));
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAuthority('task:manage')")
     public ApiResponse<SyncTask> updateTask(@PathVariable Long id, @RequestBody SyncTaskUpdateDTO dto) {
         return ApiResponse.success("任务配置已更新", syncTaskService.updateTask(id, dto));
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAuthority('task:manage')")
     public ApiResponse<Void> deleteTask(@PathVariable Long id) {
         syncTaskService.deleteTask(id);
         return ApiResponse.success("任务已删除", null);
@@ -79,6 +84,7 @@ public class SyncTaskController {
      * 启动任务 (draft/failed → running)
      */
     @PostMapping("/{id}/start")
+    @PreAuthorize("hasAuthority('task:manage')")
     public ApiResponse<SyncTask> startTask(@PathVariable Long id) {
         SyncTask task = syncTaskService.startTask(id);
         String msg = task.getStatus() == TaskStatus.running ? "任务已启动" : "任务启动失败";
@@ -90,6 +96,7 @@ public class SyncTaskController {
      * 注意：暂停是异步操作，先触发 Savepoint，中间状态为 saving_point
      */
     @PostMapping("/{id}/pause")
+    @PreAuthorize("hasAuthority('task:manage')")
     public ApiResponse<SyncTask> pauseTask(@PathVariable Long id) {
         SyncTask task = syncTaskService.pauseTask(id);
         String msg = task.getStatus() == TaskStatus.saving_point
@@ -101,6 +108,7 @@ public class SyncTaskController {
      * 恢复任务 (paused → running, 从 savepoint 恢复)
      */
     @PostMapping("/{id}/resume")
+    @PreAuthorize("hasAuthority('task:manage')")
     public ApiResponse<SyncTask> resumeTask(@PathVariable Long id) {
         SyncTask task = syncTaskService.resumeTask(id);
         String msg = task.getStatus() == TaskStatus.running ? "任务已从 Savepoint 恢复" : "任务恢复失败";
@@ -111,6 +119,7 @@ public class SyncTaskController {
      * 停止任务 (任意活跃状态 → finished，不保留 Savepoint)
      */
     @PostMapping("/{id}/stop")
+    @PreAuthorize("hasAuthority('task:manage')")
     public ApiResponse<SyncTask> stopTask(@PathVariable Long id) {
         SyncTask task = syncTaskService.stopTask(id);
         return ApiResponse.success("任务已停止（未保留 Savepoint）", task);
@@ -120,6 +129,7 @@ public class SyncTaskController {
      * 重试失败任务 (failed → running)
      */
     @PostMapping("/{id}/retry")
+    @PreAuthorize("hasAuthority('task:manage')")
     public ApiResponse<SyncTask> retryTask(@PathVariable Long id) {
         SyncTask task = syncTaskService.retryTask(id);
         String msg = task.getStatus() == TaskStatus.running ? "任务重试成功" : "任务重试失败";
@@ -130,6 +140,7 @@ public class SyncTaskController {
      * 手动触发 Savepoint (不停止任务)
      */
     @PostMapping("/{id}/savepoint")
+    @PreAuthorize("hasAuthority('task:manage')")
     public ApiResponse<SyncTask> triggerSavepoint(@PathVariable Long id) {
         SyncTask task = syncTaskService.triggerManualSavepoint(id);
         return ApiResponse.success("Savepoint 触发成功，请轮询状态查看进度", task);
@@ -164,6 +175,7 @@ public class SyncTaskController {
      * 手动触发状态同步（从 Flink 集群刷新所有活跃任务状态）
      */
     @PostMapping("/sync-status")
+    @PreAuthorize("hasAuthority('task:manage')")
     public ApiResponse<Integer> syncAllTaskStatus() {
         int synced = syncTaskService.syncTaskStatusFromFlink();
         return ApiResponse.success("同步完成", synced);
@@ -173,6 +185,7 @@ public class SyncTaskController {
      * Preview CDC SQL for a task configuration (without saving).
      */
     @PostMapping("/preview-cdc-sql")
+    @PreAuthorize("hasAuthority('task:create')")
     public ApiResponse<Map<String, Object>> previewCdcSql(@RequestBody Map<String, Object> config) {
         try {
             // Build a temporary SyncTask from the config

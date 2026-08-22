@@ -11,7 +11,7 @@ import {
 import { useRequest } from '@umijs/max';
 import {
   createQualityRule, deleteQualityRule, getQualityAlerts, getQualityRules,
-  resolveQualityAlert, runQualityCheck, toggleQualityRule, updateQualityRule,
+  getQualityRuns, resolveQualityAlert, runQualityCheck, toggleQualityRule, updateQualityRule,
 } from '@/api';
 
 const layerColorMap: Record<string, string> = {
@@ -55,25 +55,26 @@ const Quality: React.FC = () => {
     () => getQualityAlerts({ level: alertLevel, resolved: alertResolved }),
     { refreshDeps: [alertLevel, alertResolved] },
   );
+  const { data: runsData, loading: runsLoading, refresh: refreshRuns } = useRequest(getQualityRuns);
 
   const rules = (rulesData || []) as API.QualityRule[];
   const alerts = (alertsData || []) as API.QualityAlert[];
+  const runs = (runsData || []) as API.QualityCheckRun[];
   const unresolvedCount = alerts.filter((alert) => !alert.resolved).length;
-  const passRate = rules.length
-    ? Math.max(0, Math.round(((rules.length - unresolvedCount) / rules.length) * 100))
-    : 100;
-
-  const latestAlertByRule = useMemo(() => {
-    const map = new Map<number, API.QualityAlert>();
-    alerts.forEach((alert) => {
-      if (!map.has(alert.ruleId)) map.set(alert.ruleId, alert);
-    });
+  const latestRunByRule = useMemo(() => {
+    const map = new Map<number, API.QualityCheckRun>();
+    runs.forEach((run) => { if (!map.has(run.ruleId)) map.set(run.ruleId, run); });
     return map;
-  }, [alerts]);
+  }, [runs]);
+  const checkedRuns = Array.from(latestRunByRule.values());
+  const passRate = checkedRuns.length
+    ? Math.round((checkedRuns.filter((run) => run.status === 'passed').length / checkedRuns.length) * 100)
+    : 100;
 
   const refreshAll = () => {
     refreshRules();
     refreshAlerts();
+    refreshRuns();
   };
 
   const openRuleModal = (rule?: API.QualityRule) => {
@@ -108,6 +109,7 @@ const Quality: React.FC = () => {
       const count = await runQualityCheck(ruleId);
       message.success(`质量检查完成，发现 ${count || 0} 个异常`);
       refreshAlerts();
+      refreshRuns();
     } catch (error: any) {
       message.error(error?.message || '质量检查失败');
     } finally {
@@ -165,23 +167,25 @@ const Quality: React.FC = () => {
     { title: '阈值', dataIndex: 'threshold', key: 'threshold', width: 90 },
     {
       title: '实际值', key: 'actualValue', width: 100,
-      render: (_: unknown, record: API.QualityRule) => latestAlertByRule.get(record.id)?.actualValue ?? '—',
+      render: (_: unknown, record: API.QualityRule) => latestRunByRule.get(record.id)?.actualValue ?? '—',
     },
     {
       title: '状态', key: 'status', width: 100,
       render: (_: unknown, record: API.QualityRule) => {
-        const latestAlert = latestAlertByRule.get(record.id);
+        const latestRun = latestRunByRule.get(record.id);
         if (!record.enabled) return <Badge status="default" text="未启用" />;
-        return latestAlert && !latestAlert.resolved
-          ? <Badge status="error" text="异常" />
-          : <Badge status="success" text="通过" />;
+        if (!latestRun) return <Badge status="default" text="未检查" />;
+        if (latestRun.status === 'running') return <Badge status="processing" text="检查中" />;
+        if (latestRun.status === 'error') return <Badge status="error" text="执行异常" />;
+        return latestRun.status === 'failed'
+          ? <Badge status="error" text="未通过" /> : <Badge status="success" text="通过" />;
       },
     },
     {
       title: '最近检测', key: 'checkedAt', width: 170,
       render: (_: unknown, record: API.QualityRule) => {
-        const value = latestAlertByRule.get(record.id)?.triggeredAt;
-        return value ? new Date(value).toLocaleString('zh-CN') : '暂无异常记录';
+        const value = latestRunByRule.get(record.id)?.startedAt;
+        return value ? new Date(value).toLocaleString('zh-CN') : '尚未检查';
       },
     },
     {
@@ -312,6 +316,39 @@ const Quality: React.FC = () => {
                     },
                   ]}
                   scroll={{ x: 900 }}
+                />
+              </Card>
+            ),
+          },
+          {
+            key: 'runs',
+            label: '执行记录',
+            children: (
+              <Card>
+                <Table<API.QualityCheckRun>
+                  dataSource={runs}
+                  rowKey="id"
+                  loading={runsLoading}
+                  size="small"
+                  columns={[
+                    { title: '开始时间', dataIndex: 'startedAt', width: 180,
+                      render: (value) => value ? new Date(value).toLocaleString('zh-CN') : '—' },
+                    { title: '规则', dataIndex: 'ruleName', width: 180 },
+                    { title: '触发', dataIndex: 'triggerType', width: 90,
+                      render: (value) => value === 'scheduled' ? '定时' : '手动' },
+                    { title: '引擎', dataIndex: 'engine', width: 80, render: (value) => <Tag color="blue">{value}</Tag> },
+                    { title: '实际值 / 阈值', width: 140,
+                      render: (_, record) => `${record.actualValue ?? '—'} / ${record.thresholdValue ?? '—'}` },
+                    { title: '耗时', dataIndex: 'durationMs', width: 100,
+                      render: (value) => value == null ? '—' : `${value}ms` },
+                    { title: '状态', dataIndex: 'status', width: 100,
+                      render: (value) => <Tag color={{ passed: 'green', failed: 'red', error: 'volcano', running: 'blue' }[value] || 'default'}>
+                        {{ passed: '通过', failed: '未通过', error: '执行异常', running: '执行中' }[value] || value}
+                      </Tag> },
+                    { title: '错误', dataIndex: 'errorMessage', ellipsis: true, render: (value) => value || '—' },
+                  ]}
+                  expandable={{ expandedRowRender: (record) => <pre style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{record.checkSql}</pre> }}
+                  scroll={{ x: 1100 }}
                 />
               </Card>
             ),

@@ -6,7 +6,7 @@ import com.rtdwh.dto.QueryCatalogDTO;
 import com.rtdwh.dto.SavedQueryUpsertDTO;
 import com.rtdwh.entity.QueryHistory;
 import com.rtdwh.entity.SavedQuery;
-import com.rtdwh.service.DwhMetaService;
+import com.rtdwh.service.DorisCatalogService;
 import com.rtdwh.service.QueryService;
 import com.rtdwh.service.ReportService;
 import com.rtdwh.service.SavedQueryService;
@@ -19,6 +19,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.access.prepost.PreAuthorize;
 
 import java.util.List;
 import java.util.Map;
@@ -27,11 +28,12 @@ import java.util.Map;
 @RestController
 @RequestMapping("/query")
 @RequiredArgsConstructor
+@PreAuthorize("hasAuthority('query:adhoc')")
 public class QueryController {
 
     private final QueryService queryService;
     private final ReportService reportService;
-    private final DwhMetaService dwhMetaService;
+    private final DorisCatalogService dorisCatalogService;
     private final SavedQueryService savedQueryService;
     private final SecurityContextUtil securityContextUtil;
 
@@ -88,7 +90,12 @@ public class QueryController {
 
     @GetMapping("/catalog")
     public ApiResponse<QueryCatalogDTO> getCatalog() {
-        return ApiResponse.success(dwhMetaService.getQueryCatalog());
+        return ApiResponse.success(dorisCatalogService.getQueryCatalog());
+    }
+
+    @GetMapping("/governance/stats")
+    public ApiResponse<Map<String, Object>> getGovernanceStats() {
+        return ApiResponse.success(queryService.getGovernanceStats(securityContextUtil.getCurrentUserId()));
     }
 
     @GetMapping("/saved")

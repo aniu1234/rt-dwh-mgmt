@@ -20,6 +20,7 @@ public class HealthCheckService {
 
     private final DataSource dataSource; // Management DB DataSource (auto-injected by Spring)
     private final FlinkClusterService flinkClusterService;
+    private final DorisConnectionService dorisConnectionService;
 
     @Value("${paimon.jdbc-uri}")
     private String paimonJdbcUri;
@@ -131,22 +132,30 @@ public class HealthCheckService {
         }
     }
 
+    /** Check the interactive Doris query plane and configured Paimon Catalog. */
+    public Map<String, Object> checkDoris() {
+        return dorisConnectionService.healthCheck();
+    }
+
     /** Run independent checks concurrently so one slow dependency does not delay all others serially. */
     public Map<String, Object> checkAll() {
         long startTime = System.currentTimeMillis();
         CompletableFuture<Map<String, Object>> flinkFuture = safeFuture("Flink", this::checkFlink);
         CompletableFuture<Map<String, Object>> paimonFuture = safeFuture("Paimon", this::checkPaimon);
         CompletableFuture<Map<String, Object>> mysqlFuture = safeFuture("MySQL", this::checkMySQL);
+        CompletableFuture<Map<String, Object>> dorisFuture = safeFuture("Doris", this::checkDoris);
 
         Map<String, Object> flink = flinkFuture.join();
         Map<String, Object> paimon = paimonFuture.join();
         Map<String, Object> mysql = mysqlFuture.join();
+        Map<String, Object> doris = dorisFuture.join();
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("flink", flink);
         result.put("paimon", paimon);
         result.put("mysql", mysql);
-        result.put("overall", determineOverallStatus(flink, paimon, mysql));
+        result.put("doris", doris);
+        result.put("overall", determineOverallStatus(flink, paimon, mysql, doris));
         result.put("checkedAt", Instant.now().toString());
         result.put("durationMs", System.currentTimeMillis() - startTime);
         return result;
@@ -157,6 +166,7 @@ public class HealthCheckService {
             case "flink" -> checkFlink();
             case "paimon" -> checkPaimon();
             case "mysql" -> checkMySQL();
+            case "doris" -> checkDoris();
             default -> throw new IllegalArgumentException("不支持的检查组件: " + component);
         };
     }
@@ -165,16 +175,27 @@ public class HealthCheckService {
      * Determine overall system health status.
      */
     public String determineOverallStatus(Map<String, Object> flink, Map<String, Object> paimon, Map<String, Object> mysql) {
+        return determineOverallStatus(flink, paimon, mysql, Map.of("status", "healthy"));
+    }
+
+    public String determineOverallStatus(
+            Map<String, Object> flink,
+            Map<String, Object> paimon,
+            Map<String, Object> mysql,
+            Map<String, Object> doris
+    ) {
         String flinkStatus = (String) flink.getOrDefault("status", "unknown");
         String paimonStatus = (String) paimon.getOrDefault("status", "unknown");
         String mysqlStatus = (String) mysql.getOrDefault("status", "unknown");
+        String dorisStatus = (String) doris.getOrDefault("status", "unknown");
 
         // The management database is required for the control plane itself.
         if (!"healthy".equals(mysqlStatus)) {
             return "unhealthy";
         }
         // Flink or Paimon failures degrade data-plane capabilities but do not take down the UI.
-        if (!"healthy".equals(flinkStatus) || !"healthy".equals(paimonStatus)) {
+        if (!"healthy".equals(flinkStatus) || !"healthy".equals(paimonStatus)
+                || !"healthy".equals(dorisStatus)) {
             return "degraded";
         }
         return "healthy";

@@ -31,6 +31,17 @@ public class QueryHistory {
     @Column(nullable = false, length = 10)
     private QueryType queryType;
 
+    @Builder.Default
+    @Column(columnDefinition = "VARCHAR(16) NOT NULL DEFAULT 'doris'")
+    private String queryEngine = "doris";
+
+    @Column(length = 128)
+    private String queryId;
+
+    private Long scannedRows;
+
+    private Long scannedBytes;
+
     private Integer resultRowCount;
 
     private Long durationMs;

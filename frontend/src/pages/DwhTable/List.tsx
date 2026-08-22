@@ -97,6 +97,8 @@ const DwhTableList: React.FC = () => {
             { title: '分层', dataIndex: 'layer', width: 90,
               render: (value) => <Tag color={layerColorMap[value]}>{String(value).toUpperCase()}</Tag> },
             { title: '业务描述', dataIndex: 'businessDesc', ellipsis: true, render: (value) => value || '—' },
+            { title: '责任人 / 业务域', key: 'governance', width: 150, render: (_, record) => <Space direction="vertical" size={0}><span>{record.owner || '未指定'}</span><span style={{ color: '#8c8c8c' }}>{record.businessDomain || '未归属'}</span></Space> },
+            { title: '敏感级别', dataIndex: 'sensitivityLevel', width: 100, render: (value) => <Tag>{value || 'internal'}</Tag> },
             { title: '记录数', dataIndex: 'recordCount', width: 110, align: 'right',
               render: (value) => value === undefined || value === null ? '—' : Number(value).toLocaleString() },
             { title: '快照', dataIndex: 'snapshotCount', width: 80, align: 'right', render: (value) => value ?? '—' },
@@ -109,7 +111,7 @@ const DwhTableList: React.FC = () => {
               </Space>
             ) },
           ]}
-          scroll={{ x: 1100 }}
+          scroll={{ x: 1350 }}
         />
       </Card>
     </PageContainer>

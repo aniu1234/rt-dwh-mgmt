@@ -4,6 +4,8 @@ import com.rtdwh.dto.SyncTaskCreateDTO;
 import com.rtdwh.entity.SyncTask;
 import com.rtdwh.entity.SyncTask.TaskStatus;
 import com.rtdwh.service.SyncTaskService;
+import com.rtdwh.entity.DatasourceConfig;
+import com.rtdwh.repository.DatasourceConfigRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,16 +21,21 @@ class SyncTaskServiceTest {
     @Autowired
     private SyncTaskService syncTaskService;
 
+    @Autowired
+    private DatasourceConfigRepository datasourceRepository;
+
     @Test
     @DisplayName("创建同步任务 - 应返回 draft 状态")
     void testCreateTask() {
         SyncTaskCreateDTO dto = new SyncTaskCreateDTO();
         dto.setTaskName("test_cdc_task");
         dto.setTaskType("cdc_sync");
-        dto.setSourceConfigId(1L);
-        dto.setTargetConfigId(3L);
+        Long[] datasourceIds = createDatasources();
+        dto.setSourceConfigId(datasourceIds[0]);
+        dto.setTargetConfigId(datasourceIds[1]);
         dto.setFlinkSql("CREATE TABLE source (...) WITH ('connector'='mysql-cdc'); INSERT INTO target SELECT * FROM source;");
         dto.setSyncStrategy("full_then_incremental");
+        dto.setTableMappings(testTableMappings());
 
         SyncTask task = syncTaskService.createTask(dto, 1L);
 
@@ -45,10 +52,12 @@ class SyncTaskServiceTest {
         SyncTaskCreateDTO dto = new SyncTaskCreateDTO();
         dto.setTaskName("test_get_task");
         dto.setTaskType("cdc_sync");
-        dto.setSourceConfigId(1L);
-        dto.setTargetConfigId(3L);
+        Long[] datasourceIds = createDatasources();
+        dto.setSourceConfigId(datasourceIds[0]);
+        dto.setTargetConfigId(datasourceIds[1]);
         dto.setFlinkSql("SELECT 1");
         dto.setSyncStrategy("incremental_only");
+        dto.setTableMappings(testTableMappings());
 
         SyncTask created = syncTaskService.createTask(dto, 1L);
         SyncTask fetched = syncTaskService.getTask(created.getId());
@@ -63,10 +72,12 @@ class SyncTaskServiceTest {
         SyncTaskCreateDTO dto = new SyncTaskCreateDTO();
         dto.setTaskName("test_delete_task");
         dto.setTaskType("cdc_sync");
-        dto.setSourceConfigId(1L);
-        dto.setTargetConfigId(3L);
+        Long[] datasourceIds = createDatasources();
+        dto.setSourceConfigId(datasourceIds[0]);
+        dto.setTargetConfigId(datasourceIds[1]);
         dto.setFlinkSql("SELECT 1");
         dto.setSyncStrategy("incremental_only");
+        dto.setTableMappings(testTableMappings());
 
         SyncTask created = syncTaskService.createTask(dto, 1L);
         assertDoesNotThrow(() -> syncTaskService.deleteTask(created.getId()));
@@ -81,5 +92,23 @@ class SyncTaskServiceTest {
         assertThrows(RuntimeException.class, () -> {
             syncTaskService.deleteTask(999L); // Non-existent task
         });
+    }
+
+    private Long[] createDatasources() {
+        String suffix = java.util.UUID.randomUUID().toString().substring(0, 8);
+        DatasourceConfig source = datasourceRepository.save(DatasourceConfig.builder()
+                .creatorId(1L).configName("test_mysql_" + suffix).dbType(DatasourceConfig.DbType.mysql)
+                .host("localhost").port(3306).database("test_source").username("root")
+                .passwordEncrypted("").build());
+        DatasourceConfig target = datasourceRepository.save(DatasourceConfig.builder()
+                .creatorId(1L).configName("test_paimon_" + suffix).dbType(DatasourceConfig.DbType.paimon)
+                .host("file:///tmp/paimon").port(0).database("ods").username("paimon")
+                .passwordEncrypted("").build());
+        return new Long[]{source.getId(), target.getId()};
+    }
+
+    private String testTableMappings() {
+        return "[{\"sourceTable\":\"source_table\",\"targetDb\":\"ods\","
+                + "\"targetTable\":\"ods_source_table\",\"syncMode\":\"full+incremental\"}]";
     }
 }

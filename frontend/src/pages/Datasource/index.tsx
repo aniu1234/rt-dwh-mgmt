@@ -1,8 +1,142 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { PageContainer, ProForm, ProFormSelect, ProFormText, ProFormDigit, ProFormTextArea } from '@ant-design/pro-components';
-import { Card, Table, Tag, Button, Space, Modal, message, Popconfirm, Descriptions, Badge } from 'antd';
-import { PlusOutlined, ReloadOutlined, LinkOutlined, DisconnectOutlined } from '@ant-design/icons';
+import {
+  PageContainer,
+  ProForm,
+  ProFormDependency,
+  ProFormDigit,
+  ProFormSelect,
+  ProFormText,
+  ProFormTextArea,
+} from '@ant-design/pro-components';
+import { Badge, Button, Card, Descriptions, Form, Modal, Popconfirm, Space, Table, Tag, message } from 'antd';
+import { LinkOutlined, PlusOutlined, ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { getDatasources, createDatasource, testDatasourceConnection, deleteDatasource, updateDatasource } from '@/api';
+import './index.less';
+
+type DatasourceType = 'mysql' | 'postgresql' | 'paimon';
+
+interface DatasourceTemplate {
+  key: string;
+  name: string;
+  description: string;
+  recommended?: boolean;
+  values: {
+    configName: string;
+    dbType: DatasourceType;
+    host: string;
+    port: number;
+    database: string;
+    username: string;
+    password?: string;
+    extraConfig: string;
+  };
+}
+
+const datasourceTemplates: Record<DatasourceType, DatasourceTemplate[]> = {
+  mysql: [
+    {
+      key: 'mysql-compose',
+      name: 'Docker Compose 内置 MySQL',
+      description: '适合整套平台通过 deploy/docker-compose.yml 启动时联调。',
+      recommended: true,
+      values: {
+        configName: 'compose_mysql',
+        dbType: 'mysql',
+        host: 'mysql',
+        port: 3306,
+        database: 'rtdwh_mgmt',
+        username: 'rtdwh_admin',
+        extraConfig: JSON.stringify({ useSSL: false, serverTimezone: 'Asia/Shanghai' }, null, 2),
+      },
+    },
+    {
+      key: 'mysql-local',
+      name: '本地 MySQL 业务库',
+      description: '适合后端通过源码在宿主机运行，连接本机业务数据库。',
+      values: {
+        configName: 'local_mysql',
+        dbType: 'mysql',
+        host: '127.0.0.1',
+        port: 3306,
+        database: 'business_db',
+        username: 'root',
+        extraConfig: JSON.stringify({ useSSL: false, serverTimezone: 'Asia/Shanghai' }, null, 2),
+      },
+    },
+  ],
+  postgresql: [
+    {
+      key: 'postgres-compose',
+      name: 'Docker Compose 内置 PostgreSQL',
+      description: '对应 Compose 中可选的 PostgreSQL 业务源库示例。',
+      recommended: true,
+      values: {
+        configName: 'compose_postgresql',
+        dbType: 'postgresql',
+        host: 'postgresql',
+        port: 5432,
+        database: 'inventory',
+        username: 'rtdwh_admin',
+        extraConfig: JSON.stringify({ schema: 'public', 'decoding.plugin.name': 'pgoutput' }, null, 2),
+      },
+    },
+    {
+      key: 'postgres-local',
+      name: '本地 PostgreSQL 业务库',
+      description: '适合后端通过源码在宿主机运行，连接本机 PostgreSQL。',
+      values: {
+        configName: 'local_postgresql',
+        dbType: 'postgresql',
+        host: '127.0.0.1',
+        port: 5432,
+        database: 'business_db',
+        username: 'postgres',
+        extraConfig: JSON.stringify({ schema: 'public', 'decoding.plugin.name': 'pgoutput' }, null, 2),
+      },
+    },
+  ],
+  paimon: [
+    {
+      key: 'paimon-compose',
+      name: 'Docker Compose Paimon',
+      description: '使用共享卷 /data/paimon 和 MySQL JDBC Catalog。',
+      recommended: true,
+      values: {
+        configName: 'compose_paimon',
+        dbType: 'paimon',
+        host: '/data/paimon',
+        port: 3306,
+        database: 'rtdwh_paimon_meta',
+        username: 'rtdwh_admin',
+        extraConfig: JSON.stringify({
+          metastore: 'jdbc',
+          uri: 'jdbc:mysql://mysql:3306/rtdwh_paimon_meta',
+          'catalog-key': 'rtdwh',
+          warehouse: '/data/paimon',
+        }, null, 2),
+      },
+    },
+    {
+      key: 'paimon-local',
+      name: '本地文件 Paimon',
+      description: '适合后端与 Flink 均在宿主机运行的开发环境。',
+      values: {
+        configName: 'local_paimon',
+        dbType: 'paimon',
+        host: './rtdwh-data/paimon',
+        port: 3306,
+        database: 'rtdwh_paimon_meta',
+        username: 'root',
+        extraConfig: JSON.stringify({
+          metastore: 'jdbc',
+          uri: 'jdbc:mysql://127.0.0.1:3306/rtdwh_paimon_meta',
+          'catalog-key': 'rtdwh',
+          warehouse: './rtdwh-data/paimon',
+        }, null, 2),
+      },
+    },
+  ],
+};
 
 const dbTypeColorMap: Record<string, string> = {
   mysql: 'blue',
@@ -28,6 +162,7 @@ const formatBackendDateTime = (value: unknown) => {
 };
 
 const Datasource: React.FC = () => {
+  const [createForm] = Form.useForm();
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editingDs, setEditingDs] = useState<API.DatasourceConfig | null>(null);
@@ -125,14 +260,26 @@ const Datasource: React.FC = () => {
     }
   };
 
-  // Paimon form fields differ from MySQL/PostgreSQL
-  const isPaimonType = (type: string) => type === 'paimon';
+  const openCreateModal = () => {
+    createForm.resetFields();
+    setCreateModalVisible(true);
+  };
+
+  const applyTemplate = (template: DatasourceTemplate) => {
+    const existingName = createForm.getFieldValue('configName');
+    createForm.setFieldsValue({
+      ...template.values,
+      configName: existingName?.trim() || template.values.configName,
+      password: undefined,
+    });
+    message.success(`已代入“${template.name}”模板，请补充密码并按实际环境调整`);
+  };
 
   return (
     <PageContainer>
       <Card>
         <Space style={{ marginBottom: 16 }}>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalVisible(true)}>
+          <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>
             新建数据源
           </Button>
           <Button icon={<ReloadOutlined spin={loading} />} onClick={() => void refresh()} loading={loading}>
@@ -235,19 +382,16 @@ const Datasource: React.FC = () => {
         open={createModalVisible}
         onCancel={() => setCreateModalVisible(false)}
         footer={null}
-        width={600}
+        width={680}
+        forceRender
+        rootClassName="datasource-create-modal"
       >
         <ProForm
+          form={createForm}
           onFinish={handleCreate}
           submitter={{
             searchConfig: { submitText: '创建' },
             resetButtonProps: { style: { display: 'none' } },
-          }}
-          onValuesChange={(values) => {
-            // Force re-render when type changes
-            if (values.dbType) {
-              setCreateModalVisible(true);
-            }
           }}
         >
           <ProFormText
@@ -267,39 +411,76 @@ const Datasource: React.FC = () => {
             rules={[{ required: true }]}
           />
 
-          {/* Conditional fields based on dbType - shown via dependency */}
+          <ProFormDependency name={['dbType']}>
+            {({ dbType }: { dbType?: DatasourceType }) => dbType ? (
+              <div className="datasource-template-panel">
+                <div className="datasource-template-heading">
+                  <span><ThunderboltOutlined /> 快速模板</span>
+                  <small>一键填充非敏感配置，已输入的配置名称会保留</small>
+                </div>
+                <div className="datasource-template-list">
+                  {datasourceTemplates[dbType].map((template) => (
+                    <button key={template.key} type="button" className="datasource-template-item" onClick={() => applyTemplate(template)}>
+                      <span>
+                        <strong>{template.name}</strong>
+                        {template.recommended && <Tag color="blue">推荐</Tag>}
+                      </span>
+                      <small>{template.description}</small>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="datasource-template-empty">选择数据库类型后，可使用对应的一键配置模板</div>
+            )}
+          </ProFormDependency>
+
           <ProFormText
             name="host"
             label="主机地址"
-            placeholder="MySQL/PG: 192.168.1.10 | Paimon: hdfs:///warehouse"
+            placeholder="MySQL/PG: 192.168.1.10 | Paimon: /data/paimon 或 s3://bucket/warehouse"
             rules={[{ required: true }]}
           />
           <ProFormDigit
             name="port"
             label="端口"
-            placeholder="MySQL: 3306, PG: 5432, Paimon: 不需要"
+            placeholder="MySQL/Paimon JDBC Catalog: 3306，PostgreSQL: 5432"
             fieldProps={{ min: 1, max: 65535 }}
+            rules={[{ required: true, message: '请输入端口' }]}
           />
           <ProFormText
             name="database"
             label="数据库"
-            placeholder="MySQL/PG: business_db | Paimon: 不需要"
+            placeholder="业务库名；Paimon 填 JDBC Catalog 元数据库"
+            rules={[{ required: true, message: '请输入数据库名称' }]}
           />
           <ProFormText
             name="username"
             label="用户名"
-            placeholder="root / pg_user | Paimon: 不需要"
+            placeholder="数据库用户；Paimon 填 JDBC Catalog 用户"
+            rules={[{ required: true, message: '请输入用户名' }]}
           />
           <ProFormText.Password
             name="password"
             label="密码"
-            placeholder="数据库密码"
+            placeholder="不会由模板自动填写"
+            rules={[{ required: true, message: '请输入数据库密码' }]}
           />
           <ProFormTextArea
             name="extraConfig"
             label="额外配置 (JSON)"
             placeholder='{"hive.metastore.uris": "thrift://hive:9083"}'
             fieldProps={{ autoSize: { minRows: 2, maxRows: 4 } }}
+            rules={[{
+              validator: async (_, value?: string) => {
+                if (!value?.trim()) return;
+                try {
+                  JSON.parse(value);
+                } catch {
+                  throw new Error('请输入合法的 JSON 配置');
+                }
+              },
+            }]}
           />
         </ProForm>
       </Modal>

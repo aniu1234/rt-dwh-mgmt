@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { PageContainer } from '@ant-design/pro-components';
 import {
   Alert, Button, Card, Col, Drawer, Form, Input, InputNumber, Modal, Popconfirm, Row,
-  Select, Space, Table, Tabs, Tag, Tree, Typography, message,
+  Select, Space, Statistic, Table, Tabs, Tag, Tree, Typography, message,
 } from 'antd';
 import {
   CloudOutlined, DatabaseOutlined, DeleteOutlined, DownloadOutlined, FolderOpenOutlined,
@@ -12,9 +12,10 @@ import { useRequest } from '@umijs/max';
 import type { editor } from 'monaco-editor';
 import {
   cancelQuery, cancelQueryByRequestId, createSavedQuery, deleteSavedQuery, executeQuery,
-  exportQuery, getQueryCatalog, getQueryHistory, getSavedQueries, updateSavedQuery,
+  exportQuery, getQueryCatalog, getQueryGovernanceStats, getQueryHistory, getSavedQueries, updateSavedQuery,
 } from '@/api';
 import SqlEditor from './SqlEditor';
+import './index.less';
 
 const LOCAL_SQL_KEY = 'rtdwh.saved-sql.v1';
 const CURRENT_DRAFT_KEY = 'rtdwh.sql-current-draft.v1';
@@ -51,6 +52,7 @@ const AdhocQuery: React.FC = () => {
   const [executing, setExecuting] = useState(false);
   const [historyId, setHistoryId] = useState<number>();
   const [requestId, setRequestId] = useState<string>();
+  const [selectedDatabase, setSelectedDatabase] = useState<string>();
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [saveOpen, setSaveOpen] = useState(false);
   const [localQueries, setLocalQueries] = useState<LocalQuery[]>(readLocalQueries);
@@ -60,6 +62,9 @@ const AdhocQuery: React.FC = () => {
 
   const { data: catalogData } = useRequest(getQueryCatalog);
   const catalog = catalogData as API.QueryCatalog | undefined;
+  useEffect(() => {
+    if (!selectedDatabase && catalog?.databases.length) setSelectedDatabase(catalog.databases[0].name);
+  }, [catalog, selectedDatabase]);
   const { data: savedData, loading: savedLoading, refresh: refreshSaved } = useRequest(getSavedQueries);
   const savedQueries = (savedData || []) as API.SavedQuery[];
   const { data: historyPageData, loading: historyLoading, run: loadHistory } = useRequest(
@@ -67,6 +72,8 @@ const AdhocQuery: React.FC = () => {
   );
   const historyPage = historyPageData as API.PageResult<any> | undefined;
   const historyList = historyPage?.content || [];
+  const { data: governanceData, refresh: refreshGovernance } = useRequest(getQueryGovernanceStats);
+  const governance = governanceData as API.QueryGovernanceStats | undefined;
 
   useEffect(() => {
     const timer = window.setTimeout(() => localStorage.setItem(CURRENT_DRAFT_KEY, sql), 300);
@@ -81,11 +88,21 @@ const AdhocQuery: React.FC = () => {
       title: database.name,
       key: `database:${database.name}`,
       children: database.tables.map((table) => ({
-        title: `${table.name}  [${table.layer.toUpperCase()}]`,
-        key: `table:${database.name}.${table.name}`,
+        title: (
+          <span className="adhoc-query-tree-table-title">
+            <span className="adhoc-query-tree-table-name">{table.name}</span>
+            <span className="adhoc-query-tree-layer">{table.layer.toUpperCase()}</span>
+          </span>
+        ),
+        key: `table:${catalog.catalogName}.${database.name}.${table.name}`,
         children: table.columns.map((column) => ({
-          title: `${column.name}  ${column.type}${column.primaryKey ? '  PK' : ''}`,
-          key: `column:${database.name}.${table.name}.${column.name}`,
+          title: (
+            <span className="adhoc-query-tree-column-title">
+              <span>{column.name}</span>
+              <span>{column.type}{column.primaryKey ? ' · PK' : ''}</span>
+            </span>
+          ),
+          key: `column:${catalog.catalogName}.${database.name}.${table.name}.${column.name}`,
           isLeaf: true,
         })),
       })),
@@ -113,10 +130,12 @@ const AdhocQuery: React.FC = () => {
       setExecuting(true);
       const currentRequestId = `web_${Date.now()}`;
       setRequestId(currentRequestId);
-      const queryResult = await executeQuery({ sql, maxRows, requestId: currentRequestId });
+      const queryResult = await executeQuery({ sql, maxRows, requestId: currentRequestId,
+        catalog: catalog?.catalogName, database: selectedDatabase });
       setResult(queryResult);
       setHistoryId(queryResult.historyId);
       loadHistory({ page: 0, size: historyPage?.size || 20 });
+      refreshGovernance();
       if (queryResult.status === 'success') {
         message.success(`查询成功，返回 ${queryResult.rowCount || 0} 行，耗时 ${queryResult.durationMs || 0}ms`);
       } else message.error(`查询失败：${queryResult.errorMsg || '未知错误'}`);
@@ -137,7 +156,7 @@ const AdhocQuery: React.FC = () => {
   const handleExport = async () => {
     if (!sql.trim()) return message.warning('请输入 SQL 语句');
     try {
-      const blob = await exportQuery({ sql, maxRows });
+      const blob = await exportQuery({ sql, maxRows, catalog: catalog?.catalogName, database: selectedDatabase });
       const url = URL.createObjectURL(blob as Blob);
       const link = document.createElement('a');
       link.href = url; link.download = 'query-result.csv'; link.click(); URL.revokeObjectURL(url);
@@ -213,44 +232,53 @@ const AdhocQuery: React.FC = () => {
   ];
 
   return (
-    <PageContainer title="即席查询" subTitle="Paimon Catalog 智能提示、查询执行与 SQL 资产管理">
-      <Card title={activeQuery ? `SQL 编辑器 · ${activeQuery.name}` : 'SQL 编辑器'}
+    <PageContainer className="adhoc-query-page" title="即席查询" subTitle="Doris 加速 Paimon 查询、Catalog 智能提示与 SQL 资产管理">
+      <Card className="adhoc-query-editor-card" title={activeQuery ? `SQL 编辑器 · ${activeQuery.name}` : 'SQL 编辑器'}
         extra={<Space>
           <Tag color={catalog ? 'green' : 'orange'}>{catalog ? `Catalog: ${catalog.catalogName}` : 'Catalog 加载中'}</Tag>
           <Button icon={<FolderOpenOutlined />} onClick={() => setLibraryOpen(true)}>SQL 库</Button>
           <Button icon={<SaveOutlined />} onClick={openSave}>保存 SQL</Button>
         </Space>}>
-        <Space wrap style={{ marginBottom: 12 }}>
-          <Select value="paimon-flink-sql" style={{ width: 240 }} options={[
-            { label: 'Paimon · Flink SQL Gateway', value: 'paimon-flink-sql' },
+        <div className="adhoc-query-toolbar">
+          <div className="adhoc-query-toolbar-controls">
+          <Select className="adhoc-query-engine-select" value="doris-paimon" options={[
+            { label: 'Doris · Paimon Catalog', value: 'doris-paimon' },
           ]} />
+          <Select className="adhoc-query-database-select" value={selectedDatabase} placeholder="默认数据库"
+            onChange={setSelectedDatabase}
+            options={(catalog?.databases || []).map((database) => ({ label: database.name, value: database.name }))} />
           <InputNumber min={1} max={50000} value={maxRows} onChange={(value) => setMaxRows(value || 1000)}
-            addonBefore="最大行数" style={{ width: 190 }} />
+            addonBefore="最大行数" className="adhoc-query-limit-input" />
           <Button type="primary" icon={<PlayCircleOutlined />} loading={executing} onClick={handleExecute}>执行查询</Button>
           <Button danger disabled={!executing || (!requestId && !historyId)} onClick={handleCancel}>取消查询</Button>
           <Button icon={<DownloadOutlined />} onClick={handleExport}>导出 CSV</Button>
-          <Typography.Text type="secondary">⌘/Ctrl + Enter 执行，输入 <Typography.Text code>paimon.</Typography.Text> 查看 Catalog 提示</Typography.Text>
-        </Space>
+          </div>
+          <Typography.Text className="adhoc-query-shortcut" type="secondary">
+            ⌘/Ctrl + Enter 执行，输入 <Typography.Text code>{catalog?.catalogName || 'catalog'}.</Typography.Text> 查看 Catalog 提示
+          </Typography.Text>
+        </div>
 
-        <Row gutter={12}>
-          <Col flex="260px">
-            <div style={{ height: 300, overflow: 'auto', border: '1px solid #e8e8e8', borderRadius: 6, padding: 8 }}>
+        <div className="adhoc-query-workspace">
+          <section className="adhoc-query-catalog-panel" aria-label="Catalog 资源">
+            <div className="adhoc-query-panel-title">
+              <DatabaseOutlined />
               <Typography.Text strong>Catalog 资源</Typography.Text>
-              <Tree showLine showIcon defaultExpandAll treeData={catalogTree} onSelect={handleCatalogSelect}
-                style={{ marginTop: 8 }} />
             </div>
-          </Col>
-          <Col flex="auto">
-            <div style={{ overflow: 'hidden', borderRadius: 6 }}>
-              <SqlEditor value={sql} catalog={catalog} onChange={setSql} onExecute={handleExecute}
-                onReady={(instance) => { editorRef.current = instance; }} />
+            <div className="adhoc-query-tree-scroll">
+              <Tree className="adhoc-query-catalog-tree" showLine showIcon blockNode defaultExpandAll
+                treeData={catalogTree} onSelect={handleCatalogSelect} />
             </div>
-          </Col>
-        </Row>
+          </section>
+          <section className="adhoc-query-editor-panel" aria-label="SQL 编辑器">
+            <SqlEditor height="100%" value={sql} catalog={catalog} onChange={setSql} onExecute={handleExecute}
+              onReady={(instance) => { editorRef.current = instance; }} />
+          </section>
+        </div>
       </Card>
 
       {result && (
-        <Card title={`查询结果（耗时 ${result.durationMs || 0}ms · 返回 ${result.rowCount || 0} 行）`}>
+        <Card title={`查询结果（Doris · 耗时 ${result.durationMs || 0}ms · 返回 ${result.rowCount || 0} 行）`}
+          extra={result.traceId && <Typography.Text type="secondary" copyable>Trace: {result.traceId}</Typography.Text>}>
           {result.status !== 'success' && <Alert type="error" message={result.errorMsg || '查询失败'} showIcon style={{ marginBottom: 12 }} />}
           {result.truncated && <Alert type="warning" message="结果已达到最大返回行数，请增加限制或导出 CSV" showIcon style={{ marginBottom: 12 }} />}
           <Table<Record<string, any>>
@@ -261,6 +289,13 @@ const AdhocQuery: React.FC = () => {
         </Card>
       )}
 
+      <Row gutter={16} style={{ marginBottom: 16 }}>
+        <Col span={6}><Card><Statistic title="近 1000 次成功率" value={governance?.successRate || 0} precision={1} suffix="%" /></Card></Col>
+        <Col span={6}><Card><Statistic title="P95 耗时" value={governance?.p95DurationMs || 0} suffix="ms" /></Card></Col>
+        <Col span={6}><Card><Statistic title="失败查询" value={governance?.failedCount || 0} /></Card></Col>
+        <Col span={6}><Card><Statistic title="并发使用" value={governance?.runningCount || 0} suffix={`/ ${governance?.concurrencyLimit || 2}`} /></Card></Col>
+      </Row>
+
       <Card title="查询历史">
         <Table dataSource={historyList} rowKey="id" size="small" loading={historyLoading}
           pagination={{ total: historyPage?.totalElements || 0, pageSize: historyPage?.size || 20,
@@ -269,6 +304,8 @@ const AdhocQuery: React.FC = () => {
           columns={[
             { title: '时间', dataIndex: 'createdAt', width: 190, render: formatDateTime },
             { title: 'SQL', dataIndex: 'sqlText', ellipsis: true },
+            { title: '引擎', dataIndex: 'queryEngine', width: 90,
+              render: (value) => <Tag color="blue">{value || 'doris'}</Tag> },
             { title: '行数', dataIndex: 'resultRowCount', width: 80 },
             { title: '耗时', dataIndex: 'durationMs', width: 90, render: (value) => `${value || 0}ms` },
             { title: '状态', dataIndex: 'status', width: 100, render: (value) => <Tag color={{

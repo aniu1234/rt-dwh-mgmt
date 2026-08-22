@@ -281,12 +281,32 @@ body {
 }
 
 .ant-btn:not(.ant-btn-sm):not(.ant-btn-lg),
-.ant-input:not(textarea),
 .ant-input-affix-wrapper,
 .ant-input-number,
 .ant-picker,
 .ant-select-single:not(.ant-select-customize-input) .ant-select-selector {
   min-height: 32px;
+}
+
+/*
+ * Affix inputs (for example Input.Search with allowClear) contain a nested
+ * .ant-input. Giving that inner input the same 32px minimum height as its
+ * wrapper makes the text overflow vertically. Keep the height on the wrapper
+ * and let the nested input use Ant Design's intrinsic line box instead.
+ */
+.ant-input-affix-wrapper > input.ant-input {
+  min-height: 0;
+}
+
+/* Preserve the joined shape of Input.Search after the global radius reset. */
+.ant-input-search .ant-input-affix-wrapper {
+  border-start-end-radius: 0 !important;
+  border-end-end-radius: 0 !important;
+}
+
+.ant-input-search .ant-input-group-addon .ant-input-search-button {
+  border-start-start-radius: 0 !important;
+  border-end-start-radius: 0 !important;
 }
 
 .ant-btn {

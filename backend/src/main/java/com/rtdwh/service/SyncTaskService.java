@@ -10,6 +10,7 @@ import com.rtdwh.entity.SyncTask.SyncStrategy;
 import com.rtdwh.dto.SyncTaskCreateDTO;
 import com.rtdwh.dto.SyncTaskUpdateDTO;
 import com.rtdwh.repository.SyncTaskRepository;
+import com.rtdwh.repository.TaskDependencyRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -27,6 +28,7 @@ import java.util.Objects;
 public class SyncTaskService {
 
     private final SyncTaskRepository syncTaskRepository;
+    private final TaskDependencyRepository taskDependencyRepository;
     private final FlinkClusterService flinkClusterService;
     private final AlertNotifyService alertNotifyService;
     private final CdcSqlGenerator cdcSqlGenerator;
@@ -129,6 +131,8 @@ public class SyncTaskService {
         if (task.getStatus() != TaskStatus.draft && task.getStatus() != TaskStatus.finished) {
             throw new IllegalStateException("只能删除 draft 或 finished 状态的任务，当前状态: " + task.getStatus());
         }
+        taskDependencyRepository.deleteByUpstreamTaskId(id);
+        taskDependencyRepository.deleteByDownstreamTaskId(id);
         syncTaskRepository.delete(task);
     }
 

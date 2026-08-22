@@ -21,6 +21,13 @@ backend:
   env:
     DB_PASSWORD: "rtdwh2026"
     FLINK_REST_URL: "http://flink-jobmanager:8081"
+    DORIS_ENABLED: "true"
+    DORIS_JDBC_URL: "jdbc:mysql://doris-fe:9030"
+    DORIS_HTTP_URL: "http://doris-fe:8030"
+    DORIS_USERNAME: "rtdwh_query"
+    DORIS_PASSWORD: ""
+    DORIS_CATALOG: "rtdwh_paimon"
+    DORIS_DATABASE: "ods"
     JWT_SECRET: "rtdwh-management-platform-secret-key-2026"
     PAIMON_WAREHOUSE: "/data/paimon"
     HEALTH_MONITOR_ENABLED: "true"
@@ -69,6 +76,15 @@ flink:
       limits:
         cpu: "2"
         memory: "4Gi"
+
+# Doris query plane. Production deployments should use Doris Operator and shared Paimon storage.
+doris:
+  enabled: true
+  version: "4.1.3"
+  fe:
+    replicas: 1
+  be:
+    replicas: 1
 
 # MySQL
 mysql:
