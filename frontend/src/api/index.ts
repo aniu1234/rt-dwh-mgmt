@@ -177,7 +177,15 @@ export async function grantDataService(appId: number, serviceId: number) { retur
 export async function revokeDataService(appId: number, serviceId: number) { return request<void>(`${API_PREFIX}/data-services/apps/${appId}/grants/${serviceId}`, { method: 'DELETE' }); }
 export async function getDataServiceLogs(limit = 200) { return request<API.DataServiceInvocationLog[]>(`${API_PREFIX}/data-services/logs`, { params: { limit } }); }
 
-export async function getOperationAudits(params?: { username?: string; page?: number; size?: number }) {
+// Cross-cutting foundation capabilities
+export async function getFoundationSummary() { return request<API.FoundationSummary>(`${API_PREFIX}/foundation/summary`); }
+export async function searchFoundation(keyword: string, limit = 30) { return request<API.FoundationSearchItem[]>(`${API_PREFIX}/foundation/search`, { params: { keyword, limit } }); }
+export async function getFoundationSlaRisks() { return request<API.FoundationSlaRisk[]>(`${API_PREFIX}/foundation/sla-risks`); }
+
+export async function getOperationAudits(params?: {
+  username?: string; keyword?: string; resourceType?: string; success?: boolean;
+  from?: string; to?: string; page?: number; size?: number;
+}) {
   return request<API.PageResult<API.OperationAudit>>(`${API_PREFIX}/audit`, { params });
 }
 

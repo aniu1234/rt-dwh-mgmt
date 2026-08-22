@@ -18,6 +18,7 @@ public interface AlertRecordRepository extends JpaRepository<AlertRecord, Long> 
     List<AlertRecord> findByRuleIdAndResolvedFalse(Long ruleId);
 
     List<AlertRecord> findByResolved(Boolean resolved);
+    long countByResolvedFalse();
 
     List<AlertRecord> findByLevel(String level);
 

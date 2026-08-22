@@ -11,7 +11,7 @@ import {
   SyncOutlined, ExclamationCircleOutlined, CloudUploadOutlined,
   ClockCircleOutlined, ThunderboltOutlined,
 } from '@ant-design/icons';
-import { useParams, history } from '@umijs/max';
+import { useAccess, useParams, history } from '@umijs/max';
 import {
   getSyncTask, getSyncTaskStatus, getSyncTaskLogs,
   startSyncTask, pauseSyncTask, resumeSyncTask, stopSyncTask,
@@ -41,6 +41,7 @@ const syncStrategyMap: Record<string, string> = {
 };
 
 const SyncTaskDetail: React.FC = () => {
+  const access = useAccess();
   const { id } = useParams<{ id: string }>();
   const taskId = parseInt(id || '0');
 
@@ -222,6 +223,7 @@ const SyncTaskDetail: React.FC = () => {
   // ========================================================================
 
   const getActionButtons = () => {
+    if (!access.canManageTask) return [];
     const btn = (action: string, label: string, icon: React.ReactNode, type?: 'primary' | 'default', danger?: boolean) => (
       <Button
         type={type || 'default'}
@@ -344,7 +346,7 @@ const SyncTaskDetail: React.FC = () => {
           }
           style={{ marginBottom: 16 }}
           action={
-            currentStatus === 'failed' ? (
+            access.canManageTask && currentStatus === 'failed' ? (
               <Button size="small" type="primary" danger icon={<RedoOutlined />} onClick={() => handleAction('retry')}>
                 重试
               </Button>
@@ -362,9 +364,9 @@ const SyncTaskDetail: React.FC = () => {
           description={`Savepoint 路径: ${savepointPath}`}
           style={{ marginBottom: 16 }}
           action={
-            <Button size="small" type="primary" icon={<PlayCircleOutlined />} onClick={() => handleAction('resume')}>
+            access.canManageTask ? <Button size="small" type="primary" icon={<PlayCircleOutlined />} onClick={() => handleAction('resume')}>
               从 Savepoint 恢复
-            </Button>
+            </Button> : undefined
           }
         />
       )}
@@ -431,9 +433,9 @@ const SyncTaskDetail: React.FC = () => {
         <Card title="PostgreSQL CDC 资源" style={{ marginBottom: 16 }}
           extra={<Space>
             <Button icon={<SyncOutlined />} loading={postgresLoading} onClick={fetchPostgresStatus}>重新预检</Button>
-            <Popconfirm title="确认清理该任务的 Slot 与 Publication？再次启动会重新创建。" onConfirm={handlePostgresCleanup}>
+            {access.canManageTask && <Popconfirm title="确认清理该任务的 Slot 与 Publication？再次启动会重新创建。" onConfirm={handlePostgresCleanup}>
               <Button danger disabled={isActive} loading={postgresLoading}>清理资源</Button>
-            </Popconfirm>
+            </Popconfirm>}
           </Space>}>
           <Alert showIcon type={postgresStatus?.ready ? 'success' : 'error'}
             message={postgresStatus?.ready ? 'CDC 环境已就绪' : (postgresStatus?.error || '正在检查 CDC 环境')}

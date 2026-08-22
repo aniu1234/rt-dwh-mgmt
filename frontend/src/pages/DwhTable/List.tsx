@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { PageContainer } from '@ant-design/pro-components';
 import { Button, Card, Col, Input, Row, Select, Space, Statistic, Table, Tag, Typography, message } from 'antd';
 import { DatabaseOutlined, HddOutlined, ReloadOutlined, SearchOutlined, TableOutlined } from '@ant-design/icons';
-import { useRequest } from '@umijs/max';
+import { useAccess, useRequest } from '@umijs/max';
 import { getDwhTables, syncMetadataFromPaimon } from '@/api';
 
 const layerColorMap: Record<string, string> = {
@@ -20,6 +20,7 @@ const formatSize = (bytes?: number) => {
 };
 
 const DwhTableList: React.FC = () => {
+  const access = useAccess();
   const [layer, setLayer] = useState<string>();
   const [database, setDatabase] = useState<string>();
   const [keyword, setKeyword] = useState('');
@@ -78,9 +79,9 @@ const DwhTableList: React.FC = () => {
                 { label: 'ADS 应用层', value: 'ads' },
               ]} />
           </Space>
-          <Button type="primary" icon={<ReloadOutlined />} loading={syncing} onClick={handleSyncMetadata}>
+          {access.canManageDwh && <Button type="primary" icon={<ReloadOutlined />} loading={syncing} onClick={handleSyncMetadata}>
             同步 Paimon 元数据
-          </Button>
+          </Button>}
         </Space>
 
         <Table<API.DwhTableMeta>
@@ -107,7 +108,7 @@ const DwhTableList: React.FC = () => {
             { title: '操作', fixed: 'right', width: 120, render: (_, record) => (
               <Space size={4}>
                 <Button size="small" type="link" href={`/dwh/tables/${record.id}`}>详情</Button>
-                <Button size="small" type="link" href={`/dwh/maintenance?tableId=${record.id}`}>维护</Button>
+                {access.canManageDwh && <Button size="small" type="link" href={`/dwh/maintenance?tableId=${record.id}`}>维护</Button>}
               </Space>
             ) },
           ]}

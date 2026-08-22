@@ -1,0 +1,475 @@
+.quality-page {
+  .quality-metrics {
+    margin-bottom: 16px;
+
+    .rtdwh-metric-card .ant-card-body {
+      display: grid;
+      grid-template-rows: auto auto;
+      grid-template-columns: 42px minmax(0, 1fr);
+      align-content: center;
+      column-gap: 14px;
+    }
+
+    .rtdwh-metric-icon {
+      grid-row: 1 / 3;
+      margin-right: 0;
+    }
+
+    .ant-statistic,
+    .quality-metric-foot {
+      grid-column: 2;
+      min-width: 0;
+    }
+  }
+
+  .rtdwh-metric-card {
+    height: 100%;
+
+    .ant-card-body {
+      min-height: 142px;
+    }
+
+    .ant-statistic-content {
+      color: #17233d;
+    }
+  }
+
+  .quality-icon-blue {
+    color: #1677ff;
+    background: #e6f4ff;
+  }
+
+  .quality-icon-green {
+    color: #389e0d;
+    background: #f6ffed;
+  }
+
+  .quality-icon-purple {
+    color: #722ed1;
+    background: #f9f0ff;
+  }
+
+  .quality-icon-red {
+    color: #cf1322;
+    background: #fff1f0;
+  }
+
+  .quality-metric-foot {
+    margin-top: 6px;
+    overflow: hidden;
+    color: #8c8c8c;
+    font-size: 13px;
+    line-height: 20px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .quality-panel-card {
+    height: 100%;
+  }
+
+  .quality-health-layout {
+    display: flex;
+    align-items: center;
+    gap: 28px;
+    min-height: 176px;
+
+    .ant-progress-text {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+
+      strong {
+        color: #17233d;
+        font-size: 30px;
+        line-height: 36px;
+      }
+
+      small {
+        color: #8c8c8c;
+        font-size: 12px;
+      }
+    }
+  }
+
+  .quality-progress-list {
+    flex: 1;
+    min-width: 180px;
+
+    > div {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      margin-bottom: 12px;
+      color: #595959;
+      font-size: 13px;
+
+      &:last-child {
+        margin-bottom: 0;
+      }
+
+      b {
+        color: #17233d;
+      }
+
+      .ant-progress {
+        grid-column: 1 / 3;
+        margin-top: 2px;
+      }
+    }
+  }
+
+  .quality-health-summary {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 8px 16px;
+    margin-top: 16px;
+    padding-top: 14px;
+    color: #595959;
+    font-size: 13px;
+    border-top: 1px solid #f0f0f0;
+
+    .anticon {
+      margin-right: 5px;
+      color: #1677ff;
+    }
+
+    b {
+      color: #17233d;
+    }
+  }
+
+  .quality-layer-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .quality-layer-card {
+    min-width: 0;
+    padding: 14px 16px;
+    text-align: left;
+    background: #fafcff;
+    border: 1px solid #edf0f5;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+
+    &:hover {
+      border-color: #91caff;
+      box-shadow: 0 4px 16px rgba(22, 119, 255, 0.08);
+      transform: translateY(-1px);
+    }
+
+    > strong {
+      display: block;
+      margin-top: 8px;
+      color: #17233d;
+      font-size: 24px;
+      line-height: 30px;
+    }
+
+    > span {
+      color: #8c8c8c;
+      font-size: 12px;
+    }
+
+    .ant-progress {
+      display: block;
+      margin-top: 6px;
+    }
+  }
+
+  .quality-layer-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+
+    b {
+      font-size: 12px;
+      font-weight: 500;
+    }
+  }
+
+  .quality-layer-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px 12px;
+    margin-top: 8px;
+    color: #8c8c8c;
+    font-size: 12px;
+  }
+
+  .quality-danger {
+    color: #cf1322;
+  }
+
+  .quality-success {
+    color: #389e0d;
+  }
+
+  .quality-section-row {
+    margin-top: 16px;
+  }
+
+  .quality-trend-legend {
+    display: flex;
+    justify-content: flex-end;
+    gap: 16px;
+    margin: -4px 0 12px;
+    color: #8c8c8c;
+    font-size: 12px;
+
+    span {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+  }
+
+  .quality-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+
+  .quality-dot-success {
+    background: #52c41a;
+  }
+
+  .quality-dot-danger {
+    background: #ff4d4f;
+  }
+
+  .quality-trend {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .quality-trend-row {
+    display: grid;
+    grid-template-columns: 48px minmax(120px, 1fr) 92px;
+    align-items: center;
+    gap: 12px;
+    min-height: 22px;
+  }
+
+  .quality-trend-date,
+  .quality-trend-value {
+    color: #8c8c8c;
+    font-size: 12px;
+  }
+
+  .quality-trend-value {
+    text-align: right;
+  }
+
+  .quality-trend-track {
+    display: flex;
+    align-items: stretch;
+    height: 12px;
+    overflow: hidden;
+    background: #f0f2f5;
+    border-radius: 8px;
+
+    i {
+      min-width: 2px;
+    }
+  }
+
+  .quality-trend-passed {
+    background: #52c41a;
+  }
+
+  .quality-trend-failed {
+    background: #ff4d4f;
+  }
+
+  .quality-trend-empty {
+    align-self: center;
+    padding-left: 8px;
+    color: #bfbfbf;
+    font-size: 10px;
+    line-height: 12px;
+  }
+
+  .quality-risk-list {
+    display: flex;
+    flex-direction: column;
+
+    > button {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      padding: 10px 0;
+      text-align: left;
+      background: transparent;
+      border: 0;
+      border-bottom: 1px solid #f0f0f0;
+      cursor: pointer;
+
+      &:first-child {
+        padding-top: 2px;
+      }
+
+      &:last-child {
+        padding-bottom: 2px;
+        border-bottom: 0;
+      }
+
+      &:hover b {
+        color: #1677ff;
+      }
+
+      time {
+        color: #bfbfbf;
+        font-size: 12px;
+        white-space: nowrap;
+      }
+    }
+  }
+
+  .quality-risk-main {
+    min-width: 0;
+
+    b,
+    small {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    b {
+      color: #262626;
+      font-size: 13px;
+      transition: color 0.2s;
+    }
+
+    small {
+      margin-top: 2px;
+      color: #8c8c8c;
+      font-size: 12px;
+    }
+  }
+
+  .quality-governance-tip {
+    margin-top: 16px;
+  }
+
+  .quality-rule-card {
+    margin-top: 16px;
+  }
+
+  .quality-filter-bar {
+    justify-content: flex-start;
+    margin-bottom: 16px;
+
+    .ant-select {
+      width: 136px;
+    }
+  }
+
+  .quality-rule-search {
+    width: 240px;
+  }
+
+  .quality-filter-result {
+    color: #8c8c8c;
+    font-size: 13px;
+  }
+
+  .quality-rule-toolbar {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 16px;
+
+    .quality-filter-bar {
+      margin-bottom: 0;
+    }
+
+    > .ant-btn {
+      flex: none;
+    }
+  }
+
+  .quality-muted {
+    color: #bfbfbf;
+  }
+
+  .quality-sql-preview {
+    margin: 0;
+    padding: 12px;
+    overflow: auto;
+    color: #d6e4ff;
+    font-size: 12px;
+    font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: #17233d;
+    border-radius: 6px;
+  }
+}
+
+@media (max-width: 767px) {
+  .quality-page {
+    .quality-metric-foot {
+      white-space: normal;
+    }
+
+    .quality-health-layout {
+      flex-direction: column;
+      gap: 16px;
+
+      .quality-progress-list {
+        width: 100%;
+      }
+    }
+
+    .quality-health-summary {
+      flex-direction: column;
+    }
+
+    .quality-layer-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .quality-trend-row {
+      grid-template-columns: 40px minmax(90px, 1fr) 80px;
+      gap: 8px;
+    }
+
+    .quality-filter-bar {
+      align-items: stretch;
+
+      .ant-select,
+      .quality-rule-search {
+        width: 100%;
+      }
+    }
+
+    .quality-rule-toolbar {
+      flex-direction: column;
+
+      .quality-filter-bar,
+      > .ant-btn {
+        width: 100%;
+      }
+    }
+
+    .quality-risk-list > button {
+      grid-template-columns: auto minmax(0, 1fr);
+
+      time {
+        display: none;
+      }
+    }
+  }
+}

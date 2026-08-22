@@ -12,6 +12,7 @@ import java.util.List;
 public interface QualityRuleRepository extends JpaRepository<QualityRule, Long> {
 
     List<QualityRule> findByEnabled(Boolean enabled);
+    long countByEnabledTrue();
 
     List<QualityRule> findByRuleType(String ruleType);
 

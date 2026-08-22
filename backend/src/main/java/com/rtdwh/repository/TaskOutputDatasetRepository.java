@@ -8,5 +8,6 @@ import java.util.List;
 public interface TaskOutputDatasetRepository extends JpaRepository<TaskOutputDataset, Long> {
     List<TaskOutputDataset> findByTaskIdOrderById(Long taskId);
     List<TaskOutputDataset> findByTaskIdAndEnabledTrueOrderById(Long taskId);
+    List<TaskOutputDataset> findByEnabledTrueOrderByLastProducedAtAsc();
     void deleteByTaskId(Long taskId);
 }

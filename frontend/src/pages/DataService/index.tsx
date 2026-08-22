@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { PageContainer } from '@ant-design/pro-components';
-import { Alert, Button, Card, DatePicker, Form, Input, InputNumber, message, Modal, Popconfirm, Select, Space, Table, Tabs, Tag, Typography } from 'antd';
-import { ApiOutlined, KeyOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
-import { useRequest } from '@umijs/max';
+import { Alert, Button, Card, Col, DatePicker, Form, Input, InputNumber, message, Modal, Popconfirm, Row, Select, Space, Statistic, Table, Tabs, Tag, Typography } from 'antd';
+import { ApiOutlined, CodeOutlined, KeyOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { useAccess, useRequest } from '@umijs/max';
 import {
   createDataService, createDataServiceApp, deleteDataService, getDataServiceApps, getDataServiceGrants,
   getDataServiceLogs, getDataServices, grantDataService, publishDataService, revokeDataService,
@@ -15,6 +15,7 @@ const parameterTemplate = JSON.stringify({ parameters: [
 ] }, null, 2);
 
 const DataService: React.FC = () => {
+  const access = useAccess();
   const servicesRequest = useRequest(getDataServices);
   const appsRequest = useRequest(getDataServiceApps);
   const logsRequest = useRequest(() => getDataServiceLogs(200));
@@ -28,6 +29,10 @@ const DataService: React.FC = () => {
   const [form] = Form.useForm();
   const [appForm] = Form.useForm();
   const [appOpen, setAppOpen] = useState(false);
+  const [serviceKeyword, setServiceKeyword] = useState('');
+  const [serviceStatus, setServiceStatus] = useState<string>();
+  const [logStatus, setLogStatus] = useState<string>();
+  const [exampleService, setExampleService] = useState<API.DataServiceDefinition>();
 
   const editService = (value?: API.DataServiceDefinition) => {
     setEditing(value); setServiceOpen(true); form.resetFields();
@@ -35,41 +40,76 @@ const DataService: React.FC = () => {
   };
   const openGrants = async (app: API.DataServiceApp) => { setGrantApp(app); setGrants(await getDataServiceGrants(app.id)); };
   const refresh = () => { servicesRequest.refresh(); appsRequest.refresh(); logsRequest.refresh(); };
+  const visibleServices = useMemo(() => services.filter((service) =>
+    (!serviceStatus || service.status === serviceStatus)
+    && (!serviceKeyword.trim() || `${service.serviceName} ${service.serviceCode} ${service.description || ''}`
+      .toLowerCase().includes(serviceKeyword.trim().toLowerCase()))), [services, serviceKeyword, serviceStatus]);
+  const logs = ((logsRequest.data || []) as API.DataServiceInvocationLog[])
+    .filter((log) => !logStatus || log.status === logStatus);
+  const successCount = ((logsRequest.data || []) as API.DataServiceInvocationLog[]).filter((log) => log.status === 'success').length;
+  const averageDuration = Math.round(((logsRequest.data || []) as API.DataServiceInvocationLog[])
+    .reduce((sum, log) => sum + (log.durationMs || 0), 0) / Math.max((logsRequest.data || []).length, 1));
+  const exampleBody = useMemo(() => {
+    if (!exampleService?.parameterConfig) return {};
+    try {
+      const definitions = JSON.parse(exampleService.parameterConfig)?.parameters || [];
+      return Object.fromEntries(definitions.map((parameter: any) => {
+        if (parameter.defaultValue !== undefined) return [parameter.name, parameter.defaultValue];
+        if (parameter.type === 'number') return [parameter.name, 0];
+        if (parameter.type === 'boolean') return [parameter.name, true];
+        if (parameter.type === 'stringList') return [parameter.name, ['示例值']];
+        if (parameter.type === 'date') return [parameter.name, '2026-08-23'];
+        return [parameter.name, '示例值'];
+      }));
+    } catch { return {}; }
+  }, [exampleService]);
+  const curlExample = exampleService ? `curl -X POST '${window.location.origin}/api/v1/open/data/${exampleService.serviceCode}' \\\n+  -H 'Content-Type: application/json' \\\n+  -H 'X-App-Key: <YOUR_APP_KEY>' \\\n+  -H 'X-App-Secret: <YOUR_APP_SECRET>' \\\n+  -d '${JSON.stringify(exampleBody)}'` : '';
+  const curlCommand = curlExample.replace(/\n\+/g, '\n');
 
   return <PageContainer title="数据服务" subTitle="将 Doris 查询安全发布为外部系统可调用的数据接口" extra={<Button icon={<ReloadOutlined/>} onClick={refresh}>刷新</Button>}>
     <Alert type="info" showIcon style={{marginBottom:16}} message="外部调用地址：POST /api/v1/open/data/{serviceCode}" description="请求头携带 X-App-Key、X-App-Secret，请求体传入 JSON 参数；密钥只在创建或轮换时展示一次。" />
+    <Row gutter={[16,16]} style={{marginBottom:16}}>
+      <Col xs={12} md={6}><Card><Statistic title="已发布接口" value={services.filter(service=>service.status==='published').length} prefix={<ApiOutlined/>}/></Card></Col>
+      <Col xs={12} md={6}><Card><Statistic title="调用应用" value={apps.filter(app=>app.enabled).length} prefix={<KeyOutlined/>}/></Card></Col>
+      <Col xs={12} md={6}><Card><Statistic title="近期成功率" value={(logsRequest.data||[]).length ? Number((successCount * 100 / (logsRequest.data||[]).length).toFixed(1)) : 0} suffix="%"/></Card></Col>
+      <Col xs={12} md={6}><Card><Statistic title="平均耗时" value={averageDuration} suffix="ms"/></Card></Col>
+    </Row>
     <Card><Tabs items={[
       {key:'services',label:`服务定义（${services.length}）`,children:<>
-        <Button type="primary" icon={<PlusOutlined/>} style={{marginBottom:16}} onClick={()=>editService()}>新建数据服务</Button>
-        <Table rowKey="id" dataSource={services} loading={servicesRequest.loading} scroll={{x:1200}} columns={[
+        <div className="rtdwh-page-toolbar">
+          {access.canManageDataService && <Button type="primary" icon={<PlusOutlined/>} onClick={()=>editService()}>新建数据服务</Button>}
+          <Input allowClear value={serviceKeyword} onChange={event=>setServiceKeyword(event.target.value)} prefix={<SearchOutlined/>} placeholder="搜索服务名称、编码或说明" style={{width:260}}/>
+          <Select allowClear value={serviceStatus} onChange={setServiceStatus} placeholder="全部状态" style={{width:140}} options={[{value:'draft',label:'草稿'},{value:'published',label:'已发布'},{value:'offline',label:'已下线'}]}/>
+        </div>
+        <Table rowKey="id" dataSource={visibleServices} loading={servicesRequest.loading} scroll={{x:1200}} locale={{emptyText:'暂无匹配的数据服务'}} columns={[
           {title:'服务',key:'name',width:220,render:(_,r)=><div><b>{r.serviceName}</b><div><Typography.Text code>{r.serviceCode}</Typography.Text></div></div>},
           {title:'数据源',key:'source',width:220,render:(_,r)=>`${r.catalogName}.${r.databaseName}`},
           {title:'版本',dataIndex:'apiVersion',width:80,render:v=>`v${v}`},
           {title:'限制',key:'limit',width:210,render:(_,r)=>`${r.maxRows} 行 · ${r.timeoutSeconds}s · ${r.rateLimitPerMinute}次/分`},
           {title:'状态',dataIndex:'status',width:100,render:v=><Tag color={v==='published'?'success':v==='offline'?'warning':'default'}>{v}</Tag>},
           {title:'接口',dataIndex:'serviceCode',ellipsis:true,render:v=><Typography.Text copyable code>{`/api/v1/open/data/${v}`}</Typography.Text>},
-          {title:'操作',width:240,fixed:'right' as const,render:(_,r)=><Space><Button size="small" onClick={()=>editService(r)}>编辑</Button><Button size="small" type="primary" ghost={r.status==='published'} onClick={async()=>{await publishDataService(r.id,r.status!=='published');message.success(r.status==='published'?'已下线':'已发布');servicesRequest.refresh();}}>{r.status==='published'?'下线':'发布'}</Button><Popconfirm title="确认删除？" onConfirm={async()=>{await deleteDataService(r.id);message.success('已删除');servicesRequest.refresh();}}><Button size="small" danger>删除</Button></Popconfirm></Space>},
+          {title:'操作',width:320,fixed:'right' as const,render:(_,r)=><Space><Button size="small" icon={<CodeOutlined/>} onClick={()=>setExampleService(r)}>调用示例</Button>{access.canManageDataService&&<><Button size="small" onClick={()=>editService(r)}>编辑</Button><Button size="small" type="primary" ghost={r.status==='published'} onClick={async()=>{await publishDataService(r.id,r.status!=='published');message.success(r.status==='published'?'已下线':'已发布');servicesRequest.refresh();}}>{r.status==='published'?'下线':'发布'}</Button><Popconfirm title="确认删除？" onConfirm={async()=>{await deleteDataService(r.id);message.success('已删除');servicesRequest.refresh();}}><Button size="small" danger>删除</Button></Popconfirm></>}</Space>},
         ]}/>
       </>},
       {key:'apps',label:`调用应用（${apps.length}）`,children:<>
-        <Button type="primary" icon={<KeyOutlined/>} style={{marginBottom:16}} onClick={()=>{setAppOpen(true);appForm.resetFields();}}>创建调用应用</Button>
+        {access.canManageDataService&&<Button type="primary" icon={<KeyOutlined/>} style={{marginBottom:16}} onClick={()=>{setAppOpen(true);appForm.resetFields();}}>创建调用应用</Button>}
         <Table rowKey="id" dataSource={apps} loading={appsRequest.loading} columns={[
           {title:'应用名称',dataIndex:'appName'},
           {title:'AppKey',dataIndex:'appKey',render:v=><Typography.Text copyable code>{v}</Typography.Text>},
           {title:'状态',dataIndex:'enabled',width:100,render:v=><Tag color={v?'success':'default'}>{v?'启用':'停用'}</Tag>},
           {title:'有效期',dataIndex:'expiresAt',render:v=>v||'长期有效'},
-          {title:'操作',width:300,render:(_,r)=><Space><Button size="small" onClick={()=>openGrants(r)}>服务授权</Button><Popconfirm title="轮换后旧密钥立即失效，确认继续？" onConfirm={async()=>setCredential(await rotateDataServiceSecret(r.id))}><Button size="small">轮换密钥</Button></Popconfirm><Button size="small" danger={r.enabled} onClick={async()=>{await toggleDataServiceApp(r.id);appsRequest.refresh();}}>{r.enabled?'停用':'启用'}</Button></Space>},
+          {title:'操作',width:300,render:(_,r)=>access.canManageDataService?<Space><Button size="small" onClick={()=>openGrants(r)}>服务授权</Button><Popconfirm title="轮换后旧密钥立即失效，确认继续？" onConfirm={async()=>setCredential(await rotateDataServiceSecret(r.id))}><Button size="small">轮换密钥</Button></Popconfirm><Button size="small" danger={r.enabled} onClick={async()=>{await toggleDataServiceApp(r.id);appsRequest.refresh();}}>{r.enabled?'停用':'启用'}</Button></Space>:<Typography.Text type="secondary">仅查看</Typography.Text>},
         ]}/>
       </>},
-      {key:'logs',label:'调用日志',children:<Table rowKey="id" dataSource={(logsRequest.data||[]) as API.DataServiceInvocationLog[]} loading={logsRequest.loading} scroll={{x:1100}} columns={[
+      {key:'logs',label:'调用日志',children:<><div className="rtdwh-page-toolbar"><Select allowClear value={logStatus} onChange={setLogStatus} placeholder="全部调用结果" style={{width:160}} options={[{value:'success',label:'成功'},{value:'failed',label:'失败'}]}/><Typography.Text type="secondary">展示最近 200 次调用</Typography.Text></div><Table rowKey="id" dataSource={logs} loading={logsRequest.loading} scroll={{x:1100}} locale={{emptyText:'暂无接口调用日志'}} columns={[
         {title:'时间',dataIndex:'createdAt',width:180},{title:'服务',dataIndex:'serviceCode',width:180},{title:'应用ID',dataIndex:'appId',width:90},{title:'状态',dataIndex:'status',width:90,render:v=><Tag color={v==='success'?'success':'error'}>{v}</Tag>},{title:'HTTP',dataIndex:'httpStatus',width:80},{title:'行数',dataIndex:'rowCount',width:80},{title:'耗时',dataIndex:'durationMs',width:100,render:v=>v==null?'—':`${v}ms`},{title:'来源IP',dataIndex:'clientIp',width:140},{title:'错误',dataIndex:'errorMessage',ellipsis:true},
-      ]}/>} ]}/></Card>
+      ]}/></>} ]}/></Card>
 
     <Modal title={editing?'编辑数据服务':'新建数据服务'} width={820} open={serviceOpen} onCancel={()=>setServiceOpen(false)} onOk={()=>form.submit()} destroyOnClose>
       <Form form={form} layout="vertical" onFinish={async values=>{if(editing)await updateDataService(editing.id,values);else await createDataService(values);message.success(editing?'服务已更新':'服务已创建');setServiceOpen(false);servicesRequest.refresh();}}>
-        <Space style={{width:'100%'}} align="start"><Form.Item name="serviceCode" label="服务编码" rules={[{required:true},{pattern:/^[a-z][a-z0-9_-]{2,63}$/}]}><Input disabled={!!editing} style={{width:240}} placeholder="order-summary"/></Form.Item><Form.Item name="serviceName" label="服务名称" rules={[{required:true}]}><Input style={{width:300}}/></Form.Item></Space>
+        <Row gutter={16}><Col xs={24} md={10}><Form.Item name="serviceCode" label="服务编码" rules={[{required:true},{pattern:/^[a-z][a-z0-9_-]{2,63}$/}]}><Input disabled={!!editing} placeholder="order-summary"/></Form.Item></Col><Col xs={24} md={14}><Form.Item name="serviceName" label="服务名称" rules={[{required:true}]}><Input/></Form.Item></Col></Row>
         <Form.Item name="description" label="说明"><Input/></Form.Item>
-        <Space align="start"><Form.Item name="catalogName" label="Catalog" rules={[{required:true}]}><Input/></Form.Item><Form.Item name="databaseName" label="Database" rules={[{required:true}]}><Input/></Form.Item><Form.Item name="maxRows" label="最大行数"><InputNumber min={1} max={50000}/></Form.Item><Form.Item name="timeoutSeconds" label="超时秒数"><InputNumber min={1} max={1800}/></Form.Item><Form.Item name="rateLimitPerMinute" label="每分钟限流"><InputNumber min={1}/></Form.Item></Space>
+        <Row gutter={16}><Col xs={24} md={8}><Form.Item name="catalogName" label="Catalog" rules={[{required:true}]}><Input/></Form.Item></Col><Col xs={24} md={8}><Form.Item name="databaseName" label="Database" rules={[{required:true}]}><Input/></Form.Item></Col><Col xs={12} md={8}><Form.Item name="maxRows" label="最大行数"><InputNumber style={{width:'100%'}} min={1} max={50000}/></Form.Item></Col><Col xs={12} md={8}><Form.Item name="timeoutSeconds" label="超时秒数"><InputNumber style={{width:'100%'}} min={1} max={1800}/></Form.Item></Col><Col xs={24} md={8}><Form.Item name="rateLimitPerMinute" label="每分钟限流"><InputNumber style={{width:'100%'}} min={1}/></Form.Item></Col></Row>
         <Form.Item name="sqlTemplate" label="只读 SQL 模板" extra={'值参数使用 {{name}}，不支持动态表名'} rules={[{required:true}]}><Input.TextArea rows={7} spellCheck={false}/></Form.Item>
         <Form.Item label="参数定义（JSON）" extra={<Button size="small" onClick={()=>form.setFieldValue('parameterConfig',parameterTemplate)}>一键代入模板</Button>} name="parameterConfig"><Input.TextArea rows={6} spellCheck={false} placeholder={parameterTemplate}/></Form.Item>
       </Form>
@@ -80,6 +120,14 @@ const DataService: React.FC = () => {
     <Modal title={`服务授权：${grantApp?.appName||''}`} open={!!grantApp} onCancel={()=>setGrantApp(undefined)} footer={null}>
       <Select style={{width:'100%',marginBottom:16}} placeholder="选择要授权的数据服务" options={services.filter(s=>!grants.some(g=>g.serviceId===s.id)).map(s=>({value:s.id,label:`${s.serviceName}（${s.serviceCode}）`}))} onChange={async serviceId=>{if(!grantApp)return;await grantDataService(grantApp.id,serviceId);setGrants(await getDataServiceGrants(grantApp.id));message.success('授权已添加');}}/>
       <Table rowKey="id" dataSource={grants} pagination={false} columns={[{title:'已授权服务',dataIndex:'serviceId',render:id=>services.find(s=>s.id===id)?.serviceName||id},{title:'操作',width:100,render:(_,g)=><Button danger type="link" onClick={async()=>{if(!grantApp)return;await revokeDataService(grantApp.id,g.serviceId);setGrants(await getDataServiceGrants(grantApp.id));}}>移除</Button>}]} />
+    </Modal>
+    <Modal title={`接口调用示例：${exampleService?.serviceName||''}`} width={760} open={!!exampleService} onCancel={()=>setExampleService(undefined)} footer={<Button type="primary" onClick={()=>setExampleService(undefined)}>关闭</Button>}>
+      {exampleService?.status!=='published'&&<Alert type="warning" showIcon message="该服务尚未发布，发布后外部系统才能调用" style={{marginBottom:16}}/>}
+      <Typography.Paragraph type="secondary">将占位符替换为调用应用的凭证。请求体已根据参数定义生成，可直接复制后修改。</Typography.Paragraph>
+      <Typography.Text strong>cURL</Typography.Text>
+      <pre className="rtdwh-code-panel"><Typography.Text copyable={{text:curlCommand}} style={{color:'inherit'}}>{curlCommand}</Typography.Text></pre>
+      <Typography.Text strong>请求体</Typography.Text>
+      <pre className="rtdwh-code-panel"><Typography.Text copyable={{text:JSON.stringify(exampleBody,null,2)}} style={{color:'inherit'}}>{JSON.stringify(exampleBody,null,2)}</Typography.Text></pre>
     </Modal>
   </PageContainer>;
 };

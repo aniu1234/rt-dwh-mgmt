@@ -82,6 +82,8 @@ export const layout: RunTimeLayoutConfig = ({ initialState }) => {
     siderWidth: 200,
     menu: {
       defaultOpenAll: true,
+      // 产品界面统一使用中文导航，不跟随浏览器语言切换，避免中英文混排。
+      locale: false,
     },
     contentWidth: 'Fluid',
     fixedHeader: true,

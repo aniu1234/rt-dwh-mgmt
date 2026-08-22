@@ -13,6 +13,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -58,5 +59,16 @@ class QueryAccessScopeServiceTest {
                 SysUser.builder().id(1L).roles(Set.of(admin)).build()));
         assertDoesNotThrow(() -> service.validate(1L, "SELECT * FROM any_db.any_table",
                 "rtdwh_paimon", "ods"));
+    }
+
+    @Test
+    void filtersFoundationAssetsWithTheSameDataScope() {
+        record Asset(String catalog, String database, String table) {}
+        List<Asset> filtered = service.filterAllowed(7L, List.of(
+                        new Asset("rtdwh_paimon", "ods", "ods_order_detail"),
+                        new Asset("rtdwh_paimon", "ads", "ads_revenue")),
+                Asset::catalog, Asset::database, Asset::table);
+
+        assertEquals(List.of(new Asset("rtdwh_paimon", "ods", "ods_order_detail")), filtered);
     }
 }

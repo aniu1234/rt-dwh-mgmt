@@ -18,7 +18,7 @@ import {
   message,
   Select,
 } from 'antd';
-import { useRequest } from '@umijs/max';
+import { useAccess, useRequest } from '@umijs/max';
 import {
   ApiOutlined,
   CheckCircleFilled,
@@ -187,6 +187,7 @@ const HealthCard: React.FC<{
 };
 
 const Settings: React.FC = () => {
+  const access = useAccess();
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [dorisEditOpen, setDorisEditOpen] = useState(false);
   const [health, setHealth] = useState<API.SystemHealth>();
@@ -378,7 +379,7 @@ const Settings: React.FC = () => {
       <Card
         className="settings-section-card"
         title={<Space><SettingOutlined />Flink 集群配置</Space>}
-        extra={<Button type="primary" icon={<EditOutlined />} onClick={openEditor} loading={configLoading}>编辑配置</Button>}
+        extra={access.canManageSettings ? <Button type="primary" icon={<EditOutlined />} onClick={openEditor} loading={configLoading}>编辑配置</Button> : <Tag>只读</Tag>}
         loading={configLoading}
       >
         {!config && !configLoading && (
@@ -422,13 +423,13 @@ const Settings: React.FC = () => {
             <div className="settings-config-footer">
               <span>最后更新：{formatTime(config.updatedAt)}</span>
               {config.updatedBy && <span>操作人：{config.updatedBy}</span>}
-              <Button
+              {access.canManageSettings && <Button
                 icon={<ApiOutlined />}
                 loading={checkingComponent === 'flink'}
                 onClick={handleTestCurrent}
               >
                 测试当前连接
-              </Button>
+              </Button>}
             </div>
           </>
         )}
@@ -437,8 +438,8 @@ const Settings: React.FC = () => {
       <Card
         className="settings-section-card"
         title={<Space><DatabaseOutlined />Doris 即席查询配置</Space>}
-        extra={<Button type="primary" icon={<EditOutlined />} onClick={openDorisEditor}
-          loading={dorisConfigLoading}>编辑配置</Button>}
+        extra={access.canManageSettings ? <Button type="primary" icon={<EditOutlined />} onClick={openDorisEditor}
+          loading={dorisConfigLoading}>编辑配置</Button> : <Tag>只读</Tag>}
         loading={dorisConfigLoading}
       >
         <Descriptions column={{ xs: 1, sm: 2, xl: 3 }} size="small">

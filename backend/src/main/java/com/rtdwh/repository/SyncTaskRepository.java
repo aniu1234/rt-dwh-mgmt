@@ -24,7 +24,8 @@ public interface SyncTaskRepository extends JpaRepository<SyncTask, Long> {
     @Query("SELECT t FROM SyncTask t WHERE " +
            "(:status IS NULL OR t.status = :status) AND " +
            "(:taskType IS NULL OR t.taskType = :taskType) AND " +
-           "(:keyword IS NULL OR LOWER(t.taskName) LIKE LOWER(CONCAT('%', :keyword, '%')))")
+           "(:keyword IS NULL OR LOWER(t.taskName) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
+           "OR LOWER(COALESCE(t.description, '')) LIKE LOWER(CONCAT('%', :keyword, '%')))")
     List<SyncTask> searchTasks(@Param("status") TaskStatus status,
                                @Param("taskType") TaskType taskType,
                                @Param("keyword") String keyword);

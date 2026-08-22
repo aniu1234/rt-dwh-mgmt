@@ -10,6 +10,7 @@
 4. **数据库演进**：Flyway 管理质量、审计、编排和治理字段迁移，已有数据库以版本 0 建立基线。
 5. **任务编排**：支持 DAG 依赖、环检测、版本快照、draft 回滚、补数实例和依赖释放。
 6. **元数据与查询治理**：表责任人、业务域、标签、敏感级别、生命周期；查询并发配额、成功率和 P95。
+7. **公共能力治理中心**：统一检索数据表、任务、报表和接口；汇总权限、质量与 SLA、组件告警及审计变更健康分。
 
 ## 编排运行约定
 
@@ -33,10 +34,13 @@
 | 真实血缘 | `GET /api/v1/lineage/graph` |
 | 查询治理统计 | `GET /api/v1/query/governance/stats` |
 | 写操作审计 | `GET /api/v1/audit` |
+| 公共能力总览 | `GET /api/v1/foundation/summary` |
+| 公共资源检索 | `GET /api/v1/foundation/search?keyword=...` |
+| 数据资源 SLA 风险 | `GET /api/v1/foundation/sla-risks` |
 
 ## 上线检查
 
-1. 备份 `rtdwh_mgmt`，确认 Flyway 校验通过且版本到达 V3。
+1. 备份 `rtdwh_mgmt`，确认 Flyway 校验通过且版本到达当前发布版本。
 2. 设置稳定的 `JWT_SECRET`、`ENCRYPTION_KEY` 和非空数据库密码。
 3. 使用独立 Doris 查询账号，并配置 Workload Group、内存与用户并发上限。
 4. 确认 Flink、Doris 所有节点都能访问同一个 Paimon Warehouse。
@@ -49,4 +53,4 @@
 - 接入实际 ETL Runner，补充实例超时、重试退避、幂等键和失败转人工机制。
 - 增加列级敏感标记、脱敏策略及 Doris 行列权限映射。
 - 从 Doris Profile／审计日志采集扫描行数、扫描字节和资源组排队耗时。
-- 增加数据产品、指标口径、审批流和 SLA 值班看板。
+- 增加统一指标口径、审批流和 SLA 值班／趋势看板；当前治理中心已提供数据资源 SLA 风险清单。

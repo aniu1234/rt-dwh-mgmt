@@ -100,6 +100,7 @@ public class DataInitializer implements CommandLineRunner {
         definitions.put("user:manage", "管理用户与角色");
         definitions.put("data-service:view", "查看数据服务");
         definitions.put("data-service:manage", "管理数据服务");
+        definitions.put("foundation:view", "查看公共能力治理中心");
         int order = 1;
         for (Map.Entry<String, String> definition : definitions.entrySet()) {
             if (!permissionRepo.existsByPermCode(definition.getKey())) {
@@ -115,10 +116,10 @@ public class DataInitializer implements CommandLineRunner {
         assignPermissions("DEVELOPER", Set.of("task:view", "task:create", "task:manage",
                 "datasource:view", "datasource:manage", "dwh:view", "dwh:manage", "query:adhoc",
                 "report:view", "report:create", "quality:view", "quality:manage", "lineage:view",
-                "alert:view", "settings:view", "data-service:view", "data-service:manage"), all);
+                "alert:view", "settings:view", "data-service:view", "data-service:manage", "foundation:view"), all);
         assignPermissions("VISITOR", Set.of("task:view", "datasource:view", "dwh:view",
                 "query:adhoc", "report:view", "quality:view", "lineage:view", "alert:view",
-                "settings:view"), all);
+                "settings:view", "foundation:view"), all);
     }
 
     private void assignPermissions(String roleCode, Set<String> codes, Map<String, SysPermission> all) {

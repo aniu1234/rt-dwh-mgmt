@@ -2,8 +2,7 @@ import React, { useState } from 'react';
 import { PageContainer } from '@ant-design/pro-components';
 import { Card, Descriptions, Table, Tag, Tabs, Button, Space, Modal, Input, Skeleton, Typography, message, Form, Select } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
-import { useParams } from '@umijs/max';
-import { useRequest } from '@umijs/max';
+import { useAccess, useParams, useRequest } from '@umijs/max';
 import {
   cleanOrphanFiles,
   getDwhTableColumns,
@@ -18,6 +17,7 @@ import {
 } from '@/api';
 
 const DwhTableDetail: React.FC = () => {
+  const access = useAccess();
   const { id } = useParams<{ id: string }>();
   const tableId = parseInt(id || '0');
   const [editingDesc, setEditingDesc] = useState(false);
@@ -149,7 +149,7 @@ const DwhTableDetail: React.FC = () => {
     <PageContainer
       title={`${table.paimonDb}.${table.paimonTable}`}
       subTitle="Paimon 表元数据、字段结构、快照与维护记录"
-      extra={<Button icon={<ReloadOutlined />} onClick={handleRefreshMetadata}>刷新元数据</Button>}
+      extra={access.canManageDwh ? <Button icon={<ReloadOutlined />} onClick={handleRefreshMetadata}>刷新元数据</Button> : null}
     >
       <Tabs
         items={[
@@ -158,7 +158,7 @@ const DwhTableDetail: React.FC = () => {
             label: '表结构',
             children: (
               <>
-                <Card title="基本信息" extra={<Button size="small" onClick={openMetadata}>编辑治理信息</Button>} style={{ marginBottom: 16 }}>
+                <Card title="基本信息" extra={access.canManageDwh ? <Button size="small" onClick={openMetadata}>编辑治理信息</Button> : <Tag>只读</Tag>} style={{ marginBottom: 16 }}>
                   <Descriptions column={2}>
                     <Descriptions.Item label="Catalog / 数据库">
                       <Typography.Text code>rtdwh / {table.paimonDb}</Typography.Text>
@@ -179,7 +179,7 @@ const DwhTableDetail: React.FC = () => {
                       ) : (
                         <Space>
                           <span>{table.businessDesc || '—'}</span>
-                          <Button size="small" type="link" onClick={() => { setDescValue(table.businessDesc || ''); setEditingDesc(true); }}>编辑</Button>
+                          {access.canManageDwh && <Button size="small" type="link" onClick={() => { setDescValue(table.businessDesc || ''); setEditingDesc(true); }}>编辑</Button>}
                         </Space>
                       )}
                     </Descriptions.Item>
@@ -215,12 +215,12 @@ const DwhTableDetail: React.FC = () => {
                         title: '操作',
                         key: 'action',
                         width: 80,
-                        render: (_, record) => (
+                        render: (_, record) => access.canManageDwh ? (
                           <Button size="small" type="link" onClick={() => {
                             setEditingColumn(record);
                             setColumnComment(record.businessComment || record.comment || '');
                           }}>编辑注释</Button>
-                        ),
+                        ) : <span style={{ color: '#8c8c8c' }}>仅查看</span>,
                       },
                     ]}
                   />
@@ -233,11 +233,11 @@ const DwhTableDetail: React.FC = () => {
             label: '表维护',
             children: (
               <Card>
-                <Space style={{ marginBottom: 16 }}>
+                {access.canManageDwh && <Space style={{ marginBottom: 16 }}>
                   <Button type="primary" onClick={handleCompact}>触发 Compact</Button>
                   <Button type="primary" danger onClick={handleExpireSnapshots}>过期快照清理</Button>
                   <Button onClick={handleOrphanCleanup}>清理孤立文件</Button>
-                </Space>
+                </Space>}
                 <Table<API.MaintenanceLog>
                   dataSource={maintenanceLogs}
                   rowKey="id"

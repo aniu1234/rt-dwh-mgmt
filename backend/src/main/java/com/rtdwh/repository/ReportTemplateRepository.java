@@ -20,6 +20,8 @@ public interface ReportTemplateRepository extends JpaRepository<ReportTemplate, 
     List<ReportTemplate> findByIsPublished(Boolean isPublished);
 
     List<ReportTemplate> findByReportType(ReportType reportType);
+    long countByIsPublishedTrue();
+    List<ReportTemplate> findByReportNameContainingIgnoreCase(String keyword, Pageable pageable);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select report from ReportTemplate report where report.isPublished = true "

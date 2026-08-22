@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Pattern;
+import java.util.function.Function;
 
 @Service
 @RequiredArgsConstructor
@@ -47,6 +48,21 @@ public class QueryAccessScopeService {
     public boolean allowed(Long userId, String catalog, String database, String table) {
         Access access = access(userId);
         return access.admin() || allowed(access.scopes(), catalog, database, table);
+    }
+
+    @Transactional(readOnly = true)
+    public <T> List<T> filterAllowed(Long userId, String catalog, Collection<T> values,
+                                     Function<T, String> database, Function<T, String> table) {
+        return filterAllowed(userId, values, ignored -> catalog, database, table);
+    }
+
+    @Transactional(readOnly = true)
+    public <T> List<T> filterAllowed(Long userId, Collection<T> values, Function<T, String> catalog,
+                                     Function<T, String> database, Function<T, String> table) {
+        Access access = access(userId);
+        if (access.admin()) return List.copyOf(values);
+        return values.stream().filter(value -> allowed(access.scopes(), catalog.apply(value),
+                database.apply(value), table.apply(value))).toList();
     }
 
     private Access access(Long userId) {

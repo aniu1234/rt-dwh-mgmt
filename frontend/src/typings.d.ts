@@ -24,6 +24,7 @@ declare namespace API {
     realName: string;
     email: string;
     role: string;  // 逗号分隔的角色字符串，如 "ADMIN" 或 "ADMIN,DEVELOPER"
+    permissions: string[];
     token?: string;
   }
 
@@ -141,6 +142,11 @@ declare namespace API {
   interface DataServiceCredential { id: number; appName: string; appKey: string; appSecret: string; enabled: boolean; expiresAt?: string; }
   interface DataServiceGrant { id: number; appId: number; serviceId: number; createdAt: string; }
   interface DataServiceInvocationLog { id: number; serviceId?: number; appId?: number; serviceCode: string; status: string; httpStatus: number; rowCount?: number; durationMs?: number; clientIp?: string; errorMessage?: string; createdAt: string; }
+
+  interface FoundationCapability { key: 'asset'|'security'|'quality'|'observability'|'audit'; name: string; description: string; status: 'healthy'|'attention'|'risk'; score: number; riskCount: number; metrics: Record<string, number>; path: string; }
+  interface FoundationSlaRisk { outputId: number; taskId: number; qualifiedName: string; layer: string; owner?: string; slaMinutes: number; lastProducedAt?: string; overdueMinutes: number; severity: 'warning'|'high'|'critical'; }
+  interface FoundationSummary { capabilities: FoundationCapability[]; slaRisks: FoundationSlaRisk[]; overallScore: number; generatedAt: string; }
+  interface FoundationSearchItem { type: 'table'|'task'|'report'|'data_service'; id: number; title: string; subtitle: string; status: string; path: string; }
 
   interface OperationAudit {
     id: number;

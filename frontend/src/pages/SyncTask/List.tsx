@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { PageContainer } from '@ant-design/pro-components';
 import { Card, Table, Tag, Button, Space, Select, Input, Modal, message, Popconfirm, Tooltip, Badge } from 'antd';
 import { PlusOutlined, SearchOutlined, SyncOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
-import { useRequest } from '@umijs/max';
+import { useAccess, useRequest } from '@umijs/max';
 import { history } from '@umijs/max';
 import {
   getSyncTasks, startSyncTask, pauseSyncTask, resumeSyncTask,
@@ -37,6 +37,7 @@ const formatBackendDateTime = (value: unknown) => {
 };
 
 const SyncTaskList: React.FC = () => {
+  const access = useAccess();
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
   const [typeFilter, setTypeFilter] = useState<string | undefined>();
   const [keyword, setKeyword] = useState<string>('');
@@ -108,6 +109,7 @@ const SyncTaskList: React.FC = () => {
   };
 
   const getActionButtons = (task: API.SyncTask) => {
+    if (!access.canManageTask) return [];
     const { status, id } = task;
     const isLoading = actionLoading[id];
     const btn = (action: string, label: string, type?: 'primary' | 'default' | 'dashed' | 'link', danger?: boolean) => (
@@ -169,13 +171,13 @@ const SyncTaskList: React.FC = () => {
     <PageContainer>
       <Card>
         <Space style={{ marginBottom: 16 }} wrap>
-          <Button
+          {access.canCreateTask && <Button
             type="primary"
             icon={<PlusOutlined />}
             onClick={() => history.push('/sync-task/create')}
           >
             创建任务
-          </Button>
+          </Button>}
           <Input
             placeholder="搜索任务名称"
             prefix={<SearchOutlined />}
@@ -204,9 +206,9 @@ const SyncTaskList: React.FC = () => {
               { label: '物化表', value: 'materialized' },
             ]}
           />
-          <Tooltip title="从 Flink 集群同步所有任务状态">
+          {access.canManageTask && <Tooltip title="从 Flink 集群同步所有任务状态">
             <Button icon={<SyncOutlined />} onClick={handleSyncAll}>同步状态</Button>
-          </Tooltip>
+          </Tooltip>}
         </Space>
 
         <Table<API.SyncTask>

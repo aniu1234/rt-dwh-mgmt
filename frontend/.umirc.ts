@@ -97,17 +97,24 @@ export default defineConfig({
       icon: 'DashboardOutlined',
       component: './Dashboard',
     },
+    {
+      path: '/foundation',
+      name: '公共能力',
+      icon: 'SafetyCertificateOutlined',
+      component: './Foundation',
+      access: 'canViewFoundation',
+    },
     // === 同步任务 ===
     {
       path: '/sync-task',
       name: '同步任务',
       icon: 'ThunderboltOutlined',
       routes: [
-        { path: '/sync-task/list', name: '任务管理', icon: 'UnorderedListOutlined', component: './SyncTask/List' },
-        { path: '/sync-task/workflow', name: '任务编排', icon: 'ApartmentOutlined', component: './Workflow' },
-        { path: '/sync-task/create', name: '创建任务', icon: 'PlusOutlined', component: './SyncTask/Create', hideInMenu: true },
-        { path: '/sync-task/detail/:id', name: '任务详情', icon: 'ProfileOutlined', component: './SyncTask/Detail', hideInMenu: true },
-        { path: '/sync-task/datasource', name: '数据源配置', icon: 'ApiOutlined', component: './Datasource' },
+        { path: '/sync-task/list', name: '任务管理', icon: 'UnorderedListOutlined', component: './SyncTask/List', access: 'canViewTask' },
+        { path: '/sync-task/workflow', name: '任务编排', icon: 'ApartmentOutlined', component: './Workflow', access: 'canViewTask' },
+        { path: '/sync-task/create', name: '创建任务', icon: 'PlusOutlined', component: './SyncTask/Create', hideInMenu: true, access: 'canCreateTask' },
+        { path: '/sync-task/detail/:id', name: '任务详情', icon: 'ProfileOutlined', component: './SyncTask/Detail', hideInMenu: true, access: 'canViewTask' },
+        { path: '/sync-task/datasource', name: '数据源配置', icon: 'ApiOutlined', component: './Datasource', access: 'canViewDatasource' },
       ],
     },
     // === 数仓管理 ===
@@ -116,10 +123,10 @@ export default defineConfig({
       name: '数仓管理',
       icon: 'DatabaseOutlined',
       routes: [
-        { path: '/dwh/tables', name: '表管理', icon: 'TableOutlined', component: './DwhTable/List' },
-        { path: '/dwh/tables/:id', name: '表详情', icon: 'ProfileOutlined', component: './DwhTable/Detail', hideInMenu: true },
-        { path: '/dwh/lineage', name: '数据血缘', icon: 'ApartmentOutlined', component: './Lineage' },
-        { path: '/dwh/maintenance', name: '表维护', icon: 'ToolOutlined', component: './Maintenance' },
+        { path: '/dwh/tables', name: '表管理', icon: 'TableOutlined', component: './DwhTable/List', access: 'canViewDwh' },
+        { path: '/dwh/tables/:id', name: '表详情', icon: 'ProfileOutlined', component: './DwhTable/Detail', hideInMenu: true, access: 'canViewDwh' },
+        { path: '/dwh/lineage', name: '数据血缘', icon: 'ApartmentOutlined', component: './Lineage', access: 'canViewLineage' },
+        { path: '/dwh/maintenance', name: '表维护', icon: 'ToolOutlined', component: './Maintenance', access: 'canManageDwh' },
       ],
     },
     // === 数据质量 ===
@@ -128,6 +135,7 @@ export default defineConfig({
       name: '数据质量',
       icon: 'CheckCircleOutlined',
       component: './Quality',
+      access: 'canViewQuality',
     },
     // === 查询与报表 ===
     {
@@ -135,9 +143,9 @@ export default defineConfig({
       name: '查询与报表',
       icon: 'SearchOutlined',
       routes: [
-        { path: '/query/adhoc', name: '即席查询', icon: 'CodeOutlined', component: './AdhocQuery' },
-        { path: '/query/report', name: '报表看板', icon: 'BarChartOutlined', component: './Report' },
-        { path: '/query/data-service', name: '数据服务', icon: 'ApiOutlined', component: './DataService' },
+        { path: '/query/adhoc', name: '即席查询', icon: 'CodeOutlined', component: './AdhocQuery', access: 'canQuery' },
+        { path: '/query/report', name: '报表看板', icon: 'BarChartOutlined', component: './Report', access: 'canViewReport' },
+        { path: '/query/data-service', name: '数据服务', icon: 'ApiOutlined', component: './DataService', access: 'canViewDataService' },
       ],
     },
     // === 告警与系统 ===
@@ -146,10 +154,10 @@ export default defineConfig({
       name: '告警与系统',
       icon: 'AlertOutlined',
       routes: [
-        { path: '/system/alert', name: '告警管理', icon: 'BellOutlined', component: './Alert' },
-        { path: '/system/settings', name: '系统设置', icon: 'SettingOutlined', component: './Settings', access: 'canAdmin' },
-        { path: '/system/users', name: '用户与权限', icon: 'TeamOutlined', component: './UserAdmin', access: 'canAdmin' },
-        { path: '/system/audit', name: '操作审计', icon: 'AuditOutlined', component: './Audit', access: 'canAdmin' },
+        { path: '/system/alert', name: '告警管理', icon: 'BellOutlined', component: './Alert', access: 'canViewAlert' },
+        { path: '/system/settings', name: '系统设置', icon: 'SettingOutlined', component: './Settings', access: 'canViewSettings' },
+        { path: '/system/users', name: '用户与权限', icon: 'TeamOutlined', component: './UserAdmin', access: 'canManageUser' },
+        { path: '/system/audit', name: '操作审计', icon: 'AuditOutlined', component: './Audit', access: 'canViewAudit' },
       ],
     },
   ],

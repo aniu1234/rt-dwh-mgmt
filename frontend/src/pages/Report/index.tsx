@@ -35,7 +35,7 @@ import {
   PlusOutlined,
   ReloadOutlined,
 } from '@ant-design/icons';
-import { useRequest } from '@umijs/max';
+import { useAccess, useRequest } from '@umijs/max';
 import {
   createReport,
   deleteReport,
@@ -376,6 +376,7 @@ const ReportVisualization: React.FC<{ result?: API.QueryResult; type: ReportType
 };
 
 const Report: React.FC = () => {
+  const access = useAccess();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingReport, setEditingReport] = useState<API.ReportTemplate>();
@@ -651,7 +652,7 @@ const Report: React.FC = () => {
         <Tooltip title="刷新报表清单和看板数据" key="refresh">
           <Button icon={<ReloadOutlined />} loading={loading} onClick={refreshDashboard}>刷新数据</Button>
         </Tooltip>,
-        <Button key="create" type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建报表</Button>,
+        access.canManageReport ? <Button key="create" type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建报表</Button> : null,
       ]}
     >
       <Tabs
@@ -682,7 +683,7 @@ const Report: React.FC = () => {
                   <Card className="report-empty-card">
                     <Empty description="暂无已发布报表">
                       <Space>
-                        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>创建第一张报表</Button>
+                        {access.canManageReport && <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>创建第一张报表</Button>}
                         {reports.length > 0 && <Button onClick={() => setActiveTab('list')}>前往发布草稿</Button>}
                       </Space>
                     </Empty>
@@ -783,15 +784,15 @@ const Report: React.FC = () => {
                           <Tooltip title={record.isPublished ? '查看报表数据' : '发布后才能查询数据'}>
                             <Button size="small" type="link" disabled={!record.isPublished} onClick={() => openPreview(record)}>查看</Button>
                           </Tooltip>
-                          <Button size="small" type="link" onClick={() => openEdit(record)}>编辑</Button>
                           <Button size="small" type="link" onClick={() => openRuns(record)}>运行历史</Button>
-                          <Button size="small" type="link" disabled={!record.isPublished} onClick={() => runNow(record)}>立即运行</Button>
-                          <Popconfirm title={record.isPublished ? '确认下线这张报表？' : '确认发布这张报表？'} description={record.isPublished ? '下线后将从数据看板移除。' : '发布后会立即加入数据看板并执行查询。'} onConfirm={() => togglePublish(record)}>
-                            <Button size="small" type="link">{record.isPublished ? '下线' : '发布'}</Button>
-                          </Popconfirm>
-                          <Popconfirm title="确认删除这张报表？" description="删除后无法恢复。" okButtonProps={{ danger: true }} onConfirm={() => removeReport(record)}>
-                            <Button size="small" type="link" danger>删除</Button>
-                          </Popconfirm>
+                          {access.canManageReport && <><Button size="small" type="link" onClick={() => openEdit(record)}>编辑</Button>
+                            <Button size="small" type="link" disabled={!record.isPublished} onClick={() => runNow(record)}>立即运行</Button>
+                            <Popconfirm title={record.isPublished ? '确认下线这张报表？' : '确认发布这张报表？'} description={record.isPublished ? '下线后将从数据看板移除。' : '发布后会立即加入数据看板并执行查询。'} onConfirm={() => togglePublish(record)}>
+                              <Button size="small" type="link">{record.isPublished ? '下线' : '发布'}</Button>
+                            </Popconfirm>
+                            <Popconfirm title="确认删除这张报表？" description="删除后无法恢复。" okButtonProps={{ danger: true }} onConfirm={() => removeReport(record)}>
+                              <Button size="small" type="link" danger>删除</Button>
+                            </Popconfirm></>}
                         </Space>
                       ),
                     },

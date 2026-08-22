@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { PageContainer } from '@ant-design/pro-components';
 import { Card, Table, Tag, Space, Select, Button, Badge, Modal, Input, message, Switch, Form } from 'antd';
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
-import { useRequest } from '@umijs/max';
+import { useAccess, useRequest } from '@umijs/max';
 import {
   getAlertRules, getAlertRecords, createAlertRule, updateAlertRule,
   deleteAlertRule, toggleAlertRule, resolveAlertRecord,
@@ -35,6 +35,7 @@ const channelLabel: Record<string, string> = {
 };
 
 const Alert: React.FC = () => {
+  const access = useAccess();
   const [createRuleVisible, setCreateRuleVisible] = useState(false);
   const [editingRule, setEditingRule] = useState<any>(null);
   const [ruleTypeFilter, setRuleTypeFilter] = useState<string>();
@@ -114,10 +115,10 @@ const Alert: React.FC = () => {
   return (
     <PageContainer className="alert-page">
       <Space className="alert-toolbar" style={{ marginBottom: 32 }}>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditingRule(null); form.resetFields(); setCreateRuleVisible(true); }}>
+        {access.canManageAlert && <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditingRule(null); form.resetFields(); setCreateRuleVisible(true); }}>
           新增告警配置
-        </Button>
-        <Button icon={<ReloadOutlined />} onClick={handleEvaluate}>立即评估</Button>
+        </Button>}
+        {access.canManageAlert && <Button icon={<ReloadOutlined />} onClick={handleEvaluate}>立即评估</Button>}
         <Select
           value={ruleTypeFilter}
           onChange={setRuleTypeFilter}
@@ -155,16 +156,16 @@ const Alert: React.FC = () => {
                       key: 'enabled',
                       width: 80,
                       render: (v: boolean, record: any) => (
-                        <Switch checked={v} size="small" onChange={(checked) => handleToggle(record.id, checked)} />
+                        <Switch checked={v} size="small" disabled={!access.canManageAlert} onChange={(checked) => handleToggle(record.id, checked)} />
                       ),
                     },
                     {
                       title: '操作', key: 'action', width: 120,
                       render: (_: any, record: any) => (
-                        <Space>
+                        access.canManageAlert ? <Space>
                           <Button size="small" onClick={() => { setEditingRule(record); form.setFieldsValue({ ruleName: record.ruleName, ruleType: record.ruleType, expression: record.expression, channels: (record.notifyChannel || '').split(',').filter(Boolean), enabled: record.enabled }); setCreateRuleVisible(true); }}>编辑</Button>
                           <Button size="small" type="link" danger onClick={() => handleDelete(record.id)}>删除</Button>
-                        </Space>
+                        </Space> : <span style={{ color: '#8c8c8c' }}>仅查看</span>
                       ),
                     },
                   ]}
@@ -201,7 +202,7 @@ const Alert: React.FC = () => {
                       width: 120,
                       render: (_: any, r: any) => (
                         <Space>
-                          {!r.resolved && <Button size="small" type="primary" onClick={() => handleResolve(r.id)}>标记已解决</Button>}
+                          {access.canManageAlert && !r.resolved && <Button size="small" type="primary" onClick={() => handleResolve(r.id)}>标记已解决</Button>}
                         </Space>
                       ),
                     },

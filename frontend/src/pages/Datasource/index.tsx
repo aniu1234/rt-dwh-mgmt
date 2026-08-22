@@ -11,6 +11,7 @@ import {
 import { Badge, Button, Card, Descriptions, Form, Modal, Popconfirm, Space, Table, Tag, message } from 'antd';
 import { LinkOutlined, PlusOutlined, ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { getDatasources, createDatasource, testDatasourceConnection, deleteDatasource, updateDatasource } from '@/api';
+import { useAccess } from '@umijs/max';
 import './index.less';
 
 type DatasourceType = 'mysql' | 'postgresql' | 'paimon';
@@ -162,6 +163,7 @@ const formatBackendDateTime = (value: unknown) => {
 };
 
 const Datasource: React.FC = () => {
+  const access = useAccess();
   const [createForm] = Form.useForm();
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
@@ -279,9 +281,9 @@ const Datasource: React.FC = () => {
     <PageContainer>
       <Card>
         <Space style={{ marginBottom: 16 }}>
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>
+          {access.canManageDatasource && <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>
             新建数据源
-          </Button>
+          </Button>}
           <Button icon={<ReloadOutlined spin={loading} />} onClick={() => void refresh()} loading={loading}>
             刷新
           </Button>
@@ -330,7 +332,7 @@ const Datasource: React.FC = () => {
               title: '操作',
               key: 'action',
               width: 200,
-              render: (_, record) => (
+              render: (_, record) => access.canManageDatasource ? (
                 <Space>
                   <Button
                     size="small"
@@ -353,7 +355,7 @@ const Datasource: React.FC = () => {
                     <Button size="small" type="link" danger>删除</Button>
                   </Popconfirm>
                 </Space>
-              ),
+              ) : <span style={{ color: '#8c8c8c' }}>仅查看</span>,
             },
           ]}
         />

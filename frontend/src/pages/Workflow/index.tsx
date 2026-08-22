@@ -4,7 +4,7 @@ import {
   Button, Card, DatePicker, Form, Input, InputNumber, message, Modal, Popconfirm, Select, Space, Switch, Table, Tabs, Tag,
 } from 'antd';
 import { ApartmentOutlined, BranchesOutlined, HistoryOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
-import { useRequest } from '@umijs/max';
+import { useAccess, useRequest } from '@umijs/max';
 import dayjs, { Dayjs } from 'dayjs';
 import {
   addTaskDependency, createTaskBackfill, getTaskVersions, getWorkflowGraph, getWorkflowInstances,
@@ -25,6 +25,7 @@ const formatTime = (value?: string | number[]) => {
 };
 
 const Workflow: React.FC = () => {
+  const access = useAccess();
   const [dependencyOpen, setDependencyOpen] = useState(false);
   const [publishTask, setPublishTask] = useState<API.SyncTask>();
   const [backfillTask, setBackfillTask] = useState<API.SyncTask>();
@@ -71,7 +72,7 @@ const Workflow: React.FC = () => {
     </Space> },
     { title: '上游依赖', key: 'upstream', render: (_: unknown, task: API.SyncTask) => {
       const upstream = dependencies.filter((item) => item.downstreamTaskId === task.id);
-      return upstream.length ? <Space wrap>{upstream.map((item) => <Tag key={item.id} closable
+      return upstream.length ? <Space wrap>{upstream.map((item) => <Tag key={item.id} closable={access.canManageTask}
         onClose={(event) => { event.preventDefault(); removeTaskDependency(item.upstreamTaskId, item.downstreamTaskId)
           .then(() => { message.success('依赖已删除'); graphRequest.refresh(); }); }}>
         {taskMap.get(item.upstreamTaskId)?.taskName || `任务 ${item.upstreamTaskId}`}
@@ -80,11 +81,11 @@ const Workflow: React.FC = () => {
     { title: '周期调度', key: 'schedule', width: 190, render: (_: unknown, task: API.SyncTask) => { const item=scheduleMap.get(task.id); return item ? <Space direction="vertical" size={0}><Tag color={item.enabled?'processing':'default'}>{item.enabled?'已启用':'已停用'} · {item.cronExpression}</Tag><span style={{color:'#8c8c8c'}}>下次 {formatTime(item.nextRunAt)}</span></Space> : <Tag>未配置</Tag>; } },
     { title: '发布状态', key: 'status', width: 120, render: (_: unknown, task: API.SyncTask) => <Tag color={task.status === 'draft' ? 'default' : 'blue'}>{task.status}</Tag> },
     { title: '操作', key: 'action', width: 420, render: (_: unknown, task: API.SyncTask) => <Space wrap>
-      <Button size="small" onClick={() => { setPublishTask(task); publishForm.setFieldsValue({ changeSummary: '发布任务配置' }); }}>发布版本</Button>
       <Button size="small" icon={<HistoryOutlined />} onClick={() => openVersions(task)}>版本</Button>
-      {task.taskType !== 'cdc_sync' && <Button size="small" onClick={() => { setBackfillTask(task); backfillForm.setFieldsValue({ dates: [dayjs(), dayjs()] }); }}>补数</Button>}
-      {task.taskType !== 'cdc_sync' && <Button size="small" onClick={() => openSchedule(task)}>调度</Button>}
-      {task.taskType !== 'cdc_sync' && <Button size="small" onClick={() => openOutputs(task)}>产出资源</Button>}
+      {access.canManageTask && <><Button size="small" onClick={() => { setPublishTask(task); publishForm.setFieldsValue({ changeSummary: '发布任务配置' }); }}>发布版本</Button>
+        {task.taskType !== 'cdc_sync' && <Button size="small" onClick={() => { setBackfillTask(task); backfillForm.setFieldsValue({ dates: [dayjs(), dayjs()] }); }}>补数</Button>}
+        {task.taskType !== 'cdc_sync' && <Button size="small" onClick={() => openSchedule(task)}>调度</Button>}
+        {task.taskType !== 'cdc_sync' && <Button size="small" onClick={() => openOutputs(task)}>产出资源</Button>}</>}
     </Space> },
   ];
 
@@ -102,10 +103,10 @@ const Workflow: React.FC = () => {
     { title: '错误', dataIndex: 'errorMessage', ellipsis: true },
     { title: '创建时间', dataIndex: 'createdAt', width: 180, render: formatTime },
     { title: '操作', key: 'actions', fixed: 'right' as const, width: 130, render: (_: unknown, record: API.TaskRunInstance) => <Space>
-      {record.status === 'failed' && <Button size="small" type="primary" onClick={async () => {
+      {access.canManageTask && record.status === 'failed' && <Button size="small" type="primary" onClick={async () => {
         await retryWorkflowInstance(record.id); message.success('实例已重新入队'); instancesRequest.refresh();
       }}>重试</Button>}
-      {['waiting', 'queued', 'running'].includes(record.status) && <Popconfirm title="确认取消该实例？运行中的 Flink Job 也会被取消。" onConfirm={async () => {
+      {access.canManageTask && ['waiting', 'queued', 'running'].includes(record.status) && <Popconfirm title="确认取消该实例？运行中的 Flink Job 也会被取消。" onConfirm={async () => {
         await cancelWorkflowInstance(record.id); message.success('实例已取消'); instancesRequest.refresh();
       }}><Button size="small" danger>取消</Button></Popconfirm>}
     </Space> },
@@ -114,7 +115,7 @@ const Workflow: React.FC = () => {
   return <PageContainer title="任务编排" subTitle="任务依赖、版本发布、运行实例与补数控制面">
     <Card>
       <Space style={{ marginBottom: 16 }}>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => setDependencyOpen(true)}>添加依赖</Button>
+        {access.canManageTask && <Button type="primary" icon={<PlusOutlined />} onClick={() => setDependencyOpen(true)}>添加依赖</Button>}
         <Button icon={<ReloadOutlined />} onClick={refreshAll}>刷新</Button>
         <Tag icon={<ApartmentOutlined />} color="blue">{tasks.length} 个任务</Tag>
         <Tag icon={<BranchesOutlined />}>{dependencies.length} 条依赖</Tag>
