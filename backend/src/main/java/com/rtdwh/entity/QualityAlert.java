@@ -31,7 +31,7 @@ public class QualityAlert {
 
     private Double thresholdValue;
 
-    @Column(length = 500)
+    @Column(columnDefinition = "TEXT")
     private String message;
 
     @Column(length = 20)
@@ -44,6 +44,9 @@ public class QualityAlert {
     private Boolean resolved = false;
 
     private LocalDateTime resolvedAt;
+
+    @Column(length = 20)
+    private String resolutionReason; // recovered, acknowledged, suppressed
 
     private LocalDateTime triggeredAt;
 }

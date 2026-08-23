@@ -486,11 +486,15 @@ export async function getQualityRules(params?: { layer?: string; ruleType?: stri
   return request<API.QualityRule[]>(`${API_PREFIX}/quality/rules`, { params });
 }
 
-export async function createQualityRule(data: any) {
+export async function getQualityOverview() {
+  return request<API.QualityOverviewSummary>(`${API_PREFIX}/quality/overview`);
+}
+
+export async function createQualityRule(data: API.QualityRuleInput) {
   return request<API.QualityRule>(`${API_PREFIX}/quality/rules`, { method: 'POST', data });
 }
 
-export async function updateQualityRule(id: number, data: any) {
+export async function updateQualityRule(id: number, data: API.QualityRuleInput) {
   return request<API.QualityRule>(`${API_PREFIX}/quality/rules/${id}`, { method: 'PUT', data });
 }
 
@@ -506,7 +510,8 @@ export async function deleteQualityRule(id: number) {
 }
 
 export async function runQualityCheck(ruleId?: number) {
-  return request<number>(`${API_PREFIX}/quality/run-check`, { method: 'POST', data: { ruleId } });
+  const path = ruleId == null ? '/quality/run-check/all' : `/quality/rules/${ruleId}/run`;
+  return request<API.QualityCheckSummary>(`${API_PREFIX}${path}`, { method: 'POST' });
 }
 
 export async function getQualityAlerts(params?: { level?: string; resolved?: boolean }) {

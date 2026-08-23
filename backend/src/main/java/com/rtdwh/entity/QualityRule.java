@@ -46,6 +46,10 @@ public class QualityRule {
     @Column(nullable = false)
     private Boolean enabled = true;
 
+    @Version
+    @Column(nullable = false)
+    private Long version;
+
     @CreationTimestamp
     @Column(updatable = false)
     private LocalDateTime createdAt;

@@ -406,6 +406,7 @@ declare namespace API {
     ruleType: string;
     expression?: string;
     enabled: boolean;
+    version?: number;
     notifyChannel?: string;
     createdAt: string;
     updatedAt: string;
@@ -421,9 +422,11 @@ declare namespace API {
     level?: string;
     resolved: boolean;
     resolvedAt?: string;
+    resolutionReason?: 'recovered' | 'acknowledged' | 'suppressed' | string;
     recoveredAt?: string;
     lastEvaluatedAt?: string;
-    notificationStatus?: 'pending' | 'sent' | 'skipped' | string;
+    notificationStatus?: 'pending' | 'sending' | 'sent' | 'partial' | 'skipped' | string;
+    recoveryNotificationStatus?: 'pending' | 'sending' | 'sent' | 'partial' | 'skipped' | string;
     triggeredAt?: string;
   }
 
@@ -509,11 +512,23 @@ declare namespace API {
     ruleType: string; // null_rate | uniqueness | volume_compare | range_check
     targetTable: string;
     targetColumn?: string;
-    expression: string;
+    expression?: string;
     threshold: number;
     enabled: boolean;
+    version?: number;
     createdAt: string;
     updatedAt: string;
+  }
+
+  interface QualityRuleInput {
+    ruleName: string;
+    layer: string;
+    ruleType: string;
+    targetTable: string;
+    targetColumn?: string;
+    expression?: string;
+    threshold: number;
+    enabled: boolean;
   }
 
   /** 数据质量告警 */
@@ -525,11 +540,12 @@ declare namespace API {
     targetColumn?: string;
     level: string;
     message: string;
-    actualValue: number;
-    thresholdValue: number;
+    actualValue?: number;
+    thresholdValue?: number;
     triggeredAt: string;
     resolved: boolean;
     resolvedAt?: string;
+    resolutionReason?: 'recovered' | 'acknowledged' | 'suppressed' | string;
   }
 
   interface QualityCheckRun {
@@ -537,7 +553,11 @@ declare namespace API {
     batchId: string;
     ruleId: number;
     ruleName: string;
-    triggerType: 'manual' | 'scheduled';
+    ruleType?: string;
+    targetTable?: string;
+    targetColumn?: string;
+    ruleVersion?: number;
+    triggerType: 'manual' | 'scheduled' | 'production';
     engine: string;
     status: 'running' | 'passed' | 'failed' | 'error';
     checkSql: string;
@@ -547,6 +567,32 @@ declare namespace API {
     errorMessage?: string;
     startedAt: string;
     finishedAt?: string;
+  }
+
+  interface QualityCheckSummary {
+    batchId: string;
+    total: number;
+    passed: number;
+    failed: number;
+    errorCount: number;
+    abnormalCount: number;
+    startedAt: string;
+    finishedAt: string;
+    durationMs: number;
+  }
+
+  interface QualityDailyRunSummary {
+    date: string;
+    total: number;
+    passed: number;
+    abnormal: number;
+  }
+
+  interface QualityOverviewSummary {
+    latestRuns: QualityCheckRun[];
+    dailyRuns: QualityDailyRunSummary[];
+    last24hRuns: number;
+    averageDurationMs: number;
   }
 
   interface LineageNode {

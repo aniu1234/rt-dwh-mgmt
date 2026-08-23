@@ -9,7 +9,7 @@ import {
   ProFormTextArea,
 } from '@ant-design/pro-components';
 import { Badge, Button, Card, Descriptions, Form, Modal, Popconfirm, Space, Table, Tag, message } from 'antd';
-import { LinkOutlined, PlusOutlined, ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { DatabaseOutlined, LinkOutlined, PlusOutlined, ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { getDatasources, createDatasource, testDatasourceConnection, deleteDatasource, updateDatasource } from '@/api';
 import { useAccess } from '@umijs/max';
 import './index.less';
@@ -380,11 +380,19 @@ const Datasource: React.FC = () => {
       </Card>
 
       <Modal
-        title="新建数据源"
+        title={(
+          <div className="datasource-create-title">
+            <span className="datasource-create-title-icon"><DatabaseOutlined /></span>
+            <span>
+              <strong>新建数据源</strong>
+              <small>配置数据库连接与认证信息</small>
+            </span>
+          </div>
+        )}
         open={createModalVisible}
         onCancel={() => setCreateModalVisible(false)}
         footer={null}
-        width={680}
+        width={580}
         forceRender
         rootClassName="datasource-create-modal"
       >
@@ -393,7 +401,8 @@ const Datasource: React.FC = () => {
           onFinish={handleCreate}
           submitter={{
             searchConfig: { submitText: '创建' },
-            resetButtonProps: { style: { display: 'none' } },
+            resetButtonProps: false,
+            render: (_, dom) => <div className="datasource-create-actions">{dom}</div>,
           }}
         >
           <ProFormText
@@ -437,31 +446,35 @@ const Datasource: React.FC = () => {
             )}
           </ProFormDependency>
 
-          <ProFormText
-            name="host"
-            label="主机地址"
-            placeholder="MySQL/PG: 192.168.1.10 | Paimon: /data/paimon 或 s3://bucket/warehouse"
-            rules={[{ required: true }]}
-          />
-          <ProFormDigit
-            name="port"
-            label="端口"
-            placeholder="MySQL/Paimon JDBC Catalog: 3306，PostgreSQL: 5432"
-            fieldProps={{ min: 1, max: 65535 }}
-            rules={[{ required: true, message: '请输入端口' }]}
-          />
-          <ProFormText
-            name="database"
-            label="数据库"
-            placeholder="业务库名；Paimon 填 JDBC Catalog 元数据库"
-            rules={[{ required: true, message: '请输入数据库名称' }]}
-          />
-          <ProFormText
-            name="username"
-            label="用户名"
-            placeholder="数据库用户；Paimon 填 JDBC Catalog 用户"
-            rules={[{ required: true, message: '请输入用户名' }]}
-          />
+          <div className="datasource-form-grid datasource-form-grid-host">
+            <ProFormText
+              name="host"
+              label="主机地址"
+              placeholder="192.168.1.10 或 /data/paimon"
+              rules={[{ required: true }]}
+            />
+            <ProFormDigit
+              name="port"
+              label="端口"
+              placeholder="3306 / 5432"
+              fieldProps={{ min: 1, max: 65535 }}
+              rules={[{ required: true, message: '请输入端口' }]}
+            />
+          </div>
+          <div className="datasource-form-grid">
+            <ProFormText
+              name="database"
+              label="数据库"
+              placeholder="业务库 / Catalog 元数据库"
+              rules={[{ required: true, message: '请输入数据库名称' }]}
+            />
+            <ProFormText
+              name="username"
+              label="用户名"
+              placeholder="数据库用户 / Catalog 用户"
+              rules={[{ required: true, message: '请输入用户名' }]}
+            />
+          </div>
           <ProFormText.Password
             name="password"
             label="密码"

@@ -1,7 +1,8 @@
 package com.rtdwh.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rtdwh.entity.AlertRule;
-import com.rtdwh.entity.QualityRule;
 import com.rtdwh.entity.ReportRun;
 import com.rtdwh.entity.ReportTemplate;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +25,7 @@ public class AlertNotifyService {
 
     private final JavaMailSender mailSender;
     private final RestTemplate restTemplate;
+    private final ObjectMapper objectMapper;
 
     @Value("${alert.dingtalk-webhook:}")
     private String dingtalkWebhook;
@@ -50,17 +52,24 @@ public class AlertNotifyService {
 
     /** Sends to every comma-separated channel and reports whether at least one delivery succeeded. */
     public boolean sendAlertWithResult(AlertRule rule, String message, String level) {
+        return sendAlertWithStatus(rule, message, level).delivered();
+    }
+
+    public AlertDeliveryStatus sendAlertWithStatus(AlertRule rule, String message, String level) {
         String channel = rule.getNotifyChannel();
-        if (channel == null || channel.isEmpty()) {
+        if (channel == null || channel.isBlank()) {
             log.warn("Alert rule [{}] has no notify channel configured, skipping notification", rule.getRuleName());
-            return false;
+            return AlertDeliveryStatus.SKIPPED;
         }
 
         String formattedMessage = formatAlertMessage(rule.getRuleName(), rule.getRuleType(), message, level);
 
-        boolean delivered = false;
+        int requested = 0;
+        int delivered = 0;
         for (String item : channel.split(",")) {
-            delivered |= switch (item.trim().toLowerCase()) {
+            if (item.isBlank()) continue;
+            requested++;
+            boolean sent = switch (item.trim().toLowerCase()) {
                 case "dingtalk" -> sendDingtalk(formattedMessage, level);
                 case "wecom" -> sendWecom(formattedMessage, level);
                 case "email" -> sendEmail(formattedMessage, level, rule.getRuleName());
@@ -69,28 +78,12 @@ public class AlertNotifyService {
                     yield false;
                 }
             };
+            if (sent) delivered++;
         }
-        return delivered;
-    }
-
-    /**
-     * Send a quality check alert notification.
-     * Uses the quality rule's target table/column info to build the message.
-     */
-    public void sendQualityAlert(QualityRule rule, double actualValue, double thresholdValue, String message) {
-        // Determine which channels to send to based on available configuration
-        // Quality alerts go to all configured channels
-        String formattedMessage = formatQualityAlertMessage(rule, actualValue, thresholdValue, message);
-
-        if (!dingtalkWebhook.isEmpty()) {
-            sendDingtalk(formattedMessage, "warn");
-        }
-        if (!wecomWebhook.isEmpty()) {
-            sendWecom(formattedMessage, "warn");
-        }
-        if (!mailHost.isEmpty()) {
-            sendEmail(formattedMessage, "warn", "质量检查异常: " + rule.getTargetTable());
-        }
+        if (requested == 0) return AlertDeliveryStatus.SKIPPED;
+        if (delivered == requested) return AlertDeliveryStatus.SENT;
+        if (delivered > 0) return AlertDeliveryStatus.PARTIAL;
+        return AlertDeliveryStatus.RETRYABLE_FAILURE;
     }
 
     /**
@@ -190,7 +183,7 @@ public class AlertNotifyService {
 
             ResponseEntity<String> response = restTemplate.postForEntity(dingtalkWebhook, request, String.class);
 
-            if (response.getStatusCode().is2xxSuccessful()) {
+            if (webhookAccepted(response, "DingTalk")) {
                 log.info("DingTalk alert sent successfully");
                 return true;
             } else {
@@ -229,7 +222,7 @@ public class AlertNotifyService {
 
             ResponseEntity<String> response = restTemplate.postForEntity(wecomWebhook, request, String.class);
 
-            if (response.getStatusCode().is2xxSuccessful()) {
+            if (webhookAccepted(response, "WeCom")) {
                 log.info("WeCom alert sent successfully");
                 return true;
             } else {
@@ -275,6 +268,31 @@ public class AlertNotifyService {
         public boolean success() { return requested > 0 && delivered == requested; }
     }
 
+    public enum AlertDeliveryStatus {
+        SENT,
+        PARTIAL,
+        SKIPPED,
+        RETRYABLE_FAILURE;
+
+        public boolean delivered() {
+            return this == SENT || this == PARTIAL;
+        }
+    }
+
+    private boolean webhookAccepted(ResponseEntity<String> response, String channel) {
+        if (!response.getStatusCode().is2xxSuccessful()) return false;
+        try {
+            JsonNode body = objectMapper.readTree(response.getBody());
+            JsonNode errcode = body == null ? null : body.get("errcode");
+            boolean accepted = errcode != null && errcode.canConvertToInt() && errcode.asInt() == 0;
+            if (!accepted) log.warn("{} webhook rejected request: {}", channel, response.getBody());
+            return accepted;
+        } catch (Exception invalidResponse) {
+            log.warn("{} webhook returned an invalid response: {}", channel, response.getBody());
+            return false;
+        }
+    }
+
     // ========================================================================
     // Utility
     // ========================================================================
@@ -282,18 +300,6 @@ public class AlertNotifyService {
     private String formatAlertMessage(String ruleName, String ruleType, String detail, String level) {
         return String.format("【实时数仓告警】\n规则: %s\n类型: %s\n级别: %s\n详情: %s\n时间: %s",
                 ruleName, ruleType, levelLabel(level), detail,
-                LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
-    }
-
-    private String formatQualityAlertMessage(QualityRule rule, double actual, double threshold, String message) {
-        return String.format("【质量检查告警】\n规则: %s\n类型: %s\n表: %s\n列: %s\n实际值: %.4f\n阈值: %.4f\n详情: %s\n时间: %s",
-                rule.getRuleName(),
-                rule.getRuleType(),
-                rule.getTargetTable(),
-                rule.getTargetColumn() != null ? rule.getTargetColumn() : "(全表)",
-                actual,
-                threshold,
-                message,
                 LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
     }
 

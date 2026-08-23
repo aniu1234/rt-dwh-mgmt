@@ -1,5 +1,6 @@
 package com.rtdwh.service;
 
+import com.rtdwh.dto.QualityCheckSummary;
 import com.rtdwh.dto.WorkflowDTO;
 import com.rtdwh.entity.*;
 import com.rtdwh.repository.*;
@@ -70,8 +71,12 @@ public class DatasetProductionService {
     public void recordSuccess(TaskRunInstance instance) {
         LocalDateTime now = LocalDateTime.now();
         for (TaskOutputDataset output : outputRepository.findByTaskIdAndEnabledTrueOrderById(instance.getTaskId())) {
-            boolean available = !Boolean.TRUE.equals(output.getQualityGateEnabled())
-                    || qualityCheckService.runChecksForTable(output.getDatabaseName(), output.getTableName()) == 0;
+            boolean available = true;
+            if (Boolean.TRUE.equals(output.getQualityGateEnabled())) {
+                QualityCheckSummary summary = qualityCheckService.runChecksForTableWithSummary(
+                        output.getCatalogName(), output.getDatabaseName(), output.getTableName());
+                available = summary.total() > 0 && summary.abnormalCount() == 0;
+            }
             productionRepository.save(DatasetProduction.builder()
                     .outputDatasetId(output.getId()).taskId(instance.getTaskId()).instanceId(instance.getId())
                     .businessDate(instance.getBusinessDate()).status(available ? "available" : "blocked").producedAt(now).build());

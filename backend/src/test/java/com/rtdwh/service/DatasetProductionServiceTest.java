@@ -1,5 +1,6 @@
 package com.rtdwh.service;
 
+import com.rtdwh.dto.QualityCheckSummary;
 import com.rtdwh.dto.WorkflowDTO;
 import com.rtdwh.entity.DatasetProduction;
 import com.rtdwh.entity.DwhTableMeta;
@@ -49,7 +50,8 @@ class DatasetProductionServiceTest {
     void blocksProducedDatasetWhenQualityGateFails() {
         TaskOutputDataset output = output(9L, true);
         when(outputs.findByTaskIdAndEnabledTrueOrderById(3L)).thenReturn(List.of(output));
-        when(quality.runChecksForTable("ads", "daily_sales")).thenReturn(1);
+        when(quality.runChecksForTableWithSummary("rtdwh_paimon", "ads", "daily_sales"))
+                .thenReturn(summary(1, 0, 1, 0));
 
         service.recordSuccess(instance());
 
@@ -63,7 +65,8 @@ class DatasetProductionServiceTest {
     void registersAvailableDatasetAsDataAsset() {
         TaskOutputDataset output = output(9L, true);
         when(outputs.findByTaskIdAndEnabledTrueOrderById(3L)).thenReturn(List.of(output));
-        when(quality.runChecksForTable("ads", "daily_sales")).thenReturn(0);
+        when(quality.runChecksForTableWithSummary("rtdwh_paimon", "ads", "daily_sales"))
+                .thenReturn(summary(1, 1, 0, 0));
         when(tables.findByPaimonDbAndPaimonTable("ads", "daily_sales")).thenReturn(Optional.empty());
 
         service.recordSuccess(instance());
@@ -73,6 +76,19 @@ class DatasetProductionServiceTest {
                 && "daily_sales".equals(table.getPaimonTable())));
         assertNotNull(output.getLastProducedAt());
         assertEquals(21L, output.getLastInstanceId());
+    }
+
+    @Test
+    void blocksQualityGateWhenNoRuleMatchesTheDataset() {
+        TaskOutputDataset output = output(9L, true);
+        when(outputs.findByTaskIdAndEnabledTrueOrderById(3L)).thenReturn(List.of(output));
+        when(quality.runChecksForTableWithSummary("rtdwh_paimon", "ads", "daily_sales"))
+                .thenReturn(summary(0, 0, 0, 0));
+
+        service.recordSuccess(instance());
+
+        verify(productions).save(argThat(value -> "blocked".equals(value.getStatus())));
+        verify(tables, never()).save(any());
     }
 
     private TaskOutputDataset output(Long id, boolean qualityGate) {
@@ -90,5 +106,10 @@ class DatasetProductionServiceTest {
 
     private TaskRunInstance instance() {
         return TaskRunInstance.builder().id(21L).taskId(3L).businessDate(LocalDate.of(2026, 8, 21)).build();
+    }
+
+    private QualityCheckSummary summary(int total, int passed, int failed, int errors) {
+        LocalDateTime now = LocalDateTime.now();
+        return new QualityCheckSummary("batch", total, passed, failed, errors, failed + errors, now, now, 1L);
     }
 }

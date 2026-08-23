@@ -1,35 +1,31 @@
 package com.rtdwh.service;
 
-import com.rtdwh.entity.AlertRecord;
 import com.rtdwh.entity.AlertRule;
 import com.rtdwh.entity.QualityAlert;
 import com.rtdwh.entity.SyncTask;
-import com.rtdwh.repository.AlertRecordRepository;
 import com.rtdwh.repository.AlertRuleRepository;
 import com.rtdwh.repository.QualityAlertRepository;
 import com.rtdwh.repository.SyncTaskRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
+
+import com.rtdwh.service.AlertEvaluationPersistenceService.Condition;
+import com.rtdwh.service.AlertEvaluationPersistenceService.TransitionResult;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class AlertEvaluationService {
     private final AlertRuleRepository ruleRepository;
-    private final AlertRecordRepository recordRepository;
     private final SyncTaskRepository taskRepository;
     private final QualityAlertRepository qualityAlertRepository;
     private final AlertNotifyService notifyService;
+    private final AlertEvaluationPersistenceService persistenceService;
 
-    @Transactional
     public EvaluationSummary evaluateAll() {
         int evaluated = 0;
         int triggered = 0;
@@ -47,7 +43,6 @@ public class AlertEvaluationService {
         return new EvaluationSummary(evaluated, triggered, recovered);
     }
 
-    @Transactional
     public EvaluationSummary evaluateRule(Long ruleId) {
         AlertRule rule = ruleRepository.findById(ruleId)
                 .orElseThrow(() -> new IllegalArgumentException("告警规则不存在: " + ruleId));
@@ -57,49 +52,38 @@ public class AlertEvaluationService {
 
     private EvaluationSummary evaluate(AlertRule rule) {
         List<Condition> conditions = activeConditions(rule);
-        Set<String> activeKeys = new HashSet<>();
-        int triggered = 0;
-        LocalDateTime now = LocalDateTime.now();
-
-        for (Condition condition : conditions) {
-            activeKeys.add(condition.key());
-            AlertRecord existing = recordRepository
-                    .findFirstByRuleIdAndDedupKeyAndResolvedFalseOrderByTriggeredAtDesc(rule.getId(), condition.key())
-                    .orElse(null);
-            if (existing != null) {
-                existing.setLastEvaluatedAt(now);
-                recordRepository.save(existing);
-                continue;
+        TransitionResult transition = persistenceService.evaluate(rule.getId(), rule.getVersion(), conditions);
+        transition.deliveries().forEach(delivery -> {
+            AlertEvaluationPersistenceService.DeliveryClaim claim;
+            try {
+                claim = persistenceService.claimDelivery(rule.getId(), delivery);
+            } catch (Exception claimError) {
+                log.warn("Alert notification could not be claimed: ruleId={}, recordId={}, error={}",
+                        rule.getId(), delivery.recordId(), claimError.getMessage());
+                return;
             }
-            AlertRecord record = new AlertRecord();
-            record.setRuleId(rule.getId());
-            record.setRuleType(rule.getRuleType());
-            record.setDedupKey(condition.key());
-            record.setMessage(condition.message());
-            record.setLevel(condition.level());
-            record.setResolved(false);
-            record.setTriggeredAt(now);
-            record.setLastEvaluatedAt(now);
-            record.setNotificationStatus("pending");
-            record = recordRepository.save(record);
-            boolean sent = notifyService.sendAlertWithResult(rule, condition.message(), condition.level());
-            record.setNotificationStatus(sent ? "sent" : "skipped");
-            recordRepository.save(record);
-            triggered++;
-        }
-
-        int recovered = 0;
-        for (AlertRecord open : recordRepository.findByRuleIdAndResolvedFalse(rule.getId())) {
-            if (activeKeys.contains(open.getDedupKey())) continue;
-            open.setResolved(true);
-            open.setResolvedAt(now);
-            open.setRecoveredAt(now);
-            open.setLastEvaluatedAt(now);
-            recordRepository.save(open);
-            notifyService.sendAlertWithResult(rule, "告警已恢复：" + open.getMessage(), "info");
-            recovered++;
-        }
-        return new EvaluationSummary(1, triggered, recovered);
+            if (claim == null) return;
+            AlertNotifyService.AlertDeliveryStatus status;
+            String errorMessage = null;
+            try {
+                status = notifyService.sendAlertWithStatus(
+                        claim.rule(), claim.message(), claim.level());
+            } catch (Exception notificationError) {
+                log.warn("Alert notification failed: ruleId={}, recordId={}, error={}",
+                        rule.getId(), delivery.recordId(), notificationError.getMessage());
+                status = AlertNotifyService.AlertDeliveryStatus.RETRYABLE_FAILURE;
+                errorMessage = notificationError.getMessage();
+            }
+            try {
+                persistenceService.recordDelivery(
+                        rule.getId(), delivery.recordId(), delivery.kind(), claim.token(),
+                        claim.attemptCount(), status, errorMessage);
+            } catch (Exception statusError) {
+                log.warn("Alert notification status could not be saved: ruleId={}, recordId={}, error={}",
+                        rule.getId(), delivery.recordId(), statusError.getMessage());
+            }
+        });
+        return new EvaluationSummary(1, transition.triggered(), transition.recovered());
     }
 
     private List<Condition> activeConditions(AlertRule rule) {
@@ -147,9 +131,6 @@ public class AlertEvaluationService {
 
     private String defaultText(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value;
-    }
-
-    private record Condition(String key, String message, String level) {
     }
 
     public record EvaluationSummary(int evaluated, int triggered, int recovered) {

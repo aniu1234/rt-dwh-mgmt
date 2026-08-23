@@ -26,6 +26,14 @@ public class QualityCheckRun {
     private Long ruleId;
     @Column(name = "rule_name", nullable = false, length = 100)
     private String ruleName;
+    @Column(name = "rule_type", length = 50)
+    private String ruleType;
+    @Column(name = "target_table", length = 100)
+    private String targetTable;
+    @Column(name = "target_column", length = 100)
+    private String targetColumn;
+    @Column(name = "rule_version")
+    private Long ruleVersion;
     @Column(nullable = false, length = 20)
     private String triggerType;
     @Column(nullable = false, length = 20)

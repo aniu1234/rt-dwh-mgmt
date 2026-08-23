@@ -1,19 +1,21 @@
 package com.rtdwh.service;
 
-import com.rtdwh.entity.QualityAlert;
+import com.rtdwh.dto.QualityCheckSummary;
+import com.rtdwh.dto.QualityOverviewSummary;
 import com.rtdwh.entity.QualityCheckRun;
 import com.rtdwh.entity.QualityRule;
-import com.rtdwh.repository.QualityAlertRepository;
 import com.rtdwh.repository.QualityCheckRunRepository;
 import com.rtdwh.repository.QualityRuleRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
@@ -24,60 +26,62 @@ import java.util.regex.Pattern;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+@Transactional(propagation = Propagation.NOT_SUPPORTED)
 public class QualityCheckService {
     private static final Pattern SAFE_EXPRESSION = Pattern.compile(
-            "^(?!.*(?:;|--|/\\*|\\*/|\\b(?:insert|update|delete|drop|alter|create|grant|revoke|outfile)\\b)).+$",
+            "^(?!.*(?:;|--|/\\*|\\*/|\\b(?:select|union|insert|update|delete|drop|alter|create|grant|revoke|sleep|benchmark|load_file|outfile)\\b)).+$",
             Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
 
     private final QualityRuleRepository ruleRepository;
-    private final QualityAlertRepository alertRepository;
     private final QualityCheckRunRepository runRepository;
-    private final AlertNotifyService alertNotifyService;
+    private final QualityCheckPersistenceService persistenceService;
     private final DorisConnectionService dorisConnectionService;
 
-    @Transactional
     public int runAllChecks() {
-        return runAllChecks("manual");
+        return runAllChecksWithSummary("manual").abnormalCount();
     }
 
-    @Transactional
     public int runAllChecks(String triggerType) {
-        String batchId = UUID.randomUUID().toString();
-        List<QualityRule> rules = ruleRepository.findByEnabled(true);
-        int alertCount = 0;
-        for (QualityRule rule : rules) {
-            alertCount += checkRule(rule, batchId, normalizeTrigger(triggerType));
-        }
-        log.info("Quality batch [{}] completed: rules={}, alerts={}", batchId, rules.size(), alertCount);
-        return alertCount;
+        return runAllChecksWithSummary(triggerType).abnormalCount();
     }
 
-    @Transactional
+    public QualityCheckSummary runAllChecksWithSummary() {
+        return runAllChecksWithSummary("manual");
+    }
+
+    public QualityCheckSummary runAllChecksWithSummary(String triggerType) {
+        return runRules(ruleRepository.findByEnabled(true), normalizeTrigger(triggerType));
+    }
+
     public int runChecksByLayer(String layer) {
-        String batchId = UUID.randomUUID().toString();
-        return ruleRepository.findByLayerAndRuleType(layer, null).stream()
+        List<QualityRule> rules = ruleRepository.findByLayer(layer).stream()
                 .filter(rule -> Boolean.TRUE.equals(rule.getEnabled()))
-                .mapToInt(rule -> checkRule(rule, batchId, "manual"))
-                .sum();
+                .toList();
+        return runRules(rules, "manual").abnormalCount();
     }
 
-    @Transactional
     public int runCheck(Long ruleId) {
+        return runCheckWithSummary(ruleId).abnormalCount();
+    }
+
+    public QualityCheckSummary runCheckWithSummary(Long ruleId) {
         QualityRule rule = ruleRepository.findById(ruleId)
                 .orElseThrow(() -> new IllegalArgumentException("质量规则不存在: " + ruleId));
         if (!Boolean.TRUE.equals(rule.getEnabled())) {
             throw new IllegalStateException("质量规则未启用: " + ruleId);
         }
-        return checkRule(rule, UUID.randomUUID().toString(), "manual");
+        return runRules(List.of(rule), "manual");
     }
 
-    @Transactional
-    public int runChecksForTable(String database, String table) {
-        String batchId = UUID.randomUUID().toString();
-        return ruleRepository.findByEnabled(true).stream()
-                .filter(rule -> matchesTable(rule.getTargetTable(), database, table))
-                .mapToInt(rule -> checkRule(rule, batchId, "production"))
-                .sum();
+    public int runChecksForTable(String catalog, String database, String table) {
+        return runChecksForTableWithSummary(catalog, database, table).abnormalCount();
+    }
+
+    public QualityCheckSummary runChecksForTableWithSummary(String catalog, String database, String table) {
+        List<QualityRule> rules = ruleRepository.findByEnabled(true).stream()
+                .filter(rule -> matchesTable(rule, catalog, database, table))
+                .toList();
+        return runRules(rules, "production");
     }
 
     @Transactional(readOnly = true)
@@ -87,44 +91,116 @@ public class QualityCheckService {
                 : runRepository.findTop100ByRuleIdOrderByStartedAtDesc(ruleId);
     }
 
-    private int checkRule(QualityRule rule, String batchId, String triggerType) {
-        String sql = generateCheckSql(rule);
-        QualityCheckRun run = runRepository.save(QualityCheckRun.builder()
+    @Transactional(readOnly = true)
+    public QualityOverviewSummary getOverview() {
+        LocalDate today = LocalDate.now();
+        LocalDateTime trendStartedAt = today.minusDays(6).atStartOfDay();
+        List<QualityOverviewSummary.DailyRunSummary> dailyRuns = runRepository
+                .summarizeDailyRuns(trendStartedAt).stream()
+                .map(row -> new QualityOverviewSummary.DailyRunSummary(
+                        toLocalDate(row[0]), numberValue(row[1]), numberValue(row[2]), numberValue(row[3])))
+                .toList();
+        Double averageDuration = runRepository.findAverageCompletedDurationMs();
+        return new QualityOverviewSummary(
+                runRepository.findLatestRunForEachRule(),
+                dailyRuns,
+                runRepository.countByStartedAtGreaterThanEqual(LocalDateTime.now().minusHours(24)),
+                averageDuration == null ? 0L : Math.round(averageDuration));
+    }
+
+    private QualityCheckSummary runRules(List<QualityRule> rules, String triggerType) {
+        String batchId = UUID.randomUUID().toString();
+        LocalDateTime startedAt = LocalDateTime.now();
+        long started = System.currentTimeMillis();
+        int passed = 0;
+        int failed = 0;
+        int errors = 0;
+        int abnormalCount = 0;
+        try {
+            int recovered = persistenceService.recoverStaleRuns(startedAt.minusMinutes(30));
+            if (recovered > 0) log.warn("Recovered {} stale quality check runs", recovered);
+        } catch (Exception recoveryError) {
+            log.warn("Could not recover stale quality check runs: {}", conciseError(recoveryError));
+        }
+        for (QualityRule rule : rules) {
+            CheckOutcome outcome = checkRule(rule, batchId, triggerType);
+            abnormalCount += outcome.abnormalCount();
+            switch (outcome.status()) {
+                case "passed" -> passed++;
+                case "failed" -> failed++;
+                default -> errors++;
+            }
+        }
+        LocalDateTime finishedAt = LocalDateTime.now();
+        long durationMs = System.currentTimeMillis() - started;
+        log.info("Quality batch [{}] completed: rules={}, passed={}, failed={}, errors={}, abnormal={}",
+                batchId, rules.size(), passed, failed, errors, abnormalCount);
+        return new QualityCheckSummary(batchId, rules.size(), passed, failed, errors, abnormalCount,
+                startedAt, finishedAt, durationMs);
+    }
+
+    private CheckOutcome checkRule(QualityRule rule, String batchId, String triggerType) {
+        QualityCheckRun run;
+        try {
+            run = persistenceService.startRun(QualityCheckRun.builder()
                 .batchId(batchId)
                 .ruleId(rule.getId())
                 .ruleName(rule.getRuleName())
+                .ruleType(rule.getRuleType())
+                .targetTable(rule.getTargetTable())
+                .targetColumn(rule.getTargetColumn())
+                .ruleVersion(rule.getVersion())
                 .triggerType(triggerType)
                 .engine("doris")
                 .status("running")
-                .checkSql(sql)
+                .checkSql("-- 正在生成质量检查 SQL --")
                 .thresholdValue(rule.getThreshold())
                 .startedAt(LocalDateTime.now())
                 .build());
+        } catch (Exception persistenceError) {
+            log.error("Quality rule [{}] could not create run record: {}", rule.getId(), conciseError(persistenceError));
+            return new CheckOutcome("error", 1);
+        }
+
         long started = System.currentTimeMillis();
+        CheckOutcome outcome;
+        String alertLevel = null;
+        String alertMessage = null;
         try {
+            String sql = generateCheckSql(rule);
+            run.setCheckSql(sql);
             double actualValue = executeViaDoris(sql);
             double threshold = rule.getThreshold() == null ? 0.0 : rule.getThreshold();
             boolean exceeded = isThresholdExceeded(rule.getRuleType(), actualValue, threshold);
             run.setActualValue(actualValue);
             run.setStatus(exceeded ? "failed" : "passed");
             if (exceeded) {
-                String message = buildAlertMessage(rule, actualValue, threshold);
-                createAlert(rule, actualValue, threshold, determineAlertLevel(actualValue, threshold), message);
-                alertNotifyService.sendQualityAlert(rule, actualValue, threshold, message);
-                return 1;
+                alertMessage = buildAlertMessage(rule, actualValue, threshold);
+                alertLevel = determineAlertLevel(rule.getRuleType(), actualValue, threshold);
+                outcome = new CheckOutcome("failed", 1);
+            } else {
+                outcome = new CheckOutcome("passed", 0);
             }
-            return 0;
         } catch (Exception exception) {
             String error = conciseError(exception);
             run.setStatus("error");
             run.setErrorMessage(error);
-            createAlert(rule, -1.0, rule.getThreshold(), "error", "质量检查执行失败: " + error);
+            alertLevel = "error";
+            alertMessage = "质量检查执行失败: " + error;
+            outcome = new CheckOutcome("error", 1);
             log.error("Quality rule [{}] execution failed: {}", rule.getId(), error);
-            return 1;
         } finally {
             run.setDurationMs(System.currentTimeMillis() - started);
             run.setFinishedAt(LocalDateTime.now());
-            runRepository.save(run);
+        }
+        try {
+            boolean isNewAlert = persistenceService.completeRun(rule, run, alertLevel, alertMessage);
+            if (isNewAlert) log.info("Quality rule [{}] opened a new alert", rule.getId());
+            return outcome;
+        } catch (Exception persistenceError) {
+            log.error("Quality rule [{}] could not atomically finish its run and alert state: {}",
+                    rule.getId(), conciseError(persistenceError));
+            return new CheckOutcome("error", 1);
         }
     }
 
@@ -135,19 +211,20 @@ public class QualityCheckService {
         return switch (rule.getRuleType()) {
             case "null_rate" -> {
                 requireColumn(column, rule.getRuleType());
-                yield "SELECT CAST(SUM(CASE WHEN " + column + " IS NULL THEN 1 ELSE 0 END) AS DOUBLE) "
-                        + "/ NULLIF(COUNT(*), 0) FROM " + table;
+                yield "SELECT COALESCE(CAST(SUM(CASE WHEN " + column
+                        + " IS NULL THEN 1 ELSE 0 END) AS DOUBLE) / NULLIF(COUNT(*), 0), 0.0) FROM " + table;
             }
             case "uniqueness" -> {
                 requireColumn(column, rule.getRuleType());
-                yield "SELECT CAST(COUNT(DISTINCT " + column + ") AS DOUBLE) / NULLIF(COUNT(*), 0) FROM " + table;
+                yield "SELECT COALESCE(CAST(COUNT(DISTINCT " + column
+                        + ") AS DOUBLE) / NULLIF(COUNT(*), 0), 1.0) FROM " + table;
             }
             case "volume_compare" -> "SELECT CAST(COUNT(*) AS DOUBLE) FROM " + table;
             case "range_check" -> {
                 requireColumn(column, rule.getRuleType());
                 String expression = validateExpression(rule.getExpression());
-                yield "SELECT CAST(SUM(CASE WHEN NOT (" + expression + ") THEN 1 ELSE 0 END) AS DOUBLE) "
-                        + "/ NULLIF(COUNT(*), 0) FROM " + table;
+                yield "SELECT COALESCE(CAST(SUM(CASE WHEN NOT (" + expression
+                        + ") THEN 1 ELSE 0 END) AS DOUBLE) / NULLIF(COUNT(*), 0), 0.0) FROM " + table;
             }
             default -> throw new IllegalArgumentException("不支持的质量规则类型: " + rule.getRuleType());
         };
@@ -168,18 +245,8 @@ public class QualityCheckService {
     }
 
     private String qualifiedTable(QualityRule rule) {
-        String raw = stripQuotes(rule.getTargetTable());
-        if (raw == null || raw.isBlank()) throw new IllegalArgumentException("表名不能为空");
-        String[] parts = raw.split("\\.");
-        String catalog = dorisConnectionService.getCatalog();
-        String database = rule.getLayer() == null || rule.getLayer().isBlank()
-                ? dorisConnectionService.getDatabase() : stripQuotes(rule.getLayer()).toLowerCase(Locale.ROOT);
-        return switch (parts.length) {
-            case 1 -> quotePath(catalog, database, parts[0]);
-            case 2 -> quotePath(catalog, parts[0], parts[1]);
-            case 3 -> quotePath(parts[0], parts[1], parts[2]);
-            default -> throw new IllegalArgumentException("表名必须是 table、database.table 或 catalog.database.table");
-        };
+        TableRef table = resolveTable(rule);
+        return quotePath(table.catalog(), table.database(), table.table());
     }
 
     private String quotePath(String... parts) {
@@ -213,34 +280,30 @@ public class QualityCheckService {
         };
     }
 
-    private String determineAlertLevel(double actual, double threshold) {
-        double deviation = Math.abs(actual - threshold) / Math.max(Math.abs(threshold), 0.01);
-        if (deviation > 2.0) return "error";
-        if (deviation > 1.0) return "warn";
+    private String determineAlertLevel(String ruleType, double actual, double threshold) {
+        double delta = List.of("null_rate", "range_check").contains(ruleType)
+                ? actual - threshold : threshold - actual;
+        double deviation = Math.max(0.0, delta) / Math.max(Math.abs(threshold), 0.01);
+        if (deviation >= 1.0) return "error";
+        if (deviation >= 0.25) return "warn";
         return "info";
     }
 
     private String buildAlertMessage(QualityRule rule, double actual, double threshold) {
         String direction = List.of("null_rate", "range_check").contains(rule.getRuleType()) ? "超过" : "低于";
-        return String.format("质量检查异常: 表 %s 列 %s 的 %s 实际值 %.4f %s阈值 %.4f",
+        return String.format("质量检查异常: 表 %s 列 %s 的%s实际值 %.4f，%s阈值 %.4f",
                 rule.getTargetTable(), rule.getTargetColumn() == null ? "(全表)" : rule.getTargetColumn(),
-                rule.getRuleType(), actual, direction, threshold);
+                ruleTypeLabel(rule.getRuleType()), actual, direction, threshold);
     }
 
-    private void createAlert(QualityRule rule, double actualValue, Double thresholdValue,
-                             String level, String message) {
-        alertRepository.save(QualityAlert.builder()
-                .ruleType(rule.getRuleType())
-                .targetTable(rule.getTargetTable())
-                .targetColumn(rule.getTargetColumn())
-                .actualValue(actualValue)
-                .thresholdValue(thresholdValue)
-                .message(message)
-                .level(level)
-                .ruleId(rule.getId())
-                .resolved(false)
-                .triggeredAt(LocalDateTime.now())
-                .build());
+    private String ruleTypeLabel(String ruleType) {
+        return switch (ruleType) {
+            case "null_rate" -> "空值率";
+            case "uniqueness" -> "唯一率";
+            case "volume_compare" -> "数据量";
+            case "range_check" -> "越界率";
+            default -> ruleType;
+        };
     }
 
     private String normalizeTrigger(String triggerType) {
@@ -248,16 +311,56 @@ public class QualityCheckService {
         return "scheduled".equalsIgnoreCase(triggerType) ? "scheduled" : "manual";
     }
 
-    private boolean matchesTable(String target, String database, String table) {
-        if (target == null) return false;
-        String normalized = stripQuotes(target).toLowerCase(Locale.ROOT);
-        String dbTable = database.toLowerCase(Locale.ROOT) + "." + table.toLowerCase(Locale.ROOT);
-        return normalized.equals(table.toLowerCase(Locale.ROOT)) || normalized.equals(dbTable)
-                || normalized.endsWith("." + dbTable);
+    private boolean matchesTable(QualityRule rule, String catalog, String database, String table) {
+        if (catalog == null || database == null || table == null) return false;
+        try {
+            TableRef resolved = resolveTable(rule);
+            return resolved.catalog().equalsIgnoreCase(catalog)
+                    && resolved.database().equalsIgnoreCase(database)
+                    && resolved.table().equalsIgnoreCase(table);
+        } catch (IllegalArgumentException invalidRule) {
+            log.warn("Quality rule [{}] has an invalid target table: {}", rule.getId(), conciseError(invalidRule));
+            return false;
+        }
+    }
+
+    private TableRef resolveTable(QualityRule rule) {
+        String raw = stripQuotes(rule.getTargetTable());
+        if (raw == null || raw.isBlank()) throw new IllegalArgumentException("表名不能为空");
+        String[] parts = raw.split("\\.", -1);
+        String catalog = dorisConnectionService.getCatalog();
+        String database = rule.getLayer() == null || rule.getLayer().isBlank()
+                ? dorisConnectionService.getDatabase() : stripQuotes(rule.getLayer()).toLowerCase(Locale.ROOT);
+        TableRef table = switch (parts.length) {
+            case 1 -> new TableRef(catalog, database, parts[0]);
+            case 2 -> new TableRef(catalog, parts[0], parts[1]);
+            case 3 -> new TableRef(parts[0], parts[1], parts[2]);
+            default -> throw new IllegalArgumentException("表名必须是 table、database.table 或 catalog.database.table");
+        };
+        DorisConnectionService.quoteIdentifier(table.catalog());
+        DorisConnectionService.quoteIdentifier(table.database());
+        DorisConnectionService.quoteIdentifier(table.table());
+        return table;
+    }
+
+    private LocalDate toLocalDate(Object value) {
+        if (value instanceof LocalDate localDate) return localDate;
+        if (value instanceof java.sql.Date sqlDate) return sqlDate.toLocalDate();
+        return LocalDate.parse(String.valueOf(value));
+    }
+
+    private long numberValue(Object value) {
+        return value instanceof Number number ? number.longValue() : Long.parseLong(String.valueOf(value));
     }
 
     private String conciseError(Exception exception) {
         String message = exception.getMessage() == null ? exception.getClass().getSimpleName() : exception.getMessage();
         return message.length() > 1800 ? message.substring(0, 1800) + "..." : message;
+    }
+
+    private record CheckOutcome(String status, int abnormalCount) {
+    }
+
+    private record TableRef(String catalog, String database, String table) {
     }
 }

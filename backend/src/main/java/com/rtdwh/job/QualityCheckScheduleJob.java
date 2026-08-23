@@ -18,8 +18,8 @@ public class QualityCheckScheduleJob {
             initialDelayString = "${quality.schedule.initial-delay-ms:60000}")
     public void run() {
         try {
-            int alerts = qualityCheckService.runAllChecks("scheduled");
-            log.info("Scheduled quality check completed: alerts={}", alerts);
+            int abnormal = qualityCheckService.runAllChecks("scheduled");
+            log.info("Scheduled quality check completed: abnormal={}", abnormal);
         } catch (Exception exception) {
             log.error("Scheduled quality check failed", exception);
         }

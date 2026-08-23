@@ -1,18 +1,22 @@
 import React, { useMemo, useState } from 'react';
 import { PageContainer } from '@ant-design/pro-components';
-import { Alert, Button, Card, Col, DatePicker, Form, Input, InputNumber, message, Modal, Popconfirm, Row, Select, Space, Statistic, Table, Tabs, Tag, Typography } from 'antd';
-import { ApiOutlined, CodeOutlined, KeyOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { Alert, Button, Card, Col, DatePicker, Empty, Form, Input, InputNumber, message, Modal, Popconfirm, Row, Select, Space, Statistic, Table, Tabs, Tag, Typography } from 'antd';
+import { ApiOutlined, CheckCircleOutlined, ClockCircleOutlined, CodeOutlined, KeyOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { useAccess, useRequest } from '@umijs/max';
 import {
   createDataService, createDataServiceApp, deleteDataService, getDataServiceApps, getDataServiceGrants,
   getDataServiceLogs, getDataServices, grantDataService, publishDataService, revokeDataService,
   rotateDataServiceSecret, toggleDataServiceApp, updateDataService,
 } from '@/api';
+import './index.less';
 
 const parameterTemplate = JSON.stringify({ parameters: [
   { name: 'start_date', label: '开始日期', type: 'date', required: true },
   { name: 'region', label: '区域', type: 'string', defaultValue: '华东' },
 ] }, null, 2);
+
+const serviceStatusLabels: Record<string, string> = { draft: '草稿', published: '已发布', offline: '已下线' };
+const invocationStatusLabels: Record<string, string> = { success: '成功', failed: '失败' };
 
 const DataService: React.FC = () => {
   const access = useAccess();
@@ -66,34 +70,42 @@ const DataService: React.FC = () => {
   const curlExample = exampleService ? `curl -X POST '${window.location.origin}/api/v1/open/data/${exampleService.serviceCode}' \\\n+  -H 'Content-Type: application/json' \\\n+  -H 'X-App-Key: <YOUR_APP_KEY>' \\\n+  -H 'X-App-Secret: <YOUR_APP_SECRET>' \\\n+  -d '${JSON.stringify(exampleBody)}'` : '';
   const curlCommand = curlExample.replace(/\n\+/g, '\n');
 
-  return <PageContainer title="数据服务" subTitle="将 Doris 查询安全发布为外部系统可调用的数据接口" extra={<Button icon={<ReloadOutlined/>} onClick={refresh}>刷新</Button>}>
-    <Alert type="info" showIcon style={{marginBottom:16}} message="外部调用地址：POST /api/v1/open/data/{serviceCode}" description="请求头携带 X-App-Key、X-App-Secret，请求体传入 JSON 参数；密钥只在创建或轮换时展示一次。" />
-    <Row gutter={[16,16]} style={{marginBottom:16}}>
-      <Col xs={12} md={6}><Card><Statistic title="已发布接口" value={services.filter(service=>service.status==='published').length} prefix={<ApiOutlined/>}/></Card></Col>
-      <Col xs={12} md={6}><Card><Statistic title="调用应用" value={apps.filter(app=>app.enabled).length} prefix={<KeyOutlined/>}/></Card></Col>
-      <Col xs={12} md={6}><Card><Statistic title="近期成功率" value={(logsRequest.data||[]).length ? Number((successCount * 100 / (logsRequest.data||[]).length).toFixed(1)) : 0} suffix="%"/></Card></Col>
-      <Col xs={12} md={6}><Card><Statistic title="平均耗时" value={averageDuration} suffix="ms"/></Card></Col>
+  return <PageContainer className="data-service-page" title="数据服务" subTitle="将 Doris 查询安全发布为外部系统可调用的数据接口" extra={<Button icon={<ReloadOutlined/>} onClick={refresh}>刷新</Button>}>
+    <Alert
+      className="data-service-guide"
+      type="info"
+      showIcon
+      message={<div className="data-service-guide-title"><span>外部调用地址</span><Typography.Text code copyable={{text:'POST /api/v1/open/data/{serviceCode}'}}>POST /api/v1/open/data/{'{serviceCode}'}</Typography.Text></div>}
+      description={<span className="data-service-guide-description">请求头使用 <code>X-App-Key</code> 和 <code>X-App-Secret</code>，请求体传入 JSON 参数。密钥仅在创建或轮换时展示一次，请妥善保存。</span>}
+    />
+    <Row className="data-service-metrics" gutter={[12,12]}>
+      <Col xs={12} md={6}><Card className="data-service-metric-card"><span className="data-service-metric-icon is-blue"><ApiOutlined/></span><Statistic title="已发布接口" value={services.filter(service=>service.status==='published').length}/></Card></Col>
+      <Col xs={12} md={6}><Card className="data-service-metric-card"><span className="data-service-metric-icon is-cyan"><KeyOutlined/></span><Statistic title="调用应用" value={apps.filter(app=>app.enabled).length}/></Card></Col>
+      <Col xs={12} md={6}><Card className="data-service-metric-card"><span className="data-service-metric-icon is-green"><CheckCircleOutlined/></span><Statistic title="近期成功率" value={(logsRequest.data||[]).length ? Number((successCount * 100 / (logsRequest.data||[]).length).toFixed(1)) : 0} suffix="%"/></Card></Col>
+      <Col xs={12} md={6}><Card className="data-service-metric-card"><span className="data-service-metric-icon is-purple"><ClockCircleOutlined/></span><Statistic title="平均耗时" value={averageDuration} suffix="ms"/></Card></Col>
     </Row>
-    <Card><Tabs items={[
+    <Card className="data-service-content-card"><Tabs className="data-service-tabs" items={[
       {key:'services',label:`服务定义（${services.length}）`,children:<>
-        <div className="rtdwh-page-toolbar">
+        <div className="rtdwh-page-toolbar data-service-toolbar">
           {access.canManageDataService && <Button type="primary" icon={<PlusOutlined/>} onClick={()=>editService()}>新建数据服务</Button>}
-          <Input allowClear value={serviceKeyword} onChange={event=>setServiceKeyword(event.target.value)} prefix={<SearchOutlined/>} placeholder="搜索服务名称、编码或说明" style={{width:260}}/>
-          <Select allowClear value={serviceStatus} onChange={setServiceStatus} placeholder="全部状态" style={{width:140}} options={[{value:'draft',label:'草稿'},{value:'published',label:'已发布'},{value:'offline',label:'已下线'}]}/>
+          <div className="data-service-filter-group">
+            <Input className="data-service-search" allowClear value={serviceKeyword} onChange={event=>setServiceKeyword(event.target.value)} prefix={<SearchOutlined/>} placeholder="搜索服务名称、编码或说明"/>
+            <Select className="data-service-status" allowClear value={serviceStatus} onChange={setServiceStatus} placeholder="全部状态" options={[{value:'draft',label:'草稿'},{value:'published',label:'已发布'},{value:'offline',label:'已下线'}]}/>
+          </div>
         </div>
-        <Table rowKey="id" dataSource={visibleServices} loading={servicesRequest.loading} scroll={{x:1200}} locale={{emptyText:'暂无匹配的数据服务'}} columns={[
+        <Table className="data-service-table" size="small" rowKey="id" dataSource={visibleServices} loading={servicesRequest.loading} scroll={{x:1200}} locale={{emptyText:<Empty className="data-service-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description={serviceKeyword.trim() || serviceStatus ? '未找到匹配的数据服务' : '暂无数据服务，创建后即可安全发布接口'}>{access.canManageDataService && !serviceKeyword.trim() && !serviceStatus && <Button type="link" icon={<PlusOutlined/>} onClick={()=>editService()}>新建数据服务</Button>}</Empty>}} columns={[
           {title:'服务',key:'name',width:220,render:(_,r)=><div><b>{r.serviceName}</b><div><Typography.Text code>{r.serviceCode}</Typography.Text></div></div>},
           {title:'数据源',key:'source',width:220,render:(_,r)=>`${r.catalogName}.${r.databaseName}`},
           {title:'版本',dataIndex:'apiVersion',width:80,render:v=>`v${v}`},
           {title:'限制',key:'limit',width:210,render:(_,r)=>`${r.maxRows} 行 · ${r.timeoutSeconds}s · ${r.rateLimitPerMinute}次/分`},
-          {title:'状态',dataIndex:'status',width:100,render:v=><Tag color={v==='published'?'success':v==='offline'?'warning':'default'}>{v}</Tag>},
+          {title:'状态',dataIndex:'status',width:100,render:v=><Tag color={v==='published'?'success':v==='offline'?'warning':'default'}>{serviceStatusLabels[v] || v}</Tag>},
           {title:'接口',dataIndex:'serviceCode',ellipsis:true,render:v=><Typography.Text copyable code>{`/api/v1/open/data/${v}`}</Typography.Text>},
           {title:'操作',width:320,fixed:'right' as const,render:(_,r)=><Space><Button size="small" icon={<CodeOutlined/>} onClick={()=>setExampleService(r)}>调用示例</Button>{access.canManageDataService&&<><Button size="small" onClick={()=>editService(r)}>编辑</Button><Button size="small" type="primary" ghost={r.status==='published'} onClick={async()=>{await publishDataService(r.id,r.status!=='published');message.success(r.status==='published'?'已下线':'已发布');servicesRequest.refresh();}}>{r.status==='published'?'下线':'发布'}</Button><Popconfirm title="确认删除？" onConfirm={async()=>{await deleteDataService(r.id);message.success('已删除');servicesRequest.refresh();}}><Button size="small" danger>删除</Button></Popconfirm></>}</Space>},
         ]}/>
       </>},
       {key:'apps',label:`调用应用（${apps.length}）`,children:<>
-        {access.canManageDataService&&<Button type="primary" icon={<KeyOutlined/>} style={{marginBottom:16}} onClick={()=>{setAppOpen(true);appForm.resetFields();}}>创建调用应用</Button>}
-        <Table rowKey="id" dataSource={apps} loading={appsRequest.loading} columns={[
+        {access.canManageDataService&&<div className="rtdwh-page-toolbar data-service-toolbar"><Button type="primary" icon={<KeyOutlined/>} onClick={()=>{setAppOpen(true);appForm.resetFields();}}>创建调用应用</Button></div>}
+        <Table className="data-service-table" size="small" rowKey="id" dataSource={apps} loading={appsRequest.loading} columns={[
           {title:'应用名称',dataIndex:'appName'},
           {title:'AppKey',dataIndex:'appKey',render:v=><Typography.Text copyable code>{v}</Typography.Text>},
           {title:'状态',dataIndex:'enabled',width:100,render:v=><Tag color={v?'success':'default'}>{v?'启用':'停用'}</Tag>},
@@ -101,8 +113,8 @@ const DataService: React.FC = () => {
           {title:'操作',width:300,render:(_,r)=>access.canManageDataService?<Space><Button size="small" onClick={()=>openGrants(r)}>服务授权</Button><Popconfirm title="轮换后旧密钥立即失效，确认继续？" onConfirm={async()=>setCredential(await rotateDataServiceSecret(r.id))}><Button size="small">轮换密钥</Button></Popconfirm><Button size="small" danger={r.enabled} onClick={async()=>{await toggleDataServiceApp(r.id);appsRequest.refresh();}}>{r.enabled?'停用':'启用'}</Button></Space>:<Typography.Text type="secondary">仅查看</Typography.Text>},
         ]}/>
       </>},
-      {key:'logs',label:'调用日志',children:<><div className="rtdwh-page-toolbar"><Select allowClear value={logStatus} onChange={setLogStatus} placeholder="全部调用结果" style={{width:160}} options={[{value:'success',label:'成功'},{value:'failed',label:'失败'}]}/><Typography.Text type="secondary">展示最近 200 次调用</Typography.Text></div><Table rowKey="id" dataSource={logs} loading={logsRequest.loading} scroll={{x:1100}} locale={{emptyText:'暂无接口调用日志'}} columns={[
-        {title:'时间',dataIndex:'createdAt',width:180},{title:'服务',dataIndex:'serviceCode',width:180},{title:'应用ID',dataIndex:'appId',width:90},{title:'状态',dataIndex:'status',width:90,render:v=><Tag color={v==='success'?'success':'error'}>{v}</Tag>},{title:'HTTP',dataIndex:'httpStatus',width:80},{title:'行数',dataIndex:'rowCount',width:80},{title:'耗时',dataIndex:'durationMs',width:100,render:v=>v==null?'—':`${v}ms`},{title:'来源IP',dataIndex:'clientIp',width:140},{title:'错误',dataIndex:'errorMessage',ellipsis:true},
+      {key:'logs',label:'调用日志',children:<><div className="rtdwh-page-toolbar data-service-toolbar"><Select className="data-service-status" allowClear value={logStatus} onChange={setLogStatus} placeholder="全部调用结果" options={[{value:'success',label:'成功'},{value:'failed',label:'失败'}]}/><Typography.Text className="data-service-toolbar-note" type="secondary">展示最近 200 次调用</Typography.Text></div><Table className="data-service-table" size="small" rowKey="id" dataSource={logs} loading={logsRequest.loading} scroll={{x:1100}} locale={{emptyText:'暂无接口调用日志'}} columns={[
+        {title:'时间',dataIndex:'createdAt',width:180},{title:'服务',dataIndex:'serviceCode',width:180},{title:'应用ID',dataIndex:'appId',width:90},{title:'状态',dataIndex:'status',width:90,render:v=><Tag color={v==='success'?'success':'error'}>{invocationStatusLabels[v] || v}</Tag>},{title:'HTTP',dataIndex:'httpStatus',width:80},{title:'行数',dataIndex:'rowCount',width:80},{title:'耗时',dataIndex:'durationMs',width:100,render:v=>v==null?'—':`${v}ms`},{title:'来源IP',dataIndex:'clientIp',width:140},{title:'错误',dataIndex:'errorMessage',ellipsis:true},
       ]}/></>} ]}/></Card>
 
     <Modal title={editing?'编辑数据服务':'新建数据服务'} width={820} open={serviceOpen} onCancel={()=>setServiceOpen(false)} onOk={()=>form.submit()} destroyOnClose>
@@ -116,13 +128,13 @@ const DataService: React.FC = () => {
     </Modal>
 
     <Modal title="创建调用应用" open={appOpen} onCancel={()=>setAppOpen(false)} onOk={()=>appForm.submit()} destroyOnClose><Form form={appForm} layout="vertical" onFinish={async values=>{setCredential(await createDataServiceApp({...values,expiresAt:values.expiresAt?.format('YYYY-MM-DDTHH:mm:ss')}));setAppOpen(false);appsRequest.refresh();}}><Form.Item name="appName" label="应用名称" rules={[{required:true}]}><Input placeholder="订单系统"/></Form.Item><Form.Item name="expiresAt" label="凭证有效期" extra="不填写表示长期有效"><DatePicker showTime style={{width:'100%'}} placeholder="选择失效时间" /></Form.Item></Form></Modal>
-    <Modal title="应用凭证（仅展示一次）" open={!!credential} onCancel={()=>setCredential(undefined)} footer={<Button type="primary" onClick={()=>setCredential(undefined)}>我已保存</Button>}><Alert type="warning" showIcon message="关闭后无法再次查看 AppSecret" style={{marginBottom:16}}/><Typography.Paragraph copyable><b>AppKey：</b>{credential?.appKey}</Typography.Paragraph><Typography.Paragraph copyable><b>AppSecret：</b>{credential?.appSecret}</Typography.Paragraph></Modal>
+    <Modal title="应用凭证（仅展示一次）" open={!!credential} onCancel={()=>setCredential(undefined)} footer={<Button type="primary" onClick={()=>setCredential(undefined)}>我已保存</Button>}><Alert className="data-service-warning-alert" type="warning" showIcon message="关闭后无法再次查看 AppSecret"/><Typography.Paragraph copyable><b>AppKey：</b>{credential?.appKey}</Typography.Paragraph><Typography.Paragraph copyable><b>AppSecret：</b>{credential?.appSecret}</Typography.Paragraph></Modal>
     <Modal title={`服务授权：${grantApp?.appName||''}`} open={!!grantApp} onCancel={()=>setGrantApp(undefined)} footer={null}>
       <Select style={{width:'100%',marginBottom:16}} placeholder="选择要授权的数据服务" options={services.filter(s=>!grants.some(g=>g.serviceId===s.id)).map(s=>({value:s.id,label:`${s.serviceName}（${s.serviceCode}）`}))} onChange={async serviceId=>{if(!grantApp)return;await grantDataService(grantApp.id,serviceId);setGrants(await getDataServiceGrants(grantApp.id));message.success('授权已添加');}}/>
       <Table rowKey="id" dataSource={grants} pagination={false} columns={[{title:'已授权服务',dataIndex:'serviceId',render:id=>services.find(s=>s.id===id)?.serviceName||id},{title:'操作',width:100,render:(_,g)=><Button danger type="link" onClick={async()=>{if(!grantApp)return;await revokeDataService(grantApp.id,g.serviceId);setGrants(await getDataServiceGrants(grantApp.id));}}>移除</Button>}]} />
     </Modal>
     <Modal title={`接口调用示例：${exampleService?.serviceName||''}`} width={760} open={!!exampleService} onCancel={()=>setExampleService(undefined)} footer={<Button type="primary" onClick={()=>setExampleService(undefined)}>关闭</Button>}>
-      {exampleService?.status!=='published'&&<Alert type="warning" showIcon message="该服务尚未发布，发布后外部系统才能调用" style={{marginBottom:16}}/>}
+      {exampleService?.status!=='published'&&<Alert className="data-service-warning-alert" type="warning" showIcon message="该服务尚未发布，发布后外部系统才能调用"/>}
       <Typography.Paragraph type="secondary">将占位符替换为调用应用的凭证。请求体已根据参数定义生成，可直接复制后修改。</Typography.Paragraph>
       <Typography.Text strong>cURL</Typography.Text>
       <pre className="rtdwh-code-panel"><Typography.Text copyable={{text:curlCommand}} style={{color:'inherit'}}>{curlCommand}</Typography.Text></pre>

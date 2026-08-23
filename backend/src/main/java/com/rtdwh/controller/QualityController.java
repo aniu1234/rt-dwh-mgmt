@@ -1,6 +1,8 @@
 package com.rtdwh.controller;
 
 import com.rtdwh.dto.ApiResponse;
+import com.rtdwh.dto.QualityCheckSummary;
+import com.rtdwh.dto.QualityOverviewSummary;
 import com.rtdwh.entity.QualityRule;
 import com.rtdwh.entity.QualityAlert;
 import com.rtdwh.entity.QualityCheckRun;
@@ -31,6 +33,11 @@ public class QualityController {
         return ApiResponse.success(qualityService.listRules(layer, ruleType));
     }
 
+    @GetMapping("/overview")
+    public ApiResponse<QualityOverviewSummary> overview() {
+        return ApiResponse.success(qualityCheckService.getOverview());
+    }
+
     @PostMapping("/rules")
     @PreAuthorize("hasAuthority('quality:manage')")
     public ApiResponse<QualityRule> createRule(@RequestBody QualityRule rule) {
@@ -48,8 +55,11 @@ public class QualityController {
     public ApiResponse<QualityRule> toggleRule(
             @PathVariable Long id,
             @RequestBody Map<String, Boolean> body) {
+        if (body == null || !body.containsKey("enabled") || body.get("enabled") == null) {
+            throw new IllegalArgumentException("enabled 不能为空");
+        }
         return ApiResponse.success("规则状态已更新",
-                qualityService.setRuleEnabled(id, Boolean.TRUE.equals(body.get("enabled"))));
+                qualityService.setRuleEnabled(id, body.get("enabled")));
     }
 
     @DeleteMapping("/rules/{id}")
@@ -59,14 +69,22 @@ public class QualityController {
         return ApiResponse.success("规则已删除", null);
     }
 
-    @PostMapping("/run-check")
+    @PostMapping("/run-check/all")
     @PreAuthorize("hasAuthority('quality:manage')")
-    public ApiResponse<Integer> runCheck(@RequestBody(required = false) Map<String, Long> body) {
-        Long ruleId = body == null ? null : body.get("ruleId");
-        int alertCount = ruleId == null
-                ? qualityCheckService.runAllChecks()
-                : qualityCheckService.runCheck(ruleId);
-        return ApiResponse.success("质量检查完成，发现 " + alertCount + " 个异常", alertCount);
+    public ApiResponse<QualityCheckSummary> runAllChecks() {
+        QualityCheckSummary summary = qualityCheckService.runAllChecksWithSummary();
+        return checkResponse(summary);
+    }
+
+    @PostMapping("/rules/{id}/run")
+    @PreAuthorize("hasAuthority('quality:manage')")
+    public ApiResponse<QualityCheckSummary> runRule(@PathVariable Long id) {
+        return checkResponse(qualityCheckService.runCheckWithSummary(id));
+    }
+
+    private ApiResponse<QualityCheckSummary> checkResponse(QualityCheckSummary summary) {
+        return ApiResponse.success("质量检查完成：通过 " + summary.passed()
+                + " 条，未通过 " + summary.failed() + " 条，执行异常 " + summary.errorCount() + " 条", summary);
     }
 
     @GetMapping("/alerts")

@@ -32,6 +32,10 @@ type LocalQuery = {
 
 type ActiveQuery = { source: 'local' | 'remote'; id: string | number; name: string };
 
+const queryStatusLabels: Record<string, string> = {
+  success: '成功', failed: '失败', cancelled: '已取消', running: '运行中',
+};
+
 const readLocalQueries = (): LocalQuery[] => {
   try { return JSON.parse(localStorage.getItem(LOCAL_SQL_KEY) || '[]'); }
   catch { return []; }
@@ -258,7 +262,7 @@ const AdhocQuery: React.FC = () => {
   return (
     <PageContainer className="adhoc-query-page" title="即席查询" subTitle="Doris 加速 Paimon 查询、Catalog 智能提示与 SQL 资产管理">
       <Card className="adhoc-query-editor-card" title={activeQuery ? `SQL 编辑器 · ${activeQuery.name}` : 'SQL 编辑器'}
-        extra={<Space>
+        extra={<Space wrap size={8}>
           <Tag color={catalog ? 'green' : 'orange'}>{catalog ? `Catalog: ${catalog.catalogName}` : 'Catalog 加载中'}</Tag>
           <Button icon={<FolderOpenOutlined />} onClick={() => setLibraryOpen(true)}>SQL 库</Button>
           <Button icon={<SaveOutlined />} onClick={openSave}>保存 SQL</Button>
@@ -301,15 +305,15 @@ const AdhocQuery: React.FC = () => {
       </Card>
 
       {result && (
-        <Card title={`查询结果（Doris · 耗时 ${result.durationMs || 0}ms · 返回 ${result.rowCount || 0} 行）`}
+        <Card className="adhoc-query-data-card adhoc-query-result-card" title={`查询结果（Doris · 耗时 ${result.durationMs || 0}ms · 返回 ${result.rowCount || 0} 行）`}
           extra={<Space>
             {result.traceId && <Typography.Text type="secondary" copyable>Trace: {result.traceId}</Typography.Text>}
             <Button size="small" disabled={!result.queryId || !result.historyId} onClick={() => openProfile(result.historyId)}>查看 Profile</Button>
           </Space>}>
-          {result.status !== 'success' && <Alert type="error" message={result.errorMsg || '查询失败'} showIcon style={{ marginBottom: 12 }} />}
-          {result.truncated && <Alert type="warning" message="结果已达到最大返回行数，请增加限制或导出 CSV" showIcon style={{ marginBottom: 12 }} />}
-          {result.budgetExceeded && <Alert type="warning" showIcon message="本次查询超出成本软预算" description={result.budgetReason} style={{ marginBottom: 12 }} />}
-          <Row gutter={12} style={{ marginBottom: 12 }}>
+          {result.status !== 'success' && <Alert className="adhoc-query-result-alert" type="error" message={result.errorMsg || '查询失败'} showIcon />}
+          {result.truncated && <Alert className="adhoc-query-result-alert" type="warning" message="结果已达到最大返回行数，请增加限制或导出 CSV" showIcon />}
+          {result.budgetExceeded && <Alert className="adhoc-query-result-alert" type="warning" showIcon message="本次查询超出成本软预算" description={result.budgetReason} />}
+          <Row className="adhoc-query-result-stats" gutter={12}>
             <Col span={6}><Statistic title="扫描行数" value={result.scannedRows ?? '—'} /></Col>
             <Col span={6}><Statistic title="扫描数据量" value={formatBytes(result.scannedBytes)} /></Col>
             <Col span={6}><Statistic title="CPU 时间" value={result.cpuMs ?? '—'} suffix={result.cpuMs == null ? undefined : 'ms'} /></Col>
@@ -323,17 +327,17 @@ const AdhocQuery: React.FC = () => {
         </Card>
       )}
 
-      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-        <Col xs={24} sm={12} xl={4}><Card><Statistic title="近 1000 次成功率" value={governance?.successRate || 0} precision={1} suffix="%" /></Card></Col>
-        <Col xs={24} sm={12} xl={4}><Card><Statistic title="P95 耗时" value={governance?.p95DurationMs || 0} suffix="ms" /></Card></Col>
-        <Col xs={24} sm={12} xl={4}><Card><Statistic title="失败查询" value={governance?.failedCount || 0} /></Card></Col>
-        <Col xs={24} sm={12} xl={4}><Card><Statistic title="预算超限" value={governance?.budgetExceededCount || 0} /></Card></Col>
-        <Col xs={24} sm={12} xl={4}><Card><Statistic title="平均排队" value={governance?.averageQueueWaitMs || 0} precision={1} suffix="ms" /></Card></Col>
-        <Col xs={24} sm={12} xl={4}><Card><Statistic title="运行 / 排队" value={`${governance?.runningCount || 0} / ${governance?.queuedCount || 0}`} suffix={`· 上限 ${governance?.concurrencyLimit || 2}`} /></Card></Col>
+      <Row className="adhoc-query-metrics" gutter={[10, 10]}>
+        <Col xs={12} sm={12} md={8} lg={6} xl={4}><Card className="adhoc-query-metric-card is-success"><Statistic title="近 1000 次成功率" value={governance?.successRate || 0} precision={1} suffix="%" /></Card></Col>
+        <Col xs={12} sm={12} md={8} lg={6} xl={4}><Card className="adhoc-query-metric-card is-duration"><Statistic title="P95 耗时" value={governance?.p95DurationMs || 0} suffix="ms" /></Card></Col>
+        <Col xs={12} sm={12} md={8} lg={6} xl={4}><Card className="adhoc-query-metric-card is-failed"><Statistic title="失败查询" value={governance?.failedCount || 0} /></Card></Col>
+        <Col xs={12} sm={12} md={8} lg={6} xl={4}><Card className="adhoc-query-metric-card is-budget"><Statistic title="预算超限" value={governance?.budgetExceededCount || 0} /></Card></Col>
+        <Col xs={12} sm={12} md={8} lg={6} xl={4}><Card className="adhoc-query-metric-card is-queue"><Statistic title="平均排队" value={governance?.averageQueueWaitMs || 0} precision={1} suffix="ms" /></Card></Col>
+        <Col xs={12} sm={12} md={8} lg={6} xl={4}><Card className="adhoc-query-metric-card is-capacity"><Statistic title="运行 / 排队" value={`${governance?.runningCount || 0} / ${governance?.queuedCount || 0}`} suffix={<span className="adhoc-query-metric-cap">上限 {governance?.concurrencyLimit || 2}</span>} /></Card></Col>
       </Row>
 
-      <Card title="高成本查询 Top 10" style={{ marginBottom: 16 }}>
-        <Table dataSource={governance?.costlyQueries || []} rowKey="id" size="small" pagination={false}
+      <Card className="adhoc-query-data-card adhoc-query-cost-card" title="高成本查询 Top 10">
+        <Table className="adhoc-query-table" dataSource={governance?.costlyQueries || []} rowKey="id" size="small" pagination={false}
           locale={{ emptyText: '暂无可用的 Doris 成本指标' }}
           columns={[
             { title: 'SQL', dataIndex: 'sqlText', ellipsis: true },
@@ -346,8 +350,8 @@ const AdhocQuery: React.FC = () => {
           ]} />
       </Card>
 
-      <Card title="查询历史">
-        <Table dataSource={historyList} rowKey="id" size="small" loading={historyLoading}
+      <Card className="adhoc-query-data-card adhoc-query-history-card" title="查询历史">
+        <Table className="adhoc-query-table" dataSource={historyList} rowKey="id" size="small" loading={historyLoading}
           pagination={{ total: historyPage?.totalElements || 0, pageSize: historyPage?.size || 20,
             current: (historyPage?.number || 0) + 1, showSizeChanger: true,
             onChange: (page, pageSize) => loadHistory({ page: page - 1, size: pageSize }) }}
@@ -366,7 +370,7 @@ const AdhocQuery: React.FC = () => {
             { title: '耗时', dataIndex: 'durationMs', width: 90, render: (value) => `${value || 0}ms` },
             { title: '状态', dataIndex: 'status', width: 100, render: (value) => <Tag color={{
               success: 'green', failed: 'red', cancelled: 'orange', running: 'blue',
-            }[value as string]}>{value}</Tag> },
+            }[value as string]}>{queryStatusLabels[value] || value}</Tag> },
             { title: '操作', width: 150, fixed: 'right', render: (_, record: any) => <Space size={0}>
               <Button type="link" onClick={() => { setSql(record.sqlText); setActiveQuery(undefined); }}>载入</Button>
               <Button type="link" disabled={!record.queryId} onClick={() => openProfile(record.id)}>Profile</Button>
