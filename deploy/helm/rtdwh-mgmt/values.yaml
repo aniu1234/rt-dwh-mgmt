@@ -57,8 +57,14 @@ backend:
     PAIMON_JDBC_URI: jdbc:mysql://mysql:3306/rtdwh_paimon_meta?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
     PAIMON_JDBC_USER: rtdwh_admin
     PAIMON_WAREHOUSE: /data/paimon
+    DORIS_PAIMON_WAREHOUSE: /data/paimon
     FLINK_REST_URL: http://flink-jobmanager:8081
     SQL_GATEWAY_URL: http://flink-jobmanager:8083
+    # Keep standalone unless the target REST endpoint is a Flink Native
+    # Kubernetes cluster whose JobManager may create/remove TaskManager pods.
+    FLINK_SCALING_PROVIDER: standalone
+    FLINK_SCALING_MIN_PARALLELISM: "1"
+    FLINK_SCALING_MAX_PARALLELISM: "128"
     DORIS_ENABLED: "true"
     DORIS_JDBC_URL: jdbc:mysql://doris-fe:9030
     DORIS_HTTP_URL: http://doris-fe:8030

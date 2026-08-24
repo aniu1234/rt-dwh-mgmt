@@ -98,6 +98,12 @@ flink:
   sql-gateway:
     enabled: ${SQL_GATEWAY_ENABLED:true}
     url: ${SQL_GATEWAY_URL:http://localhost:9083}
+  scaling:
+    # standalone observes/rescales jobs but cannot create TaskManagers;
+    # kubernetes-native lets Flink's ResourceManager allocate them on demand.
+    provider: ${FLINK_SCALING_PROVIDER:standalone}
+    min-parallelism: ${FLINK_SCALING_MIN_PARALLELISM:1}
+    max-parallelism: ${FLINK_SCALING_MAX_PARALLELISM:128}
   status-monitor:
     enabled: true
     interval-seconds: 30  # Poll every 30 seconds

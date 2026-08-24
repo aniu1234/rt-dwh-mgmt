@@ -90,6 +90,17 @@ export async function getSyncTaskStatus(id: number) {
   return request<API.TaskStatusInfo>(`${API_PREFIX}/sync-tasks/${id}/status`);
 }
 
+export async function getSyncTaskScaling(id: number) {
+  return request<API.FlinkJobScalingInfo>(`${API_PREFIX}/sync-tasks/${id}/scaling`);
+}
+
+export async function scaleSyncTask(id: number, data: API.FlinkJobScaleRequest) {
+  return request<API.FlinkJobScalingInfo | API.FlinkJobScaleAccepted>(`${API_PREFIX}/sync-tasks/${id}/scale`, {
+    method: 'POST',
+    data,
+  });
+}
+
 export async function getPostgresCdcStatus(id: number) {
   return request<API.PostgresCdcStatus>(`${API_PREFIX}/sync-tasks/${id}/postgres-cdc-status`);
 }
@@ -422,6 +433,10 @@ export async function healthCheck() {
 
 export async function getFlinkClusterConfig() {
   return request<API.FlinkClusterConfig>(`${API_PREFIX}/settings/flink-cluster`);
+}
+
+export async function getFlinkClusterCapacity() {
+  return request<API.FlinkClusterCapacity>(`${API_PREFIX}/settings/flink-cluster/capacity`);
 }
 
 export async function updateFlinkClusterConfig(data: API.FlinkClusterConfig) {

@@ -125,7 +125,8 @@ services:
     environment:
       FLINK_PROPERTIES: |
         jobmanager.rpc.address: flink-jobmanager
-        execution.checkpointing.dir: file:///tmp/flink-checkpoints
+        jobmanager.scheduler: adaptive
+        execution.checkpointing.dir: file:///tmp/flink-savepoints/checkpoints
         execution.checkpointing.savepoint-dir: file:///tmp/flink-savepoints
     volumes:
       - flink_data:/opt/flink/data
@@ -143,7 +144,6 @@ services:
       context: ./flink
       dockerfile: Dockerfile
     image: rtdwh-flink:2.2.1
-    container_name: rtdwh-flink-taskmanager
     depends_on:
       flink-jobmanager:
         condition: service_started
@@ -151,8 +151,8 @@ services:
     environment:
       FLINK_PROPERTIES: |
         jobmanager.rpc.address: flink-jobmanager
-        taskmanager.numberOfTaskSlots: 8
-        execution.checkpointing.dir: file:///tmp/flink-checkpoints
+        taskmanager.numberOfTaskSlots: ${FLINK_TASKMANAGER_SLOTS:-8}
+        execution.checkpointing.dir: file:///tmp/flink-savepoints/checkpoints
         execution.checkpointing.savepoint-dir: file:///tmp/flink-savepoints
     volumes:
       - flink_data:/opt/flink/data
@@ -214,6 +214,7 @@ services:
       - FLINK_REST_URL=http://flink-jobmanager:8081
       - FLINK_JAR_PATH=/opt/flink/usrlib
       - FLINK_SAVEPOINT_DIR=file:///tmp/flink-savepoints
+      - FLINK_SCALING_PROVIDER=standalone
       - SQL_GATEWAY_ENABLED=true
       - SQL_GATEWAY_URL=http://flink-sql-gateway:8083
       - DORIS_ENABLED=${DORIS_ENABLED:-true}

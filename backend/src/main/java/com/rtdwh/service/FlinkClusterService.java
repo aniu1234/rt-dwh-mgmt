@@ -2,6 +2,7 @@ package com.rtdwh.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.rtdwh.entity.SyncTask;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -53,6 +54,15 @@ public class FlinkClusterService {
 
     @Value("${flink.sql-gateway.url:http://localhost:9083}")
     private String sqlGatewayUrl;
+
+    @Value("${flink.scaling.provider:standalone}")
+    private String scalingProvider;
+
+    @Value("${flink.scaling.min-parallelism:1}")
+    private int scalingMinParallelism;
+
+    @Value("${flink.scaling.max-parallelism:128}")
+    private int scalingMaxParallelism;
 
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
@@ -347,10 +357,17 @@ public class FlinkClusterService {
             if (statements.isEmpty()) {
                 throw new IllegalArgumentException("Flink SQL contains no executable statements");
             }
+            if (createsMultipleJobs(statements)) {
+                throw new IllegalArgumentException(
+                        "一条平台任务不能提交多条独立 INSERT；请使用 EXECUTE STATEMENT SET 合并为单个 Flink Job");
+            }
 
             Set<String> jobsBeforeSubmission = listClusterJobIds();
-            Map<String, String> executionConfig = buildSqlGatewayExecutionConfig(task, restorePath);
-            String jobId = null;
+            String submissionJobName = task.getTaskName()
+                    + " [rtdwh-" + task.getId() + "-" + UUID.randomUUID() + "]";
+            Map<String, String> executionConfig = buildSqlGatewayExecutionConfig(
+                    task, restorePath, submissionJobName);
+            Set<String> submittedJobIds = new LinkedHashSet<>();
             String lastOperationHandle = null;
 
             // SQL Gateway executes one statement per operation. Catalog, USE,
@@ -382,12 +399,26 @@ public class FlinkClusterService {
                 JsonNode operationResult = waitForSqlGatewayOperation(sessionHandle, lastOperationHandle);
                 String resultJobId = extractFlinkJobId(operationResult);
                 if (resultJobId != null) {
-                    jobId = resultJobId;
+                    submittedJobIds.add(resultJobId);
                 }
             }
 
+            if (submittedJobIds.size() > 1) {
+                for (String submittedJobId : submittedJobIds) {
+                    try {
+                        cancelJob(submittedJobId);
+                    } catch (Exception cleanupException) {
+                        log.error("Failed to cancel unexpected extra Flink job {}: {}",
+                                submittedJobId, cleanupException.getMessage());
+                    }
+                }
+                throw new IllegalStateException("单个平台任务意外创建了多个 Flink Job，已尝试全部取消: "
+                        + String.join(", ", submittedJobIds));
+            }
+
+            String jobId = submittedJobIds.stream().findFirst().orElse(null);
             if (jobId == null) {
-                jobId = waitForNewClusterJob(jobsBeforeSubmission, task.getTaskName());
+                jobId = waitForNewClusterJob(jobsBeforeSubmission, submissionJobName);
             }
             if (jobId == null) {
                 throw new IllegalStateException("SQL submitted but Flink job ID was not returned by SQL Gateway");
@@ -509,9 +540,13 @@ public class FlinkClusterService {
         return Path.of(value).toAbsolutePath().normalize().toUri().toString().replaceAll("/+$", "");
     }
 
-    private Map<String, String> buildSqlGatewayExecutionConfig(SyncTask task, String restorePath) {
+    private Map<String, String> buildSqlGatewayExecutionConfig(
+            SyncTask task,
+            String restorePath,
+            String submissionJobName
+    ) {
         Map<String, String> config = new LinkedHashMap<>();
-        config.put("pipeline.name", task.getTaskName());
+        config.put("pipeline.name", submissionJobName);
         config.put("parallelism.default", String.valueOf(
                 task.getParallelism() == null ? 1 : task.getParallelism()));
         config.put("table.dml-sync", "false");
@@ -546,6 +581,7 @@ public class FlinkClusterService {
         boolean doubleQuoted = false;
         boolean backtickQuoted = false;
         boolean lineComment = false;
+        boolean blockComment = false;
 
         for (int index = 0; index < sqlScript.length(); index++) {
             char currentChar = sqlScript.charAt(index);
@@ -558,9 +594,23 @@ public class FlinkClusterService {
                 }
                 continue;
             }
+            if (blockComment) {
+                if (currentChar == '*' && nextChar == '/') {
+                    blockComment = false;
+                    current.append(' ');
+                    index++;
+                }
+                continue;
+            }
             if (!singleQuoted && !doubleQuoted && !backtickQuoted
                     && currentChar == '-' && nextChar == '-') {
                 lineComment = true;
+                index++;
+                continue;
+            }
+            if (!singleQuoted && !doubleQuoted && !backtickQuoted
+                    && currentChar == '/' && nextChar == '*') {
+                blockComment = true;
                 index++;
                 continue;
             }
@@ -582,10 +632,26 @@ public class FlinkClusterService {
 
             if (currentChar == ';' && !singleQuoted && !doubleQuoted && !backtickQuoted) {
                 String statement = current.toString().trim();
-                if (!statement.isEmpty()) {
-                    statements.add(statement);
+                boolean statementSet = statement.toUpperCase(Locale.ROOT)
+                        .startsWith("EXECUTE STATEMENT SET");
+                int previousSeparator = statement.lastIndexOf(';');
+                String statementSetTail = previousSeparator < 0
+                        ? statement
+                        : statement.substring(previousSeparator + 1).trim();
+                // Only the standalone END segment closes a Statement Set.
+                // An INSERT may itself end in CASE ... END; and must not split
+                // the remaining INSERT statements into separate Flink Jobs.
+                boolean statementSetEnd = "END".equalsIgnoreCase(statementSetTail);
+                if (statementSet && !statementSetEnd) {
+                    // Semicolons inside BEGIN ... END separate INSERT statements;
+                    // the whole Statement Set must be sent to Gateway in one request.
+                    current.append(currentChar);
+                } else {
+                    if (!statement.isEmpty()) {
+                        statements.add(statement);
+                    }
+                    current.setLength(0);
                 }
-                current.setLength(0);
             } else {
                 current.append(currentChar);
             }
@@ -596,6 +662,23 @@ public class FlinkClusterService {
             statements.add(tail);
         }
         return statements;
+    }
+
+    static boolean createsMultipleJobs(List<String> statements) {
+        long jobStatements = statements.stream()
+                .map(FlinkClusterService::leadingSqlKeyword)
+                .filter(keyword -> keyword.startsWith("INSERT")
+                        || keyword.startsWith("EXECUTE STATEMENT SET")
+                        || keyword.startsWith("EXECUTE PLAN")
+                        || keyword.startsWith("CREATE MATERIALIZED TABLE")
+                        || keyword.startsWith("ALTER MATERIALIZED TABLE"))
+                .count();
+        return jobStatements > 1;
+    }
+
+    private static String leadingSqlKeyword(String statement) {
+        if (statement == null) return "";
+        return statement.stripLeading().toUpperCase(Locale.ROOT);
     }
 
     private String firstNonBlankText(JsonNode json, String... fields) {
@@ -647,23 +730,18 @@ public class FlinkClusterService {
         return ids;
     }
 
-    private String waitForNewClusterJob(Set<String> existingJobIds, String taskName) {
+    private String waitForNewClusterJob(Set<String> existingJobIds, String expectedName) {
         for (int attempt = 0; attempt < 15; attempt++) {
             try {
                 ResponseEntity<String> response = restTemplate.getForEntity(
                         flinkRestUrl + "/jobs/overview", String.class);
                 if (response.getBody() != null) {
                     JsonNode jobs = objectMapper.readTree(response.getBody()).path("jobs");
-                    String firstNewJob = null;
-                    for (JsonNode job : jobs) {
-                        String id = job.path("jid").asText("");
-                        if (!id.isBlank() && !existingJobIds.contains(id)) {
-                            if (taskName.equals(job.path("name").asText())) return id;
-                            if (firstNewJob == null) firstNewJob = id;
-                        }
-                    }
-                    if (firstNewJob != null) return firstNewJob;
+                    String exactJobId = findUniqueNewJobId(jobs, existingJobIds, expectedName);
+                    if (exactJobId != null) return exactJobId;
                 }
+            } catch (IllegalStateException exception) {
+                throw exception;
             } catch (Exception exception) {
                 log.warn("Unable to resolve submitted Flink job ID: {}", exception.getMessage());
             }
@@ -675,6 +753,24 @@ public class FlinkClusterService {
             }
         }
         return null;
+    }
+
+    static String findUniqueNewJobId(JsonNode jobs, Set<String> existingJobIds, String expectedName) {
+        if (jobs == null || !jobs.isArray()) return null;
+        String match = null;
+        for (JsonNode job : jobs) {
+            String id = job.path("jid").asText("");
+            if (id.isBlank() || existingJobIds.contains(id)
+                    || !expectedName.equals(job.path("name").asText())) {
+                continue;
+            }
+            if (match != null && !match.equals(id)) {
+                throw new IllegalStateException(
+                        "SQL Gateway 提交后出现多个同名 Flink Job，无法安全关联任务");
+            }
+            match = id;
+        }
+        return match;
     }
 
     // ========================================================================
@@ -1089,7 +1185,344 @@ public class FlinkClusterService {
     }
 
     // ========================================================================
-    // 7. Health Check
+    // 7. Elastic Scaling
+    // ========================================================================
+
+    /**
+     * Return a fresh capacity snapshot. Flink REST can expose capacity and update
+     * adaptive job requirements, but only the resource provider can create or
+     * remove TaskManagers. The provider flag keeps those two capabilities clear.
+     */
+    public Map<String, Object> getClusterCapacity() {
+        Map<String, Object> health = healthCheck();
+        String status = String.valueOf(health.getOrDefault("status", "unreachable"));
+        int slotsTotal = intValue(health.get("taskSlotsTotal"));
+        int slotsAvailable = intValue(health.get("taskSlotsAvailable"));
+        String provider = normalizeScalingProvider(scalingProvider);
+        Map<String, String> configuration = readFlinkConfiguration(null);
+        boolean adaptiveScheduler = isAdaptiveScheduler(configuration);
+        boolean autoExpansionSupported = adaptiveScheduler && "kubernetes-native".equals(provider);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("status", status);
+        result.put("provider", provider);
+        result.put("autoExpansionSupported", autoExpansionSupported);
+        result.put("jobRescalingSupported", adaptiveScheduler && "healthy".equals(status));
+        result.put("adaptiveScheduler", adaptiveScheduler);
+        result.put("currentTaskManagers", intValue(health.get("taskManagers")));
+        result.put("slotsTotal", slotsTotal);
+        result.put("slotsAvailable", slotsAvailable);
+        result.put("slotsUsed", Math.max(0, slotsTotal - slotsAvailable));
+        result.put("slotUtilization", slotsTotal == 0
+                ? 0.0
+                : Math.round((slotsTotal - slotsAvailable) * 1000.0 / slotsTotal) / 10.0);
+        result.put("runningJobs", intValue(health.get("runningJobs")));
+        result.put("observedAt", Instant.now().toString());
+
+        if (!"healthy".equals(status)) {
+            result.put("reason", String.valueOf(health.getOrDefault("error", "Flink 集群当前不可访问")));
+        } else if (!adaptiveScheduler) {
+            result.put("reason", "集群未启用 jobmanager.scheduler=adaptive，仅支持容量观测");
+        } else if (!autoExpansionSupported) {
+            result.put("reason", "已支持作业在线并行度调整；Standalone 集群的 TaskManager 仍需由部署工具扩缩");
+        } else {
+            result.put("reason", "Native Kubernetes 会根据作业资源需求自动申请或释放 TaskManager");
+        }
+        return result;
+    }
+
+    /** Read current per-vertex requirements and elastic-scaling capability. */
+    public Map<String, Object> getJobScalingInfo(String flinkJobId) {
+        if (flinkJobId == null || flinkJobId.isBlank()) {
+            throw new IllegalArgumentException("Flink Job ID 不能为空");
+        }
+
+        try {
+            JsonNode job = getJson(flinkRestUrl + "/jobs/" + flinkJobId);
+            Map<String, String> jobConfiguration = readFlinkConfiguration(flinkJobId);
+            boolean adaptiveScheduler = isAdaptiveScheduler(jobConfiguration);
+            String flinkState = job.path("state").asText("UNKNOWN");
+            String jobType = job.path("job-type").asText("UNKNOWN");
+            boolean running = "RUNNING".equalsIgnoreCase(flinkState);
+            boolean streaming = "STREAMING".equalsIgnoreCase(jobType);
+
+            Map<String, JsonNode> jobVertices = new LinkedHashMap<>();
+            JsonNode verticesNode = job.path("vertices");
+            if (verticesNode.isArray()) {
+                for (JsonNode vertex : verticesNode) {
+                    String vertexId = vertex.path("id").asText("");
+                    if (!vertexId.isBlank()) jobVertices.put(vertexId, vertex);
+                }
+            }
+
+            // Some schedulers reject this endpoint instead of returning an
+            // empty object. Check capability first so a healthy, non-adaptive
+            // job is reported as unsupported rather than as a failed request.
+            JsonNode requirements = objectMapper.createObjectNode();
+            String requirementsError = null;
+            if (adaptiveScheduler && running && streaming) {
+                try {
+                    requirements = getJson(
+                            flinkRestUrl + "/jobs/" + flinkJobId + "/resource-requirements");
+                } catch (RestClientResponseException exception) {
+                    requirementsError = flinkError(exception);
+                } catch (Exception exception) {
+                    requirementsError = exception.getMessage();
+                }
+            }
+
+            List<Map<String, Object>> vertices = new ArrayList<>();
+            int currentMin = Integer.MAX_VALUE;
+            int currentMax = 0;
+            int requestedLower = Integer.MAX_VALUE;
+            int requestedUpper = 0;
+            int minTarget = Math.max(1, scalingMinParallelism);
+            int maxTarget = Math.max(1, scalingMaxParallelism);
+            boolean hasRequirements = false;
+
+            Set<String> vertexIds = new LinkedHashSet<>(jobVertices.keySet());
+            requirements.fieldNames().forEachRemaining(vertexIds::add);
+            for (String vertexId : vertexIds) {
+                JsonNode parallelism = requirements.path(vertexId).path("parallelism");
+                boolean hasBounds = parallelism.isObject()
+                        && parallelism.has("lowerBound")
+                        && parallelism.has("upperBound");
+                int lowerBound = hasBounds
+                        ? parallelism.path("lowerBound").asInt(scalingMinParallelism)
+                        : scalingMinParallelism;
+                int upperBound = hasBounds
+                        ? parallelism.path("upperBound").asInt(lowerBound)
+                        : lowerBound;
+                JsonNode vertex = jobVertices.get(vertexId);
+                int currentParallelism = vertex == null
+                        ? lowerBound
+                        : vertex.path("parallelism").asInt(lowerBound);
+                int vertexMax = vertex == null
+                        ? scalingMaxParallelism
+                        : vertex.path("maxParallelism").asInt(scalingMaxParallelism);
+                if (vertexMax > 0) maxTarget = Math.min(maxTarget, vertexMax);
+
+                Map<String, Object> detail = new LinkedHashMap<>();
+                detail.put("id", vertexId);
+                detail.put("name", vertex == null ? vertexId : vertex.path("name").asText(vertexId));
+                detail.put("currentParallelism", currentParallelism);
+                detail.put("lowerBound", hasBounds ? lowerBound : null);
+                detail.put("upperBound", hasBounds ? upperBound : null);
+                detail.put("maxParallelism", vertexMax);
+                vertices.add(detail);
+
+                currentMin = Math.min(currentMin, currentParallelism);
+                currentMax = Math.max(currentMax, currentParallelism);
+                if (hasBounds) {
+                    hasRequirements = true;
+                    requestedLower = Math.min(requestedLower, lowerBound);
+                    requestedUpper = Math.max(requestedUpper, upperBound);
+                }
+            }
+
+            boolean hasCurrentParallelism = currentMin != Integer.MAX_VALUE;
+            boolean targetRangeValid = maxTarget >= minTarget;
+            boolean supported = adaptiveScheduler && running && streaming
+                    && requirementsError == null && hasRequirements && targetRangeValid;
+            String provider = normalizeScalingProvider(scalingProvider);
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("supported", supported);
+            result.put("jobId", flinkJobId);
+            result.put("flinkState", flinkState);
+            result.put("jobType", jobType);
+            result.put("adaptiveScheduler", adaptiveScheduler);
+            result.put("provider", provider);
+            result.put("autoExpansionSupported", adaptiveScheduler && "kubernetes-native".equals(provider));
+            result.put("currentParallelism", hasCurrentParallelism && currentMin == currentMax ? currentMin : null);
+            result.put("currentParallelismMin", hasCurrentParallelism ? currentMin : null);
+            result.put("currentParallelismMax", hasCurrentParallelism ? currentMax : null);
+            result.put("requestedLowerBound", hasRequirements ? requestedLower : null);
+            result.put("requestedUpperBound", hasRequirements ? requestedUpper : null);
+            result.put("minTargetParallelism", minTarget);
+            result.put("maxTargetParallelism", maxTarget);
+            result.put("vertices", vertices);
+            result.put("capacity", getClusterCapacity());
+            result.put("observedAt", Instant.now().toString());
+
+            if (!adaptiveScheduler) {
+                result.put("reason", "该作业未使用 Adaptive Scheduler，不能在线调整资源需求");
+            } else if (!streaming) {
+                result.put("reason", "仅 Streaming 作业支持在线弹性伸缩");
+            } else if (!running) {
+                result.put("reason", "仅 RUNNING 状态的作业可以调整并行度");
+            } else if (requirementsError != null) {
+                result.put("reason", "Flink 资源需求接口不可用: " + requirementsError);
+            } else if (!hasRequirements) {
+                result.put("reason", "Flink 未返回可调整的 JobVertex 资源需求");
+            } else if (!targetRangeValid) {
+                result.put("reason", "平台最小并行度 " + minTarget
+                        + " 超过作业允许的最大并行度 " + maxTarget + "，请调整伸缩配置");
+            } else if (!"kubernetes-native".equals(provider)) {
+                result.put("reason", "可以在线调整作业并行度；扩容前请确认 Standalone 集群已有足够 Slot");
+            }
+            return result;
+        } catch (RestClientResponseException exception) {
+            if (exception.getStatusCode() == HttpStatus.NOT_FOUND) {
+                throw new IllegalStateException("Flink 集群中不存在该 Job", exception);
+            }
+            throw new IllegalStateException("读取 Flink 弹性伸缩信息失败: " + flinkError(exception), exception);
+        } catch (IllegalStateException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw new IllegalStateException("读取 Flink 弹性伸缩信息失败: " + exception.getMessage(), exception);
+        }
+    }
+
+    /**
+     * Re-declare every JobVertex parallelism bound. With Adaptive Scheduler this
+     * is applied asynchronously and, on Native Kubernetes, drives TM allocation.
+     */
+    public Map<String, Object> rescaleJob(String flinkJobId, int targetParallelism) {
+        Map<String, Object> scalingInfo = getJobScalingInfo(flinkJobId);
+        if (!Boolean.TRUE.equals(scalingInfo.get("supported"))) {
+            throw new IllegalStateException(String.valueOf(
+                    scalingInfo.getOrDefault("reason", "当前作业不支持在线调整并行度")));
+        }
+
+        int minTarget = intValue(scalingInfo.get("minTargetParallelism"));
+        int maxTarget = intValue(scalingInfo.get("maxTargetParallelism"));
+        if (targetParallelism < minTarget || targetParallelism > maxTarget) {
+            throw new IllegalArgumentException(
+                    "目标并行度必须在 " + minTarget + " 到 " + maxTarget + " 之间");
+        }
+
+        try {
+            String endpoint = flinkRestUrl + "/jobs/" + flinkJobId + "/resource-requirements";
+            JsonNode current = getJson(endpoint);
+            JsonNode payload = applyTargetParallelism(current, targetParallelism);
+            if (!payload.fields().hasNext()) {
+                throw new IllegalStateException("Flink 未返回可调整的 JobVertex 资源需求");
+            }
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            ResponseEntity<String> response = restTemplate.exchange(
+                    endpoint,
+                    HttpMethod.PUT,
+                    new HttpEntity<>(payload.toString(), headers),
+                    String.class
+            );
+            if (!response.getStatusCode().is2xxSuccessful()) {
+                throw new IllegalStateException("Flink 返回 HTTP " + response.getStatusCode().value());
+            }
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("accepted", true);
+            result.put("jobId", flinkJobId);
+            result.put("targetParallelism", targetParallelism);
+            result.put("affectedVertices", current.size());
+            result.put("provider", normalizeScalingProvider(scalingProvider));
+            result.put("autoExpansionSupported", scalingInfo.get("autoExpansionSupported"));
+            result.put("acceptedAt", Instant.now().toString());
+            result.put("message", "Flink 已接受资源需求，Adaptive Scheduler 将异步完成重调度");
+            return result;
+        } catch (RestClientResponseException exception) {
+            throw new IllegalStateException("Flink 拒绝并行度调整: " + flinkError(exception), exception);
+        } catch (IllegalStateException | IllegalArgumentException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw new IllegalStateException("提交 Flink 并行度调整失败: " + exception.getMessage(), exception);
+        }
+    }
+
+    static JsonNode applyTargetParallelism(JsonNode current, int targetParallelism) {
+        if (targetParallelism < 1) throw new IllegalArgumentException("目标并行度不能小于 1");
+        if (current == null || !current.isObject()) {
+            throw new IllegalArgumentException("JobVertex 资源需求必须是 JSON 对象");
+        }
+        ObjectNode updated = ((ObjectNode) current).deepCopy();
+        Iterator<Map.Entry<String, JsonNode>> fields = updated.fields();
+        while (fields.hasNext()) {
+            JsonNode requirement = fields.next().getValue();
+            if (!(requirement instanceof ObjectNode requirementObject)) continue;
+            JsonNode parallelismNode = requirementObject.get("parallelism");
+            ObjectNode parallelism = parallelismNode instanceof ObjectNode objectNode
+                    ? objectNode
+                    : requirementObject.putObject("parallelism");
+            parallelism.put("lowerBound", targetParallelism);
+            parallelism.put("upperBound", targetParallelism);
+        }
+        return updated;
+    }
+
+    static boolean isAdaptiveScheduler(Map<String, String> configuration) {
+        String scheduler = configuration.getOrDefault("jobmanager.scheduler", "");
+        // Reactive Mode derives parallelism from all currently available slots;
+        // it does not provide the fixed-target semantics exposed by this API.
+        return "adaptive".equalsIgnoreCase(scheduler);
+    }
+
+    private Map<String, String> readFlinkConfiguration(String flinkJobId) {
+        String endpoint = flinkJobId == null || flinkJobId.isBlank()
+                ? flinkRestUrl + "/jobmanager/config"
+                : flinkRestUrl + "/jobs/" + flinkJobId + "/jobmanager/config";
+        try {
+            JsonNode entries = getJson(endpoint);
+            Map<String, String> configuration = new LinkedHashMap<>();
+            if (entries.isArray()) {
+                for (JsonNode entry : entries) {
+                    String key = entry.path("key").asText("");
+                    if (!key.isBlank()) configuration.put(key, entry.path("value").asText(""));
+                }
+            }
+            return configuration;
+        } catch (Exception exception) {
+            log.debug("Unable to read Flink configuration from {}: {}", endpoint, exception.getMessage());
+            return Map.of();
+        }
+    }
+
+    private JsonNode getJson(String endpoint) throws Exception {
+        ResponseEntity<String> response = restTemplate.getForEntity(endpoint, String.class);
+        if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
+            throw new IllegalStateException("Flink 返回 HTTP " + response.getStatusCode().value());
+        }
+        return objectMapper.readTree(response.getBody());
+    }
+
+    private String normalizeScalingProvider(String provider) {
+        String value = provider == null ? "" : provider.trim().toLowerCase(Locale.ROOT);
+        if (Set.of("kubernetes", "kubernetes-native", "native-kubernetes").contains(value)) {
+            return "kubernetes-native";
+        }
+        if ("standalone".equals(value) || "docker-compose".equals(value)) return "standalone";
+        return "external";
+    }
+
+    private int intValue(Object value) {
+        if (value instanceof Number number) return number.intValue();
+        if (value == null) return 0;
+        try {
+            return Integer.parseInt(String.valueOf(value));
+        } catch (NumberFormatException ignored) {
+            return 0;
+        }
+    }
+
+    private String flinkError(RestClientResponseException exception) {
+        String body = exception.getResponseBodyAsString();
+        if (body == null || body.isBlank()) return "HTTP " + exception.getStatusCode().value();
+        try {
+            JsonNode json = objectMapper.readTree(body);
+            JsonNode errors = json.path("errors");
+            if (errors.isArray() && !errors.isEmpty()) {
+                return errors.get(errors.size() - 1).asText();
+            }
+        } catch (Exception ignored) {
+            // Keep the concise raw response below.
+        }
+        String concise = body.replaceAll("\\s+", " ").trim();
+        return concise.length() > 500 ? concise.substring(0, 500) + "..." : concise;
+    }
+
+    // ========================================================================
+    // 8. Health Check
     // ========================================================================
 
     /**
@@ -1196,7 +1629,7 @@ public class FlinkClusterService {
     }
 
     // ========================================================================
-    // 8. Jar Management
+    // 9. Jar Management
     // ========================================================================
 
     /**

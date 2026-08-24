@@ -1,6 +1,7 @@
 package com.rtdwh.controller;
 
 import com.rtdwh.dto.ApiResponse;
+import com.rtdwh.service.FlinkClusterService;
 import com.rtdwh.service.SystemHealthStatusService;
 import com.rtdwh.service.SystemSettingService;
 import com.rtdwh.util.SecurityContextUtil;
@@ -19,11 +20,18 @@ public class SettingsController {
 
     private final SystemHealthStatusService systemHealthStatusService;
     private final SystemSettingService systemSettingService;
+    private final FlinkClusterService flinkClusterService;
     private final SecurityContextUtil securityContextUtil;
 
     @GetMapping("/flink-cluster")
     public ApiResponse<Map<String, Object>> getFlinkClusterConfig() {
         return ApiResponse.success(systemSettingService.getFlinkConfig());
+    }
+
+    /** Fresh capacity and elastic-scaling capability; never uses the cached health snapshot. */
+    @GetMapping("/flink-cluster/capacity")
+    public ApiResponse<Map<String, Object>> getFlinkClusterCapacity() {
+        return ApiResponse.success(flinkClusterService.getClusterCapacity());
     }
 
     @PutMapping("/flink-cluster")

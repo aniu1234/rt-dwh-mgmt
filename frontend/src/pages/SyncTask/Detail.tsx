@@ -19,6 +19,7 @@ import {
   syncAllTaskStatus, getPostgresCdcStatus, cleanupPostgresCdc,
 } from '@/api';
 import { getTaskScenarioColor, getTaskScenarioLabel, taskTypeLabel } from './scenarios';
+import FlinkJobScalingCard from './FlinkJobScalingCard';
 
 const statusConfig: Record<string, { color: string; label: string; badge: string }> = {
   draft: { color: 'default', label: '未启动', badge: 'default' },
@@ -538,6 +539,8 @@ const SyncTaskDetail: React.FC = () => {
           </Col>
         </Row>
       </Card>
+
+      {currentStatus === 'running' && task.flinkJobId && <FlinkJobScalingCard taskId={taskId} />}
 
       {/* Error Detail */}
       {(currentStatus === 'failed' || task.lastErrorMsg) && (task.lastErrorMsg || statusInfo?.lastErrorMsg) && (

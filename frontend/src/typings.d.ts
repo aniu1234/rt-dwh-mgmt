@@ -93,6 +93,89 @@ declare namespace API {
     resources: Array<{ sourceTable: string; slot: string; publication: string }>;
   }
 
+  /** Flink 作业动态并行度调整请求 */
+  interface FlinkJobScaleRequest {
+    targetParallelism: number;
+    expectedJobId: string;
+    expectedConfiguredParallelism: number;
+    reason: string;
+  }
+
+  /** Flink 作业顶点的当前资源需求 */
+  interface FlinkJobScalingVertex {
+    vertexId?: string;
+    id?: string;
+    name: string;
+    currentParallelism: number;
+    lowerBound?: number;
+    upperBound?: number;
+    requestedLowerBound?: number;
+    requestedUpperBound?: number;
+    minParallelism?: number;
+    maxParallelism?: number;
+  }
+
+  interface FlinkJobScalingCapacity {
+    currentTaskManagers: number;
+    slotsTotal: number;
+    slotsAvailable: number;
+    slotsUsed?: number;
+    slotUtilization?: number;
+  }
+
+  /** Flink 集群实时容量，只用于观测集群资源，不代表平台可直接扩缩 TaskManager。 */
+  interface FlinkClusterCapacity {
+    status: string;
+    provider: string;
+    autoExpansionSupported: boolean;
+    jobRescalingSupported: boolean;
+    adaptiveScheduler: boolean;
+    currentTaskManagers: number;
+    slotsTotal: number;
+    slotsAvailable: number;
+    slotsUsed: number;
+    slotUtilization: number;
+    runningJobs: number;
+    reason?: string;
+    observedAt: string;
+  }
+
+  /** 运行中 Flink 作业的动态并行度能力与当前状态 */
+  interface FlinkJobScalingInfo {
+    supported: boolean;
+    reason?: string;
+    jobId: string;
+    flinkState: string;
+    configuredParallelism: number;
+    currentParallelism?: number;
+    requestedLowerBound?: number;
+    requestedUpperBound?: number;
+    minTargetParallelism: number;
+    maxTargetParallelism: number;
+    provider: string;
+    autoExpansionSupported: boolean;
+    vertices: FlinkJobScalingVertex[];
+    capacity: FlinkJobScalingCapacity;
+    acceptedAt?: string;
+    observedAt?: string;
+    jobType?: string;
+    adaptiveScheduler?: boolean;
+  }
+
+  interface FlinkJobScaleAccepted {
+    accepted?: boolean;
+    jobId: string;
+    targetParallelism: number;
+    affectedVertices?: number;
+    provider?: string;
+    autoExpansionSupported?: boolean;
+    acceptedAt: string;
+    message?: string;
+    configuredParallelism?: number;
+    reason?: string;
+    requestedBy?: string;
+  }
+
   interface TaskDependency {
     id: number;
     upstreamTaskId: number;

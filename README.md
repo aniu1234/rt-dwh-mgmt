@@ -294,6 +294,27 @@ INIT_GUEST_PASSWORD=<访客初始密码>
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
 ```
 
+Flink JobManager 使用 Adaptive Scheduler，TaskManager 每个副本的 Slot 数由
+`FLINK_TASKMANAGER_SLOTS` 控制。需要在单机开发环境增加或减少 TaskManager
+容量时，执行：
+
+```bash
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d \
+  --no-deps --scale flink-taskmanager=3 flink-taskmanager
+```
+
+`--scale` 只改变可用 TaskManager/Slot 容量，不等于修改运行中 Job 的并行度。
+Job 仍受已配置并行度、最大并行度和各 Vertex resource requirements 约束。
+缩容前应确认最近一次 Checkpoint 成功，并先降低 Job 的资源要求；Adaptive
+Scheduler 扩缩时会重启受影响的 Tasks，并非零停顿。Compose 的状态卷只在同一
+Docker 主机共享，不是生产级分布式存储；后端容器也不会直接执行 Docker 扩缩命令。
+
+从旧版本升级时，已经运行的多表 CDC／自定义多 INSERT 任务可能对应多个 Flink Job，
+但旧版数据库只保存最后一个 Job ID，平台无法可靠找到其余 Job，因此会禁止统一扩缩。
+请先在 Flink UI／REST 中识别并逐个取消该任务的全部关联 Job，再删除并重建平台任务；
+新版本要求使用 Statement Set 将一个平台任务提交为一个 Flink Job。不要只点击平台的
+“停止”，否则它只能取消已保存 Job ID 对应的最后一个 Job。
+
 查看状态和日志：
 
 ```bash
@@ -362,6 +383,59 @@ helm upgrade --install rtdwh deploy/helm/rtdwh-mgmt \
 ```
 
 如使用外部 Secret，修改 `backend.secret.existingSecret`；本地临时验证也可用私有 values 文件设置 `backend.secret.create=true` 和 `backend.secret.data`。Chart 已通过 Helm 3.16 lint 和模板渲染校验。
+
+#### Flink Kubernetes Operator Native Session Cluster
+
+生产环境建议单独安装 Apache Flink Kubernetes Operator 1.15.0，并使用
+[`deploy/flink/kubernetes/operator-session-cluster.yaml`](deploy/flink/kubernetes/operator-session-cluster.yaml)
+创建 Flink 2.2.1 Native Session Cluster 和独立 SQL Gateway。Operator 是集群级
+组件，不作为本项目应用 Chart 的隐式依赖安装。
+
+Operator Webhook 默认要求集群已安装 cert-manager；应先按 Operator 1.15 官方
+Quick Start 完成该前置条件，不建议在生产环境为了省略证书管理而关闭 Webhook。
+
+示例清单中的镜像地址和三个 `s3://replace-me-before-apply` URI 必须在应用前替换，
+镜像还必须启用对应的 Flink 对象存储文件系统插件，并通过 Workload Identity 或
+Secret 提供凭证。Checkpoint、Savepoint 和 HA 元数据禁止使用 `file://`，否则 Pod
+替换或跨节点调度后无法恢复。
+
+```bash
+helm repo add flink-operator-repo https://downloads.apache.org/flink/flink-kubernetes-operator-1.15.0/
+helm install flink-kubernetes-operator flink-operator-repo/flink-kubernetes-operator \
+  --version 1.15.0
+
+# 完成镜像、状态 URI 和凭证配置后，再应用到目标 namespace（此处以 rtdwh 为例）。
+kubectl apply -n rtdwh \
+  -f deploy/flink/kubernetes/operator-session-cluster.yaml
+```
+
+Operator 创建的 REST Service 为 `rtdwh-flink-session-rest:8081`，示例 Gateway
+Service 为 `rtdwh-flink-sql-gateway:8083`。部署应用 Chart 时应把
+`backend.env.FLINK_REST_URL`、`backend.env.SQL_GATEWAY_URL` 和
+`backend.env.FLINK_SAVEPOINT_DIR` 指向这些 Service 与同一外部状态存储，并把
+`backend.env.FLINK_SCALING_PROVIDER` 设为 `kubernetes-native`。只有启用该标记且
+集群实际使用 Native Kubernetes ResourceManager 时，平台才会展示 TaskManager
+自动扩展能力；默认 `standalone` 只允许观测容量和调整 Job 资源需求。
+
+Paimon 不能继续使用 Chart 默认的 Pod 本地 `/data/paimon`。必须同时把
+`backend.env.PAIMON_WAREHOUSE` 和 `backend.env.DORIS_PAIMON_WAREHOUSE` 设置为
+同一个 S3、HDFS 或 OSS Warehouse URI，并确保 SQL Gateway、JobManager、所有
+TaskManager 与 Doris 都装有对应文件系统插件且使用同一套凭证。否则扩容出来的
+TaskManager 看不到既有 Paimon 文件，不能投入生产。
+
+Native Kubernetes ResourceManager 会根据 Slot 需求创建或删除 TaskManager Pod；
+当集群没有可用节点资源时，还需要 Kubernetes 节点自动扩缩或预留容量。当前平台
+通过 SQL Gateway 提交的 Job 不对应 `FlinkSessionJob` CR，因此不受 Operator
+Autoscaler 管理；它们只能通过 Adaptive Scheduler 的 resource-requirements API
+调整并行度。若要使用 Operator Autoscaler，需将 Job 生命周期迁移为
+`FlinkSessionJob` 或 Application-mode `FlinkDeployment`，不能仅靠给 Session
+Cluster 打开 autoscaler 配置来伪装支持。
+
+生产上线还应按租户容量设置 `FLINK_SCALING_MAX_PARALLELISM`，并在 Flink 所在
+Namespace 配置 `ResourceQuota`／`LimitRange`，防止错误的资源需求无限申请 Pod。
+同一 Session Cluster 资源紧张时不保证多个 Job 之间的 Slot 公平分配；关键 CDC
+任务应拆到独立的 Application Cluster。双 JobManager 还应配置跨节点拓扑分散和
+PodDisruptionBudget，避免两个副本落到同一故障域。
 
 ## 本地开发
 

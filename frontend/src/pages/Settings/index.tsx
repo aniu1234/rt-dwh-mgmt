@@ -42,6 +42,7 @@ import {
   updateFlinkClusterConfig,
   updateDorisConfig,
 } from '@/api';
+import FlinkCapacityCard from './FlinkCapacityCard';
 
 type ComponentKey = 'flink' | 'paimon' | 'mysql' | 'doris';
 
@@ -89,8 +90,9 @@ const HealthCard: React.FC<{
   icon: React.ReactNode;
   result?: API.HealthComponent;
   checking: boolean;
+  canCheck: boolean;
   onCheck: (component: ComponentKey) => void;
-}> = ({ component, title, icon, result, checking, onCheck }) => {
+}> = ({ component, title, icon, result, checking, canCheck, onCheck }) => {
   const meta = getStatusMeta(result?.status);
 
   const details = useMemo(() => {
@@ -148,14 +150,16 @@ const HealthCard: React.FC<{
             {meta.label}
           </Tag>
         </div>
-        <Button
-          size="small"
-          icon={<ReloadOutlined spin={checking} />}
-          disabled={checking}
-          onClick={() => onCheck(component)}
-        >
-          检查
-        </Button>
+        {canCheck && (
+          <Button
+            size="small"
+            icon={<ReloadOutlined spin={checking} />}
+            disabled={checking}
+            onClick={() => onCheck(component)}
+          >
+            检查
+          </Button>
+        )}
       </div>
 
       <div className="settings-health-details">
@@ -365,7 +369,7 @@ const Settings: React.FC = () => {
   return (
     <PageContainer
       className="settings-page"
-      extra={[
+      extra={access.canManageSettings ? [
         <Button
           key="refresh"
           icon={<ReloadOutlined spin={refreshingHealth} />}
@@ -374,7 +378,7 @@ const Settings: React.FC = () => {
         >
           全量检查
         </Button>,
-      ]}
+      ] : undefined}
     >
       <Card
         className="settings-section-card"
@@ -435,6 +439,8 @@ const Settings: React.FC = () => {
         )}
       </Card>
 
+      <FlinkCapacityCard />
+
       <Card
         className="settings-section-card"
         title={<Space><DatabaseOutlined />Doris 即席查询配置</Space>}
@@ -486,7 +492,7 @@ const Settings: React.FC = () => {
               <ExclamationCircleFilled style={{ color: '#ff4d4f' }} />
               <div>
                 <strong>全量检查请求失败</strong>
-                <span>{healthRequestError}，可使用下方单项“检查”继续诊断。</span>
+                <span>{healthRequestError}{access.canManageSettings ? '，可使用下方单项“检查”继续诊断。' : '。'}</span>
               </div>
             </>
           ) : (
@@ -500,7 +506,9 @@ const Settings: React.FC = () => {
                   {health?.overall === 'healthy'
                     ? 'Flink、Doris、Paimon 元数据与管理数据库均可正常访问。'
                     : health?.overall === 'unknown'
-                      ? '后台健康检查尚未产生结果，稍后会自动刷新，也可以立即执行全量检查。'
+                      ? access.canManageSettings
+                        ? '后台健康检查尚未产生结果，稍后会自动刷新，也可以立即执行全量检查。'
+                        : '后台健康检查尚未产生结果，稍后会自动刷新。'
                       : '存在不可用依赖，请查看下方组件详情和错误信息。'}
                 </span>
               </div>
@@ -516,6 +524,7 @@ const Settings: React.FC = () => {
               icon={<CloudServerOutlined />}
               result={health?.flink}
               checking={checkingComponent === 'flink'}
+              canCheck={access.canManageSettings}
               onCheck={handleCheckComponent}
             />
           </Col>
@@ -526,6 +535,7 @@ const Settings: React.FC = () => {
               icon={<HddOutlined />}
               result={health?.paimon}
               checking={checkingComponent === 'paimon'}
+              canCheck={access.canManageSettings}
               onCheck={handleCheckComponent}
             />
           </Col>
@@ -536,6 +546,7 @@ const Settings: React.FC = () => {
               icon={<DatabaseOutlined />}
               result={health?.doris}
               checking={checkingComponent === 'doris'}
+              canCheck={access.canManageSettings}
               onCheck={handleCheckComponent}
             />
           </Col>
@@ -546,6 +557,7 @@ const Settings: React.FC = () => {
               icon={<DatabaseOutlined />}
               result={health?.mysql}
               checking={checkingComponent === 'mysql'}
+              canCheck={access.canManageSettings}
               onCheck={handleCheckComponent}
             />
           </Col>

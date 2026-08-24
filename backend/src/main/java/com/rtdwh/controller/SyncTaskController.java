@@ -2,6 +2,7 @@ package com.rtdwh.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rtdwh.dto.ApiResponse;
+import com.rtdwh.dto.FlinkJobScaleRequest;
 import com.rtdwh.dto.SyncTaskCreateDTO;
 import com.rtdwh.dto.SyncTaskUpdateDTO;
 import com.rtdwh.entity.DatasourceConfig;
@@ -167,6 +168,32 @@ public class SyncTaskController {
     @GetMapping("/{id}/status")
     public ApiResponse<Map<String, Object>> getTaskStatus(@PathVariable Long id) {
         return ApiResponse.success(syncTaskService.getTaskStatus(id));
+    }
+
+    /** Fresh adaptive-scaling capability and per-vertex parallelism. */
+    @GetMapping("/{id}/scaling")
+    public ApiResponse<Map<String, Object>> getTaskScaling(@PathVariable Long id) {
+        return ApiResponse.success(syncTaskService.getTaskScaling(id));
+    }
+
+    /** Re-declare a running streaming job's resource requirements. */
+    @PostMapping("/{id}/scale")
+    @PreAuthorize("hasAuthority('task:manage')")
+    public ApiResponse<Map<String, Object>> rescaleTask(
+            @PathVariable Long id,
+            @Valid @RequestBody FlinkJobScaleRequest request
+    ) {
+        return ApiResponse.success(
+                "Flink 已接受并行度调整请求",
+                syncTaskService.rescaleTask(
+                        id,
+                        request.getTargetParallelism(),
+                        request.getExpectedJobId(),
+                        request.getExpectedConfiguredParallelism(),
+                        request.getReason(),
+                        securityContextUtil.getCurrentUsername()
+                )
+        );
     }
 
     /**

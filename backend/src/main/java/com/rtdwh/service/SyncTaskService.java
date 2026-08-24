@@ -167,7 +167,7 @@ public class SyncTaskService {
      */
     @Transactional
     public SyncTask startTask(Long id) {
-        SyncTask task = getTask(id);
+        SyncTask task = getTaskForUpdate(id);
 
         // Validate state transition
         if (task.getStatus() != TaskStatus.draft && task.getStatus() != TaskStatus.failed) {
@@ -246,7 +246,7 @@ public class SyncTaskService {
      */
     @Transactional
     public SyncTask resumeTask(Long id) {
-        SyncTask task = getTask(id);
+        SyncTask task = getTaskForUpdate(id);
 
         if (task.getStatus() != TaskStatus.paused) {
             throw new IllegalStateException("无法恢复状态为 " + task.getStatus() + " 的任务");
@@ -297,7 +297,7 @@ public class SyncTaskService {
      */
     @Transactional
     public SyncTask pauseTask(Long id) {
-        SyncTask task = getTask(id);
+        SyncTask task = getTaskForUpdate(id);
 
         if (task.getStatus() != TaskStatus.running) {
             throw new IllegalStateException("无法暂停状态为 " + task.getStatus() + " 的任务");
@@ -324,7 +324,7 @@ public class SyncTaskService {
      */
     @Transactional
     public SyncTask stopTask(Long id) {
-        SyncTask task = getTask(id);
+        SyncTask task = getTaskForUpdate(id);
 
         if (task.getStatus() == TaskStatus.draft || task.getStatus() == TaskStatus.finished) {
             throw new IllegalStateException("无法停止状态为 " + task.getStatus() + " 的任务");
@@ -348,7 +348,7 @@ public class SyncTaskService {
      */
     @Transactional
     public SyncTask retryTask(Long id) {
-        SyncTask task = getTask(id);
+        SyncTask task = getTaskForUpdate(id);
 
         if (task.getStatus() != TaskStatus.failed) {
             throw new IllegalStateException("只能重试 failed 状态的任务");
@@ -400,7 +400,7 @@ public class SyncTaskService {
      */
     @Transactional
     public SyncTask triggerManualSavepoint(Long id) {
-        SyncTask task = getTask(id);
+        SyncTask task = getTaskForUpdate(id);
 
         if (task.getStatus() != TaskStatus.running) {
             throw new IllegalStateException("只能对 running 状态的任务触发 Savepoint");
@@ -465,6 +465,71 @@ public class SyncTaskService {
             result.put("savepointTriggerId", task.getSavepointTriggerId());
         }
 
+        return result;
+    }
+
+    /** Return fresh adaptive-scaling state for the Flink job behind a task. */
+    public Map<String, Object> getTaskScaling(Long id) {
+        SyncTask task = getTask(id);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("taskId", task.getId());
+        result.put("taskStatus", task.getStatus().name());
+        result.put("configuredParallelism", task.getParallelism() == null ? 1 : task.getParallelism());
+
+        if (task.getFlinkJobId() == null || task.getFlinkJobId().isBlank()) {
+            result.put("supported", false);
+            result.put("jobId", null);
+            result.put("reason", "任务尚未关联正在运行的 Flink Job");
+            result.put("capacity", flinkClusterService.getClusterCapacity());
+            return result;
+        }
+
+        result.putAll(flinkClusterService.getJobScalingInfo(task.getFlinkJobId()));
+        result.put("configuredParallelism", task.getParallelism() == null ? 1 : task.getParallelism());
+        if (submitsMultipleFlinkJobs(task)) {
+            result.put("supported", false);
+            result.put("reason", "该旧版任务可能对应多个 Flink Job，无法安全统一扩缩；请在 Flink UI 逐个取消关联 Job，再删除并按 Statement Set 单 Job 方式重建任务");
+        }
+        return result;
+    }
+
+    /** Submit a guarded, in-place adaptive parallelism change for a running task. */
+    @Transactional
+    public Map<String, Object> rescaleTask(
+            Long id,
+            int targetParallelism,
+            String expectedJobId,
+            int expectedConfiguredParallelism,
+            String reason,
+            String requestedBy
+    ) {
+        SyncTask task = getTaskForUpdate(id);
+        if (task.getStatus() != TaskStatus.running) {
+            throw new IllegalStateException("仅运行中的任务可以调整并行度");
+        }
+        if (task.getFlinkJobId() == null || !task.getFlinkJobId().equals(expectedJobId)) {
+            throw new IllegalStateException("Flink Job 已发生变化，请刷新页面后重试");
+        }
+        int configuredParallelism = task.getParallelism() == null ? 1 : task.getParallelism();
+        if (configuredParallelism != expectedConfiguredParallelism) {
+            throw new IllegalStateException("任务并行度已被其他操作修改，请刷新页面后重试");
+        }
+        if (submitsMultipleFlinkJobs(task)) {
+            throw new IllegalStateException("该旧版任务可能对应多个 Flink Job；请在 Flink UI 逐个取消关联 Job，再删除并按 Statement Set 单 Job 方式重建任务");
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>(
+                flinkClusterService.rescaleJob(task.getFlinkJobId(), targetParallelism));
+        // The accepted target is the desired parallelism for future retry and
+        // savepoint resume submissions as well, not just this Job incarnation.
+        task.setParallelism(targetParallelism);
+        syncTaskRepository.saveAndFlush(task);
+        result.put("taskId", task.getId());
+        result.put("configuredParallelism", targetParallelism);
+        result.put("reason", reason.trim());
+        result.put("requestedBy", requestedBy);
+        log.info("Flink job rescale accepted: taskId={}, jobId={}, targetParallelism={}, requestedBy={}, reason={}",
+                task.getId(), task.getFlinkJobId(), targetParallelism, requestedBy, reason);
         return result;
     }
 
@@ -697,6 +762,22 @@ public class SyncTaskService {
     // ========================================================================
     // Utility
     // ========================================================================
+
+    private SyncTask getTaskForUpdate(Long id) {
+        return syncTaskRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new IllegalArgumentException("任务不存在: " + id));
+    }
+
+    /**
+     * Before multi-table CDC switched to Statement Set, each INSERT was
+     * submitted independently and produced a separate Job. A single stored
+     * Job ID cannot safely represent or rescale that group.
+     */
+    private boolean submitsMultipleFlinkJobs(SyncTask task) {
+        if (task.getFlinkSql() == null || task.getFlinkSql().isBlank()) return false;
+        return FlinkClusterService.createsMultipleJobs(
+                FlinkClusterService.splitSqlStatements(task.getFlinkSql()));
+    }
 
     private String extractSavepointPath(String checkpointInfo) {
         if (checkpointInfo == null) return null;
