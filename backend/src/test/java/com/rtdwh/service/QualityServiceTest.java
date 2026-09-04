@@ -5,6 +5,7 @@ import com.rtdwh.entity.QualityAlert;
 import com.rtdwh.repository.QualityAlertRepository;
 import com.rtdwh.repository.QualityRuleRepository;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 
 import java.util.List;
 import java.util.Optional;
@@ -23,7 +24,17 @@ class QualityServiceTest {
     private final QualityRuleRepository ruleRepository = mock(QualityRuleRepository.class);
     private final QualityAlertRepository alertRepository = mock(QualityAlertRepository.class);
     private final QualityCheckPersistenceService persistenceService = mock(QualityCheckPersistenceService.class);
-    private final QualityService service = new QualityService(ruleRepository, alertRepository, persistenceService);
+    private final QueryAccessScopeService accessScopeService = mock(QueryAccessScopeService.class);
+    private final DorisConnectionService dorisConnectionService = mock(DorisConnectionService.class);
+    private final QualityService service = new QualityService(ruleRepository, alertRepository, persistenceService,
+            accessScopeService, dorisConnectionService);
+
+    @BeforeEach
+    void allowTestTable() {
+        when(dorisConnectionService.getCatalog()).thenReturn("rtdwh_paimon");
+        when(dorisConnectionService.getDatabase()).thenReturn("ods");
+        when(accessScopeService.allowedReference(any(), any(), any(), any())).thenReturn(true);
+    }
 
     @Test
     void normalizesVolumeRuleAndClearsUnusedFields() {
@@ -38,7 +49,7 @@ class QualityServiceTest {
                 .threshold(1000.0)
                 .build();
 
-        QualityRule saved = service.createRule(input);
+        QualityRule saved = service.createRule(input, 7L);
 
         assertEquals("ODS 数据量", saved.getRuleName());
         assertEquals("volume_compare", saved.getRuleType());
@@ -54,7 +65,7 @@ class QualityServiceTest {
         input.setThreshold(1.01);
 
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
-                () -> service.createRule(input));
+                () -> service.createRule(input, 7L));
 
         assertEquals("比率阈值必须在 0 到 1 之间", error.getMessage());
     }
@@ -63,12 +74,12 @@ class QualityServiceTest {
     void requiresSafeExpressionForRangeCheck() {
         QualityRule missing = baseRule("range_check");
         missing.setExpression(null);
-        assertThrows(IllegalArgumentException.class, () -> service.createRule(missing));
+        assertThrows(IllegalArgumentException.class, () -> service.createRule(missing, 7L));
 
         QualityRule unsafe = baseRule("range_check");
         unsafe.setExpression("amount >= 0; DROP TABLE orders");
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
-                () -> service.createRule(unsafe));
+                () -> service.createRule(unsafe, 7L));
         assertEquals("范围检查表达式包含不安全内容", error.getMessage());
     }
 
@@ -76,11 +87,11 @@ class QualityServiceTest {
     void rejectsInvalidLayerAndTableIdentifier() {
         QualityRule invalidLayer = baseRule("uniqueness");
         invalidLayer.setLayer("stg");
-        assertThrows(IllegalArgumentException.class, () -> service.createRule(invalidLayer));
+        assertThrows(IllegalArgumentException.class, () -> service.createRule(invalidLayer, 7L));
 
         QualityRule invalidTable = baseRule("uniqueness");
         invalidTable.setTargetTable("ods.orders;drop");
-        assertThrows(IllegalArgumentException.class, () -> service.createRule(invalidTable));
+        assertThrows(IllegalArgumentException.class, () -> service.createRule(invalidTable, 7L));
     }
 
     @Test
@@ -94,7 +105,7 @@ class QualityServiceTest {
                 .thenReturn(List.of(open));
         when(ruleRepository.save(any(QualityRule.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        QualityRule result = service.setRuleEnabled(9L, false);
+        QualityRule result = service.setRuleEnabled(9L, false, 7L);
 
         assertFalse(result.getEnabled());
         assertTrue(open.getResolved());

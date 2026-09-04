@@ -5,6 +5,7 @@ import {
 } from '@ant-design/icons';
 
 export type TaskType = 'cdc_sync' | 'etl' | 'materialized';
+export type ExecutionMode = 'continuous' | 'scheduled';
 export type TaskScenarioStatus = 'available' | 'planned';
 export type TaskScenarioCategory = 'ingest' | 'develop' | 'compute';
 
@@ -15,6 +16,7 @@ export type TaskScenario = {
   description: string;
   hint: string;
   taskType: TaskType;
+  executionMode: ExecutionMode;
   status: TaskScenarioStatus;
   icon: React.ReactNode;
   tags: string[];
@@ -48,6 +50,7 @@ export const taskScenarios: TaskScenario[] = [
     description: 'MySQL／PostgreSQL → Paimon ODS',
     hint: '选择需要同步的表，自动生成映射和 CDC SQL',
     taskType: 'cdc_sync',
+    executionMode: 'continuous',
     status: 'available',
     icon: <SyncOutlined />,
     tags: ['实时', 'CDC'],
@@ -63,6 +66,7 @@ export const taskScenarios: TaskScenario[] = [
     description: '业务库 → Paimon ODS',
     hint: '读取源库全部表并批量建立 ODS 映射，可按需排除',
     taskType: 'cdc_sync',
+    executionMode: 'continuous',
     status: 'available',
     icon: <DatabaseOutlined />,
     tags: ['整库', 'CDC'],
@@ -78,6 +82,7 @@ export const taskScenarios: TaskScenario[] = [
     description: 'Kafka Topic → Paimon',
     hint: '注册 Kafka 数据源与 Schema 后可接入该执行适配器',
     taskType: 'cdc_sync',
+    executionMode: 'continuous',
     status: 'planned',
     icon: <ApiOutlined />,
     tags: ['规划中'],
@@ -92,6 +97,7 @@ export const taskScenarios: TaskScenario[] = [
     description: 'CSV／JSON／Parquet → Paimon',
     hint: '支持对象存储目录监听、分区规则和重复文件校验',
     taskType: 'etl',
+    executionMode: 'scheduled',
     status: 'planned',
     icon: <FileTextOutlined />,
     tags: ['规划中'],
@@ -104,6 +110,7 @@ export const taskScenarios: TaskScenario[] = [
     description: 'ODS → DWD／DWS／ADS',
     hint: '编写 Flink SQL，适合实时明细、汇总和指标加工',
     taskType: 'etl',
+    executionMode: 'continuous',
     status: 'available',
     icon: <CodeOutlined />,
     tags: ['SQL', '开发'],
@@ -116,9 +123,10 @@ export const taskScenarios: TaskScenario[] = [
     description: '周期 SQL → 数据资源',
     hint: '创建后配置周期、依赖、补数和产出登记',
     taskType: 'etl',
-    status: 'planned',
+    executionMode: 'scheduled',
+    status: 'available',
     icon: <ScheduleOutlined />,
-    tags: ['规划中'],
+    tags: ['周期', '可补数'],
     inputMode: 'sql',
   },
   {
@@ -128,6 +136,7 @@ export const taskScenarios: TaskScenario[] = [
     description: 'Flink 2.x Materialized Table',
     hint: '持续维护物化结果，适合实时聚合和宽表',
     taskType: 'materialized',
+    executionMode: 'continuous',
     status: 'available',
     icon: <ThunderboltOutlined />,
     tags: ['持续计算'],

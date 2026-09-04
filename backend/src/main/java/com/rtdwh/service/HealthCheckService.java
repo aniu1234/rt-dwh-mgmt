@@ -34,6 +34,9 @@ public class HealthCheckService {
     @Value("${paimon.warehouse-path}")
     private String paimonWarehousePath;
 
+    @Value("${paimon.catalog-key:rtdwh}")
+    private String paimonCatalogKey;
+
     /**
      * Check Flink cluster health (delegated to FlinkClusterService).
      */
@@ -56,25 +59,20 @@ public class HealthCheckService {
 
             long durationMs = System.currentTimeMillis() - startTime;
 
-            // Try to get some basic info from Paimon metastore
-            int dbCount = 0;
-            try (var stmt = conn.createStatement();
-                 var rs = stmt.executeQuery("SHOW DATABASES")) {
-                while (rs.next()) dbCount++;
-            }
-
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("status", "healthy");
+            result.put("catalogKey", paimonCatalogKey);
             result.put("warehousePath", paimonWarehousePath);
             result.put("metastoreUri", paimonJdbcUri);
             result.put("responseTimeMs", durationMs);
-            result.put("databaseCount", dbCount);
+            result.put("metastoreProduct", conn.getMetaData().getDatabaseProductName());
             result.put("readOnly", conn.isReadOnly());
             result.put("checkedAt", Instant.now().toString());
             return result;
         } catch (Exception e) {
             log.warn("Paimon health check failed: {}", e.getMessage());
             Map<String, Object> result = new LinkedHashMap<>();
+            result.put("catalogKey", paimonCatalogKey);
             result.put("metastoreUri", paimonJdbcUri);
             result.put("warehousePath", paimonWarehousePath);
             result.put("responseTimeMs", System.currentTimeMillis() - startTime);

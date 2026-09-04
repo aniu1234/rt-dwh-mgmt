@@ -27,6 +27,7 @@ public class TaskRunInstance {
     private Long id;
     @Column(nullable = false)
     private Long taskId;
+    private Long definitionVersionId;
     @Column(nullable = false, length = 64)
     private String batchId;
     @Column(nullable = false)

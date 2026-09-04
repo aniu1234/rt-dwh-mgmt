@@ -45,8 +45,12 @@ declare namespace API {
     taskName: string;
     description?: string;
     taskType: 'cdc_sync' | 'etl' | 'materialized';
-    sourceConfigId: number;
-    targetConfigId: number;
+    scenarioCode?: string;
+    executionMode: 'continuous' | 'scheduled';
+    definitionStatus: 'draft' | 'published' | 'disabled';
+    publishedVersionId?: number;
+    sourceConfigId?: number;
+    targetConfigId?: number;
     flinkSql: string;
     syncStrategy: 'full_then_incremental' | 'incremental_only';
     tableMappings?: string;

@@ -46,8 +46,9 @@ const Workflow: React.FC = () => {
   const instancesRequest = useRequest(() => getWorkflowInstances({ limit: 200 }), { pollingInterval: 5000 });
   const schedulesRequest = useRequest(getTaskSchedules, { pollingInterval: 10000 });
   const graph = graphRequest.data as API.WorkflowGraph | undefined;
-  const tasks = graph?.tasks || [];
-  const dependencies = graph?.dependencies || [];
+  const tasks = (graph?.tasks || []).filter((task) => task.executionMode === 'scheduled');
+  const scheduledTaskIds = useMemo(() => new Set(tasks.map((task) => task.id)), [tasks]);
+  const dependencies = (graph?.dependencies || []).filter((item) => scheduledTaskIds.has(item.upstreamTaskId) && scheduledTaskIds.has(item.downstreamTaskId));
   const taskMap = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks]);
   const scheduleMap = useMemo(() => new Map(((schedulesRequest.data || []) as API.TaskSchedule[]).map((item) => [item.taskId, item])), [schedulesRequest.data]);
 
@@ -68,7 +69,7 @@ const Workflow: React.FC = () => {
 
   const taskColumns = [
     { title: '任务', key: 'task', render: (_: unknown, task: API.SyncTask) => <Space direction="vertical" size={0}>
-      <b>{task.taskName || task.name}</b><span style={{ color: '#8c8c8c' }}>ID {task.id} · {task.taskType}</span>
+      <b>{task.taskName || task.name}</b><span style={{ color: '#8c8c8c' }}>ID {task.id} · 周期实例</span>
     </Space> },
     { title: '上游依赖', key: 'upstream', render: (_: unknown, task: API.SyncTask) => {
       const upstream = dependencies.filter((item) => item.downstreamTaskId === task.id);
@@ -79,19 +80,22 @@ const Workflow: React.FC = () => {
       </Tag>)}</Space> : <span style={{ color: '#bfbfbf' }}>无上游，可直接调度</span>;
     } },
     { title: '周期调度', key: 'schedule', width: 190, render: (_: unknown, task: API.SyncTask) => { const item=scheduleMap.get(task.id); return item ? <Space direction="vertical" size={0}><Tag color={item.enabled?'processing':'default'}>{item.enabled?'已启用':'已停用'} · {item.cronExpression}</Tag><span style={{color:'#8c8c8c'}}>下次 {formatTime(item.nextRunAt)}</span></Space> : <Tag>未配置</Tag>; } },
-    { title: '发布状态', key: 'status', width: 120, render: (_: unknown, task: API.SyncTask) => <Tag color={task.status === 'draft' ? 'default' : 'blue'}>{task.status}</Tag> },
+    { title: '发布状态', key: 'status', width: 150, render: (_: unknown, task: API.SyncTask) => task.publishedVersionId
+      ? <Tag color={task.definitionStatus === 'published' ? 'blue' : 'gold'}>{task.definitionStatus === 'published' ? '已发布' : '草稿有变更'} · #{task.publishedVersionId}</Tag>
+      : <Tag>未发布</Tag> },
     { title: '操作', key: 'action', width: 420, render: (_: unknown, task: API.SyncTask) => <Space wrap>
       <Button size="small" icon={<HistoryOutlined />} onClick={() => openVersions(task)}>版本</Button>
       {access.canManageTask && <><Button size="small" onClick={() => { setPublishTask(task); publishForm.setFieldsValue({ changeSummary: '发布任务配置' }); }}>发布版本</Button>
-        {task.taskType !== 'cdc_sync' && <Button size="small" onClick={() => { setBackfillTask(task); backfillForm.setFieldsValue({ dates: [dayjs(), dayjs()] }); }}>补数</Button>}
-        {task.taskType !== 'cdc_sync' && <Button size="small" onClick={() => openSchedule(task)}>调度</Button>}
-        {task.taskType !== 'cdc_sync' && <Button size="small" onClick={() => openOutputs(task)}>产出资源</Button>}</>}
+        <Button size="small" disabled={!task.publishedVersionId} onClick={() => { setBackfillTask(task); backfillForm.setFieldsValue({ dates: [dayjs(), dayjs()] }); }}>补数</Button>
+        <Button size="small" disabled={!task.publishedVersionId} onClick={() => openSchedule(task)}>调度</Button>
+        <Button size="small" onClick={() => openOutputs(task)}>产出资源</Button></>}
     </Space> },
   ];
 
   const instanceColumns = [
     { title: '实例 ID', dataIndex: 'id', width: 90 },
     { title: '任务', dataIndex: 'taskId', render: (id: number) => taskMap.get(id)?.taskName || `任务 ${id}` },
+    { title: '版本', dataIndex: 'definitionVersionId', width: 100, render: (id: number) => <Tag color="blue">#{id}</Tag> },
     { title: '业务日期', dataIndex: 'businessDate', width: 130 },
     { title: '触发方式', dataIndex: 'triggerType', width: 110 },
     { title: '状态', dataIndex: 'status', width: 110, render: (status: string) => <Tag color={statusColors[status]}>{status}</Tag> },
@@ -137,7 +141,7 @@ const Workflow: React.FC = () => {
 
     <Modal title={`发布版本：${publishTask?.taskName || ''}`} open={!!publishTask} onCancel={() => setPublishTask(undefined)} onOk={() => publishForm.submit()} destroyOnClose>
       <Form form={publishForm} layout="vertical" onFinish={async ({ changeSummary }) => {
-        if (!publishTask) return; await publishTaskVersion(publishTask.id, changeSummary); message.success('版本发布成功'); setPublishTask(undefined);
+        if (!publishTask) return; await publishTaskVersion(publishTask.id, changeSummary); message.success('版本发布成功'); setPublishTask(undefined); graphRequest.refresh();
       }}><Form.Item name="changeSummary" label="变更说明" rules={[{ required: true }]}><Input.TextArea rows={3} maxLength={256} showCount /></Form.Item></Form>
     </Modal>
 

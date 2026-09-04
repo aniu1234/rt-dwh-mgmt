@@ -48,13 +48,14 @@ public class SyncTaskController {
         TaskStatus statusEnum = status != null ? TaskStatus.valueOf(status) : null;
         TaskType typeEnum = taskType != null ? TaskType.valueOf(taskType) : null;
 
-        List<SyncTask> tasks = syncTaskService.listTasks(statusEnum, typeEnum, keyword);
+        List<SyncTask> tasks = syncTaskService.listTasksForUser(
+                securityContextUtil.getCurrentUserId(), statusEnum, typeEnum, keyword);
         return ApiResponse.success(tasks);
     }
 
     @GetMapping("/{id}")
     public ApiResponse<SyncTask> getTask(@PathVariable Long id) {
-        return ApiResponse.success(syncTaskService.getTask(id));
+        return ApiResponse.success(syncTaskService.getTaskForUser(id, securityContextUtil.getCurrentUserId()));
     }
 
     @PostMapping
@@ -67,12 +68,15 @@ public class SyncTaskController {
     @PutMapping("/{id}")
     @PreAuthorize("hasAuthority('task:manage')")
     public ApiResponse<SyncTask> updateTask(@PathVariable Long id, @RequestBody SyncTaskUpdateDTO dto) {
-        return ApiResponse.success("任务配置已更新", syncTaskService.updateTask(id, dto));
+        authorize(id);
+        return ApiResponse.success("任务配置已更新", syncTaskService.updateTask(
+                id, dto, securityContextUtil.getCurrentUserId()));
     }
 
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAuthority('task:manage')")
     public ApiResponse<Void> deleteTask(@PathVariable Long id) {
+        authorize(id);
         syncTaskService.deleteTask(id);
         return ApiResponse.success("任务已删除", null);
     }
@@ -87,6 +91,7 @@ public class SyncTaskController {
     @PostMapping("/{id}/start")
     @PreAuthorize("hasAuthority('task:manage')")
     public ApiResponse<SyncTask> startTask(@PathVariable Long id) {
+        authorize(id);
         SyncTask task = syncTaskService.startTask(id);
         String msg = task.getStatus() == TaskStatus.running ? "任务已启动" : "任务启动失败";
         return ApiResponse.success(msg, task);
@@ -99,6 +104,7 @@ public class SyncTaskController {
     @PostMapping("/{id}/pause")
     @PreAuthorize("hasAuthority('task:manage')")
     public ApiResponse<SyncTask> pauseTask(@PathVariable Long id) {
+        authorize(id);
         SyncTask task = syncTaskService.pauseTask(id);
         String msg = task.getStatus() == TaskStatus.saving_point
             ? "正在创建 Savepoint，请等待..." : "任务暂停中";
@@ -111,6 +117,7 @@ public class SyncTaskController {
     @PostMapping("/{id}/resume")
     @PreAuthorize("hasAuthority('task:manage')")
     public ApiResponse<SyncTask> resumeTask(@PathVariable Long id) {
+        authorize(id);
         SyncTask task = syncTaskService.resumeTask(id);
         String msg = task.getStatus() == TaskStatus.running ? "任务已从 Savepoint 恢复" : "任务恢复失败";
         return ApiResponse.success(msg, task);
@@ -122,6 +129,7 @@ public class SyncTaskController {
     @PostMapping("/{id}/stop")
     @PreAuthorize("hasAuthority('task:manage')")
     public ApiResponse<SyncTask> stopTask(@PathVariable Long id) {
+        authorize(id);
         SyncTask task = syncTaskService.stopTask(id);
         return ApiResponse.success("任务已停止（未保留 Savepoint）", task);
     }
@@ -132,6 +140,7 @@ public class SyncTaskController {
     @PostMapping("/{id}/retry")
     @PreAuthorize("hasAuthority('task:manage')")
     public ApiResponse<SyncTask> retryTask(@PathVariable Long id) {
+        authorize(id);
         SyncTask task = syncTaskService.retryTask(id);
         String msg = task.getStatus() == TaskStatus.running ? "任务重试成功" : "任务重试失败";
         return ApiResponse.success(msg, task);
@@ -139,12 +148,14 @@ public class SyncTaskController {
 
     @GetMapping("/{id}/postgres-cdc-status")
     public ApiResponse<Map<String, Object>> getPostgresCdcStatus(@PathVariable Long id) {
+        authorize(id);
         return ApiResponse.success(syncTaskService.getPostgresCdcStatus(id));
     }
 
     @PostMapping("/{id}/cleanup-postgres-cdc")
     @PreAuthorize("hasAuthority('task:manage')")
     public ApiResponse<Map<String, Object>> cleanupPostgresCdc(@PathVariable Long id) {
+        authorize(id);
         return ApiResponse.success("PostgreSQL CDC 资源已清理", syncTaskService.cleanupPostgresCdcResources(id));
     }
 
@@ -154,6 +165,7 @@ public class SyncTaskController {
     @PostMapping("/{id}/savepoint")
     @PreAuthorize("hasAuthority('task:manage')")
     public ApiResponse<SyncTask> triggerSavepoint(@PathVariable Long id) {
+        authorize(id);
         SyncTask task = syncTaskService.triggerManualSavepoint(id);
         return ApiResponse.success("Savepoint 触发成功，请轮询状态查看进度", task);
     }
@@ -167,12 +179,14 @@ public class SyncTaskController {
      */
     @GetMapping("/{id}/status")
     public ApiResponse<Map<String, Object>> getTaskStatus(@PathVariable Long id) {
+        authorize(id);
         return ApiResponse.success(syncTaskService.getTaskStatus(id));
     }
 
     /** Fresh adaptive-scaling capability and per-vertex parallelism. */
     @GetMapping("/{id}/scaling")
     public ApiResponse<Map<String, Object>> getTaskScaling(@PathVariable Long id) {
+        authorize(id);
         return ApiResponse.success(syncTaskService.getTaskScaling(id));
     }
 
@@ -183,6 +197,7 @@ public class SyncTaskController {
             @PathVariable Long id,
             @Valid @RequestBody FlinkJobScaleRequest request
     ) {
+        authorize(id);
         return ApiResponse.success(
                 "Flink 已接受并行度调整请求",
                 syncTaskService.rescaleTask(
@@ -204,6 +219,8 @@ public class SyncTaskController {
             @PathVariable Long id,
             @RequestParam(defaultValue = "jobmanager") String type,
             @RequestParam(defaultValue = "200") int lines) {
+
+        authorize(id);
 
         Map<String, Object> logs = syncTaskService.getTaskLogs(id, type, lines);
         return ApiResponse.success(logs);
@@ -240,21 +257,18 @@ public class SyncTaskController {
             // Resolve source and target datasource configs
             Long sourceConfigId = config.get("sourceConfigId") != null
                 ? Long.parseLong(String.valueOf(config.get("sourceConfigId"))) : null;
-            Long targetConfigId = config.get("targetConfigId") != null
-                ? Long.parseLong(String.valueOf(config.get("targetConfigId"))) : null;
-
-            if (sourceConfigId == null || targetConfigId == null) {
-                return ApiResponse.error(400, "预览需要提供 sourceConfigId 和 targetConfigId");
-            }
+            if (sourceConfigId == null) return ApiResponse.error(400, "预览需要提供 sourceConfigId");
 
             DatasourceConfig sourceConfig = datasourceService.getDatasource(sourceConfigId);
-            DatasourceConfig targetConfig = datasourceService.getDatasource(targetConfigId);
-
-            String sql = cdcSqlGenerator.generateCdcSql(task, sourceConfig, targetConfig);
+            String sql = cdcSqlGenerator.generateCdcSql(task, sourceConfig);
             return ApiResponse.success(Map.of("sql", sql, "preview", true));
         } catch (Exception e) {
             log.error("Failed to preview CDC SQL: {}", e.getMessage());
             return ApiResponse.error(400, "预览失败: " + e.getMessage());
         }
+    }
+
+    private void authorize(Long taskId) {
+        syncTaskService.assertTaskAccess(taskId, securityContextUtil.getCurrentUserId());
     }
 }

@@ -68,8 +68,8 @@ public class WorkflowSqlRunnerService {
     private boolean submit(TaskRunInstance instance) {
         try {
             SyncTask definition = workflowService.taskForInstance(instance);
-            if (definition.getTaskType() == SyncTask.TaskType.cdc_sync) {
-                workflowService.complete(instance.getId(), false, "CDC 长流任务不能作为工作流补数实例执行");
+            if (definition.getExecutionMode() != SyncTask.ExecutionMode.scheduled) {
+                workflowService.complete(instance.getId(), false, "持续任务不能作为周期运行实例执行");
                 return false;
             }
             String sql = renderSql(definition.getFlinkSql(), instance, objectMapper);

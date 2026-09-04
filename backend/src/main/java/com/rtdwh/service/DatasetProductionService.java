@@ -23,9 +23,15 @@ public class DatasetProductionService {
     private final DatasetProductionRepository productionRepository;
     private final DwhTableMetaRepository tableMetaRepository;
     private final QualityCheckService qualityCheckService;
+    private final QueryAccessScopeService accessScopeService;
 
     public List<TaskOutputDataset> outputs(Long taskId) {
         return outputRepository.findByTaskIdAndEnabledTrueOrderById(taskId);
+    }
+
+    public List<TaskOutputDataset> outputs(Long taskId, Long userId) {
+        return accessScopeService.filterAllowed(userId, outputs(taskId),
+                TaskOutputDataset::getCatalogName, TaskOutputDataset::getDatabaseName, TaskOutputDataset::getTableName);
     }
 
     @Transactional
@@ -61,8 +67,32 @@ public class DatasetProductionService {
         return enabled;
     }
 
+    @Transactional
+    public List<TaskOutputDataset> replaceOutputs(Long taskId, List<WorkflowDTO.OutputDatasetRequest> requests,
+                                                   Long userId) {
+        for (TaskOutputDataset existing : outputRepository.findByTaskIdOrderById(taskId)) {
+            assertAllowed(userId, existing.getCatalogName(), existing.getDatabaseName(), existing.getTableName());
+        }
+        if (requests != null) {
+            for (WorkflowDTO.OutputDatasetRequest request : requests) {
+                assertAllowed(userId, request.getCatalogName(), request.getDatabaseName(), request.getTableName());
+            }
+        }
+        return replaceOutputs(taskId, requests);
+    }
+
     public List<DatasetProduction> productions(Long outputId, int limit) {
         outputRepository.findById(outputId).orElseThrow(() -> new IllegalArgumentException("产出数据集不存在: " + outputId));
+        return productionRepository.findByOutputDatasetIdOrderByProducedAtDesc(
+                outputId, PageRequest.of(0, Math.max(1, Math.min(limit, 200))));
+    }
+
+    public List<DatasetProduction> productions(Long outputId, int limit, Long userId) {
+        TaskOutputDataset output = outputRepository.findById(outputId)
+                .orElseThrow(() -> new IllegalArgumentException("产出数据集不存在: " + outputId));
+        if (!accessScopeService.allowed(userId, output.getCatalogName(), output.getDatabaseName(), output.getTableName())) {
+            throw new IllegalArgumentException("无权查看该产出数据集");
+        }
         return productionRepository.findByOutputDatasetIdOrderByProducedAtDesc(
                 outputId, PageRequest.of(0, Math.max(1, Math.min(limit, 200))));
     }
@@ -109,5 +139,11 @@ public class DatasetProductionService {
 
     private String key(String catalog, String database, String table) {
         return (catalog + "." + database + "." + table).toLowerCase(Locale.ROOT);
+    }
+
+    private void assertAllowed(Long userId, String catalog, String database, String table) {
+        if (!accessScopeService.allowed(userId, catalog, database, table)) {
+            throw new IllegalArgumentException("无权登记产出数据集: " + catalog + "." + database + "." + table);
+        }
     }
 }

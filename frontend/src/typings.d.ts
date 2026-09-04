@@ -35,6 +35,9 @@ declare namespace API {
     description: string;
     taskType: string; // CDC | SQL | BATCH | cdc_sync | etl | materialized
     scenarioCode?: string; // product scenario, e.g. table_realtime_sync
+    executionMode: 'continuous' | 'scheduled';
+    definitionStatus: 'draft' | 'published' | 'disabled';
+    publishedVersionId?: number;
     status: string; // draft | submitting | running | paused | failed | cancelled | finished | saving_point
     sourceDatasourceId: number;
     sourceDatasourceName?: string;
@@ -72,6 +75,7 @@ declare namespace API {
   /** 任务状态详情 */
   interface TaskStatusInfo {
     taskId: number;
+    definitionVersionId: number;
     status: string;
     flinkJobId?: string;
     savepointTriggerId?: string;
@@ -555,9 +559,10 @@ declare namespace API {
     taskSlotsAvailable?: number;
     taskSlotsTotal?: number;
     taskManagers?: number;
+    catalogKey?: string;
     warehousePath?: string;
     metastoreUri?: string;
-    databaseCount?: number;
+    metastoreProduct?: string;
     database?: string;
     dbProduct?: string;
     dbVersion?: string;

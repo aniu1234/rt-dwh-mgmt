@@ -31,8 +31,9 @@ class QualityCheckServiceTest {
     private final QualityCheckRunRepository runRepository = mock(QualityCheckRunRepository.class);
     private final QualityCheckPersistenceService persistenceService = mock(QualityCheckPersistenceService.class);
     private final DorisConnectionService doris = mock(DorisConnectionService.class);
+    private final QualityService qualityService = mock(QualityService.class);
     private final QualityCheckService service = new QualityCheckService(
-            ruleRepository, runRepository, persistenceService, doris);
+            ruleRepository, runRepository, persistenceService, doris, qualityService);
 
     @BeforeEach
     void stubRunPersistence() {

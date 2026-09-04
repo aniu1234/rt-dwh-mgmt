@@ -30,9 +30,7 @@ class SyncTaskServiceTest {
         SyncTaskCreateDTO dto = new SyncTaskCreateDTO();
         dto.setTaskName("test_cdc_task");
         dto.setTaskType("cdc_sync");
-        Long[] datasourceIds = createDatasources();
-        dto.setSourceConfigId(datasourceIds[0]);
-        dto.setTargetConfigId(datasourceIds[1]);
+        dto.setSourceConfigId(createBusinessDatasource());
         dto.setFlinkSql("CREATE TABLE source (...) WITH ('connector'='mysql-cdc'); INSERT INTO target SELECT * FROM source;");
         dto.setSyncStrategy("full_then_incremental");
         dto.setTableMappings(testTableMappings());
@@ -44,6 +42,8 @@ class SyncTaskServiceTest {
         assertEquals(TaskStatus.draft, task.getStatus());
         assertEquals(SyncTask.TaskType.cdc_sync, task.getTaskType());
         assertEquals("table_realtime_sync", task.getScenarioCode());
+        assertEquals(SyncTask.ExecutionMode.continuous, task.getExecutionMode());
+        assertNull(task.getTargetConfigId());
     }
 
     @Test
@@ -54,9 +54,7 @@ class SyncTaskServiceTest {
         dto.setTaskName("test_get_task");
         dto.setTaskType("cdc_sync");
         dto.setScenarioCode("database_realtime_sync");
-        Long[] datasourceIds = createDatasources();
-        dto.setSourceConfigId(datasourceIds[0]);
-        dto.setTargetConfigId(datasourceIds[1]);
+        dto.setSourceConfigId(createBusinessDatasource());
         dto.setFlinkSql("SELECT 1");
         dto.setSyncStrategy("incremental_only");
         dto.setTableMappings(testTableMappings());
@@ -75,9 +73,7 @@ class SyncTaskServiceTest {
         SyncTaskCreateDTO dto = new SyncTaskCreateDTO();
         dto.setTaskName("test_delete_task");
         dto.setTaskType("cdc_sync");
-        Long[] datasourceIds = createDatasources();
-        dto.setSourceConfigId(datasourceIds[0]);
-        dto.setTargetConfigId(datasourceIds[1]);
+        dto.setSourceConfigId(createBusinessDatasource());
         dto.setFlinkSql("SELECT 1");
         dto.setSyncStrategy("incremental_only");
         dto.setTableMappings(testTableMappings());
@@ -97,17 +93,13 @@ class SyncTaskServiceTest {
         });
     }
 
-    private Long[] createDatasources() {
+    private Long createBusinessDatasource() {
         String suffix = java.util.UUID.randomUUID().toString().substring(0, 8);
         DatasourceConfig source = datasourceRepository.save(DatasourceConfig.builder()
                 .creatorId(1L).configName("test_mysql_" + suffix).dbType(DatasourceConfig.DbType.mysql)
                 .host("localhost").port(3306).database("test_source").username("root")
                 .passwordEncrypted("").build());
-        DatasourceConfig target = datasourceRepository.save(DatasourceConfig.builder()
-                .creatorId(1L).configName("test_paimon_" + suffix).dbType(DatasourceConfig.DbType.paimon)
-                .host("file:///tmp/paimon").port(0).database("ods").username("paimon")
-                .passwordEncrypted("").build());
-        return new Long[]{source.getId(), target.getId()};
+        return source.getId();
     }
 
     private String testTableMappings() {

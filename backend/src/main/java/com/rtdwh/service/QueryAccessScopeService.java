@@ -30,6 +30,10 @@ public class QueryAccessScopeService {
     public void validate(Long userId, String sql, String defaultCatalog, String defaultDatabase) {
         Access access = access(userId);
         if (access.admin()) return;
+        validate(access, sql, defaultCatalog, defaultDatabase);
+    }
+
+    private void validate(Access access, String sql, String defaultCatalog, String defaultDatabase) {
         List<String> tables = extractTables(sql);
         String first = sql.stripLeading().split("\\s+", 2)[0].toUpperCase(Locale.ROOT);
         if (tables.isEmpty() && Set.of("SHOW", "DESCRIBE", "DESC").contains(first)) {
@@ -42,6 +46,46 @@ public class QueryAccessScopeService {
                         + name.database() + "." + name.table());
             }
         }
+    }
+
+    @Transactional(readOnly = true)
+    public boolean canAccessSql(Long userId, String sql, String defaultCatalog, String defaultDatabase) {
+        Access access = access(userId);
+        if (access.admin()) return true;
+        try {
+            validate(access, sql, defaultCatalog, defaultDatabase);
+            return true;
+        } catch (IllegalArgumentException deniedOrInvalid) {
+            return false;
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public <T> List<T> filterAllowedSql(Long userId, Collection<T> values, Function<T, String> sql,
+                                        String defaultCatalog, String defaultDatabase) {
+        Access access = access(userId);
+        if (access.admin()) return List.copyOf(values);
+        return values.stream().filter(value -> {
+            try {
+                validate(access, sql.apply(value), defaultCatalog, defaultDatabase);
+                return true;
+            } catch (IllegalArgumentException deniedOrInvalid) {
+                return false;
+            }
+        }).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public boolean allowedReference(Long userId, String rawTable, String defaultCatalog, String defaultDatabase) {
+        Access access = access(userId);
+        if (access.admin()) return true;
+        QualifiedName name = qualify(rawTable, defaultCatalog, defaultDatabase);
+        return allowed(access.scopes(), name.catalog(), name.database(), name.table());
+    }
+
+    @Transactional(readOnly = true)
+    public boolean isAdmin(Long userId) {
+        return access(userId).admin();
     }
 
     @Transactional(readOnly = true)

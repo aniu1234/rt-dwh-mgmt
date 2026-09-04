@@ -7,6 +7,8 @@ import com.rtdwh.entity.SyncTask;
 import com.rtdwh.entity.SyncTask.TaskStatus;
 import com.rtdwh.entity.SyncTask.TaskType;
 import com.rtdwh.entity.SyncTask.SyncStrategy;
+import com.rtdwh.entity.SyncTask.DefinitionStatus;
+import com.rtdwh.entity.SyncTask.ExecutionMode;
 import com.rtdwh.dto.SyncTaskCreateDTO;
 import com.rtdwh.dto.SyncTaskUpdateDTO;
 import com.rtdwh.repository.SyncTaskRepository;
@@ -15,12 +17,12 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.beans.factory.annotation.Value;
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 @Slf4j
 @Service
@@ -35,6 +37,10 @@ public class SyncTaskService {
     private final DatasourceService datasourceService;
     private final ObjectMapper objectMapper;
     private final PostgresCdcService postgresCdcService;
+    private final QueryAccessScopeService accessScopeService;
+
+    @Value("${doris.catalog:rtdwh_paimon}")
+    private String platformCatalog;
 
     // ========================================================================
     // CRUD Operations
@@ -50,20 +56,13 @@ public class SyncTaskService {
         } catch (Exception e) {
             throw new IllegalArgumentException("任务类型或同步策略不合法");
         }
-        // CDC represents a physical source-to-lake copy, so source and target
-        // must differ. SQL/Materialized tasks may legitimately read and write
-        // through the same Paimon datasource while targeting different tables.
-        if (taskType == TaskType.cdc_sync && Objects.equals(dto.getSourceConfigId(), dto.getTargetConfigId())) {
-            throw new IllegalArgumentException("源数据源和目标数据源不能相同");
-        }
-        DatasourceConfig source = datasourceService.getDatasource(dto.getSourceConfigId());
-        DatasourceConfig target = datasourceService.getDatasource(dto.getTargetConfigId());
+        String scenarioCode = resolveScenarioCode(dto.getScenarioCode(), taskType);
+        ExecutionMode executionMode = resolveExecutionMode(dto.getExecutionMode(), scenarioCode, taskType);
         if (taskType == TaskType.cdc_sync) {
+            if (dto.getSourceConfigId() == null) throw new IllegalArgumentException("CDC 任务必须选择业务源库");
+            DatasourceConfig source = datasourceService.getDatasource(dto.getSourceConfigId());
             if (source.getDbType() != DatasourceConfig.DbType.mysql && source.getDbType() != DatasourceConfig.DbType.postgresql) {
                 throw new IllegalArgumentException("CDC 源数据源只支持 MySQL 或 PostgreSQL");
-            }
-            if (target.getDbType() != DatasourceConfig.DbType.paimon) {
-                throw new IllegalArgumentException("CDC 目标数据源必须是 Paimon");
             }
             if (dto.getTableMappings() == null || dto.getTableMappings().isBlank() || !dto.getTableMappings().trim().startsWith("[")) {
                 throw new IllegalArgumentException("CDC 任务必须配置表映射");
@@ -79,9 +78,13 @@ public class SyncTaskService {
                 .taskName(dto.getTaskName())
                 .description(dto.getDescription())
                 .taskType(taskType)
-                .scenarioCode(resolveScenarioCode(dto.getScenarioCode(), taskType))
+                .scenarioCode(scenarioCode)
+                .executionMode(executionMode)
+                .definitionStatus(DefinitionStatus.draft)
                 .sourceConfigId(dto.getSourceConfigId())
-                .targetConfigId(dto.getTargetConfigId())
+                // Paimon is a platform runtime configured in Settings. It is no
+                // longer modelled as a selectable per-task datasource.
+                .targetConfigId(null)
                 .flinkSql(dto.getFlinkSql())
                 .syncStrategy(syncStrategy)
                 .tableMappings(dto.getTableMappings())
@@ -90,6 +93,10 @@ public class SyncTaskService {
                 .status(TaskStatus.draft)
                 .checkpointCount(0L)
                 .build();
+
+        if (!canAccess(creatorId, task)) {
+            throw new IllegalArgumentException("无权创建涉及当前数据表的任务");
+        }
 
         return syncTaskRepository.save(task);
     }
@@ -103,6 +110,27 @@ public class SyncTaskService {
         };
     }
 
+    private ExecutionMode resolveExecutionMode(String requested, String scenarioCode, TaskType taskType) {
+        ExecutionMode mode;
+        try {
+            mode = requested == null || requested.isBlank()
+                    ? ("scheduled_sql_output".equals(scenarioCode) ? ExecutionMode.scheduled : ExecutionMode.continuous)
+                    : ExecutionMode.valueOf(requested);
+        } catch (Exception exception) {
+            throw new IllegalArgumentException("运行方式只能是 continuous 或 scheduled");
+        }
+        if (mode == ExecutionMode.scheduled && taskType != TaskType.etl) {
+            throw new IllegalArgumentException("只有周期 SQL 产出任务支持 scheduled 运行方式");
+        }
+        if (mode == ExecutionMode.scheduled && !"scheduled_sql_output".equals(scenarioCode)) {
+            throw new IllegalArgumentException("scheduled 运行方式必须使用定时数据产出场景");
+        }
+        if ("scheduled_sql_output".equals(scenarioCode) && mode != ExecutionMode.scheduled) {
+            throw new IllegalArgumentException("定时数据产出场景必须使用 scheduled 运行方式");
+        }
+        return mode;
+    }
+
     public SyncTask getTask(Long id) {
         return syncTaskRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("任务不存在: " + id));
@@ -110,6 +138,22 @@ public class SyncTaskService {
 
     public List<SyncTask> listTasks(TaskStatus status, TaskType taskType, String keyword) {
         return syncTaskRepository.searchTasks(status, taskType, keyword);
+    }
+
+    public List<SyncTask> listTasksForUser(Long userId, TaskStatus status, TaskType taskType, String keyword) {
+        List<SyncTask> tasks = syncTaskRepository.searchTasks(status, taskType, keyword);
+        if (accessScopeService.isAdmin(userId)) return tasks;
+        return tasks.stream().filter(task -> canAccess(userId, task)).toList();
+    }
+
+    public SyncTask getTaskForUser(Long id, Long userId) {
+        SyncTask task = getTask(id);
+        if (!canAccess(userId, task)) throw new IllegalArgumentException("无权访问该任务涉及的数据表");
+        return task;
+    }
+
+    public void assertTaskAccess(Long id, Long userId) {
+        getTaskForUser(id, userId);
     }
 
     public List<SyncTask> listRunningTasks() {
@@ -123,7 +167,7 @@ public class SyncTaskService {
     }
 
     @Transactional
-    public SyncTask updateTask(Long id, SyncTaskUpdateDTO dto) {
+    public SyncTask updateTask(Long id, SyncTaskUpdateDTO dto, Long userId) {
         SyncTask task = getTask(id);
         if (task.getStatus() != TaskStatus.draft) {
             throw new IllegalStateException("只能修改 draft 状态的任务配置");
@@ -135,6 +179,9 @@ public class SyncTaskService {
         if (dto.getTableMappings() != null) task.setTableMappings(dto.getTableMappings());
         if (dto.getParallelism() != null) task.setParallelism(dto.getParallelism());
         if (dto.getCheckpointIntervalMs() != null) task.setCheckpointIntervalMs(dto.getCheckpointIntervalMs());
+        task.setDefinitionStatus(DefinitionStatus.draft);
+
+        if (!canAccess(userId, task)) throw new IllegalArgumentException("无权修改为涉及当前数据表的任务");
 
         return syncTaskRepository.save(task);
     }
@@ -168,6 +215,7 @@ public class SyncTaskService {
     @Transactional
     public SyncTask startTask(Long id) {
         SyncTask task = getTaskForUpdate(id);
+        requireContinuous(task, "直接启动");
 
         // Validate state transition
         if (task.getStatus() != TaskStatus.draft && task.getStatus() != TaskStatus.failed) {
@@ -192,8 +240,7 @@ public class SyncTaskService {
         if (task.getTaskType() == TaskType.cdc_sync) {
                 try {
                     DatasourceConfig sourceConfig = datasourceService.getDatasource(task.getSourceConfigId());
-                    DatasourceConfig targetConfig = datasourceService.getDatasource(task.getTargetConfigId());
-                    String generatedSql = cdcSqlGenerator.generateCdcSql(task, sourceConfig, targetConfig);
+                    String generatedSql = cdcSqlGenerator.generateCdcSql(task, sourceConfig);
                     task.setFlinkSql(generatedSql);
                     syncTaskRepository.save(task);
                     log.info("CDC SQL generated for task [{}]", task.getTaskName());
@@ -247,6 +294,7 @@ public class SyncTaskService {
     @Transactional
     public SyncTask resumeTask(Long id) {
         SyncTask task = getTaskForUpdate(id);
+        requireContinuous(task, "恢复");
 
         if (task.getStatus() != TaskStatus.paused) {
             throw new IllegalStateException("无法恢复状态为 " + task.getStatus() + " 的任务");
@@ -298,6 +346,7 @@ public class SyncTaskService {
     @Transactional
     public SyncTask pauseTask(Long id) {
         SyncTask task = getTaskForUpdate(id);
+        requireContinuous(task, "暂停");
 
         if (task.getStatus() != TaskStatus.running) {
             throw new IllegalStateException("无法暂停状态为 " + task.getStatus() + " 的任务");
@@ -325,6 +374,7 @@ public class SyncTaskService {
     @Transactional
     public SyncTask stopTask(Long id) {
         SyncTask task = getTaskForUpdate(id);
+        requireContinuous(task, "停止");
 
         if (task.getStatus() == TaskStatus.draft || task.getStatus() == TaskStatus.finished) {
             throw new IllegalStateException("无法停止状态为 " + task.getStatus() + " 的任务");
@@ -349,6 +399,7 @@ public class SyncTaskService {
     @Transactional
     public SyncTask retryTask(Long id) {
         SyncTask task = getTaskForUpdate(id);
+        requireContinuous(task, "重新启动");
 
         if (task.getStatus() != TaskStatus.failed) {
             throw new IllegalStateException("只能重试 failed 状态的任务");
@@ -401,6 +452,7 @@ public class SyncTaskService {
     @Transactional
     public SyncTask triggerManualSavepoint(Long id) {
         SyncTask task = getTaskForUpdate(id);
+        requireContinuous(task, "触发 Savepoint");
 
         if (task.getStatus() != TaskStatus.running) {
             throw new IllegalStateException("只能对 running 状态的任务触发 Savepoint");
@@ -476,6 +528,14 @@ public class SyncTaskService {
         result.put("taskStatus", task.getStatus().name());
         result.put("configuredParallelism", task.getParallelism() == null ? 1 : task.getParallelism());
 
+        if (task.getExecutionMode() == ExecutionMode.scheduled) {
+            result.put("supported", false);
+            result.put("jobId", null);
+            result.put("reason", "周期任务按运行实例管理，不支持任务级动态扩缩容");
+            result.put("capacity", flinkClusterService.getClusterCapacity());
+            return result;
+        }
+
         if (task.getFlinkJobId() == null || task.getFlinkJobId().isBlank()) {
             result.put("supported", false);
             result.put("jobId", null);
@@ -504,6 +564,7 @@ public class SyncTaskService {
             String requestedBy
     ) {
         SyncTask task = getTaskForUpdate(id);
+        requireContinuous(task, "调整并行度");
         if (task.getStatus() != TaskStatus.running) {
             throw new IllegalStateException("仅运行中的任务可以调整并行度");
         }
@@ -766,6 +827,32 @@ public class SyncTaskService {
     private SyncTask getTaskForUpdate(Long id) {
         return syncTaskRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new IllegalArgumentException("任务不存在: " + id));
+    }
+
+    private void requireContinuous(SyncTask task, String action) {
+        if (task.getExecutionMode() == ExecutionMode.scheduled) {
+            throw new IllegalStateException("周期任务不能" + action + "；请发布版本后通过调度或补数创建运行实例");
+        }
+    }
+
+    private boolean canAccess(Long userId, SyncTask task) {
+        if (accessScopeService.isAdmin(userId)) return true;
+        if (task.getTaskType() != TaskType.cdc_sync) {
+            return task.getFlinkSql() != null && accessScopeService.canAccessSql(
+                    userId, task.getFlinkSql(), platformCatalog, "ods");
+        }
+        try {
+            var mappings = objectMapper.readTree(task.getTableMappings());
+            if (!mappings.isArray() || mappings.isEmpty()) return false;
+            for (var mapping : mappings) {
+                String database = mapping.path("targetDb").asText("ods");
+                String table = mapping.path("targetTable").asText();
+                if (table.isBlank() || !accessScopeService.allowed(userId, platformCatalog, database, table)) return false;
+            }
+            return true;
+        } catch (Exception invalidMappings) {
+            return false;
+        }
     }
 
     /**

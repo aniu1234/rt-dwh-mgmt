@@ -47,10 +47,6 @@ class CdcSqlGeneratorTest {
                 .username("root")
                 .passwordEncrypted("encrypted")
                 .build();
-        DatasourceConfig target = DatasourceConfig.builder()
-                .configName("paimon")
-                .dbType(DatasourceConfig.DbType.paimon)
-                .build();
         SyncTask task = SyncTask.builder()
                 .id(7L)
                 .taskName("multi_table_cdc")
@@ -64,7 +60,7 @@ class CdcSqlGeneratorTest {
                         """)
                 .build();
 
-        String sql = generator.generateCdcSql(task, source, target);
+        String sql = generator.generateCdcSql(task, source);
         List<String> statements = FlinkClusterService.splitSqlStatements(sql);
 
         assertTrue(sql.contains("EXECUTE STATEMENT SET"));

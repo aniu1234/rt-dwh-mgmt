@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { PageContainer } from '@ant-design/pro-components';
-import { Card, Table, Tag, Button, Space, Select, Input, Modal, InputNumber, Tabs, Statistic, Row, Col, message, Popconfirm, Progress, Badge } from 'antd';
+import { Alert, Card, Table, Tag, Button, Space, Select, Input, Modal, InputNumber, Tabs, Statistic, Row, Col, message, Popconfirm, Progress, Badge } from 'antd';
 import { SearchOutlined, ReloadOutlined, ToolOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useRequest } from '@umijs/max';
 import { getDwhTables, triggerCompact, triggerExpireSnapshots, getMaintenanceLogs, batchCompact, batchExpireSnapshots, cleanOrphanFiles } from '@/api';
@@ -26,7 +26,12 @@ const Maintenance: React.FC = () => {
   const [layerFilter, setLayerFilter] = useState<string | undefined>();
   const [keyword, setKeyword] = useState('');
   const [compactModal, setCompactModal] = useState<{ visible: boolean; tableId?: number; tableName?: string }>({ visible: false });
+  const [compactStrategy, setCompactStrategy] = useState<'minor' | 'full'>('minor');
   const [expireModal, setExpireModal] = useState<{ visible: boolean; tableId?: number; tableName?: string; retainLast: number }>({ visible: false, retainLast: 10 });
+  const [batchCompactLayer, setBatchCompactLayer] = useState('all');
+  const [batchCompactThreshold, setBatchCompactThreshold] = useState(200);
+  const [batchExpireLayer, setBatchExpireLayer] = useState('all');
+  const [batchExpireRetain, setBatchExpireRetain] = useState(10);
   const [activeTab, setActiveTab] = useState('tables');
 
   const { data: tablesData, loading: tablesLoading, refresh: refreshTables } = useRequest(() =>
@@ -43,10 +48,11 @@ const Maintenance: React.FC = () => {
       await triggerCompact(tableId, strategy);
       message.success('Compact 操作已触发');
       setCompactModal({ visible: false });
+      setCompactStrategy('minor');
       refreshTables();
       refreshLogs();
-    } catch (e) {
-      message.error('操作失败');
+    } catch (e: any) {
+      message.error(e?.message || '操作失败');
     }
   };
 
@@ -57,8 +63,8 @@ const Maintenance: React.FC = () => {
       setExpireModal({ visible: false, retainLast: 10 });
       refreshTables();
       refreshLogs();
-    } catch (e) {
-      message.error('操作失败');
+    } catch (e: any) {
+      message.error(e?.message || '操作失败');
     }
   };
 
@@ -67,8 +73,8 @@ const Maintenance: React.FC = () => {
       await cleanOrphanFiles(tableId);
       message.success('孤立文件清理已触发');
       refreshLogs();
-    } catch (e) {
-      message.error('操作失败');
+    } catch (e: any) {
+      message.error(e?.message || '操作失败');
     }
   };
 
@@ -77,8 +83,8 @@ const Maintenance: React.FC = () => {
       const res = await batchCompact({ layer: layer === 'all' ? undefined : layer, fileCountThreshold: threshold });
       message.success(`批量 Compact 已触发，共 ${res?.triggered || 0} 张表`);
       refreshTables();
-    } catch (e) {
-      message.error('批量操作失败');
+    } catch (e: any) {
+      message.error(e?.message || '批量操作失败');
     }
   };
 
@@ -87,8 +93,8 @@ const Maintenance: React.FC = () => {
       const res = await batchExpireSnapshots({ layer: layer === 'all' ? undefined : layer, retainLast });
       message.success(`批量过期清理已触发，共 ${res?.triggered || 0} 张表`);
       refreshTables();
-    } catch (e) {
-      message.error('批量操作失败');
+    } catch (e: any) {
+      message.error(e?.message || '批量操作失败');
     }
   };
 
@@ -122,7 +128,17 @@ const Maintenance: React.FC = () => {
   };
 
   return (
-    <PageContainer>
+    <PageContainer
+      title="Paimon 存储维护"
+      subTitle="管理小文件合并、快照回溯窗口与孤立文件清理"
+    >
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 12 }}
+        message="维护对象是物理文件与历史快照，不会自动定义业务数据保留期"
+        description="Compact 优化文件布局；Snapshot Expire 释放不再被保留快照引用的文件；业务分区到期需要独立生命周期策略。"
+      />
       <Tabs
         activeKey={activeTab}
         onChange={setActiveTab}
@@ -219,7 +235,10 @@ const Maintenance: React.FC = () => {
                             size="small"
                             type="primary"
                             icon={<ToolOutlined />}
-                            onClick={() => setCompactModal({ visible: true, tableId: record.id, tableName: `${record.paimonDb}.${record.paimonTable}` })}
+                            onClick={() => {
+                              setCompactStrategy('minor');
+                              setCompactModal({ visible: true, tableId: record.id, tableName: `${record.paimonDb}.${record.paimonTable}` });
+                            }}
                           >
                             Compact
                           </Button>
@@ -328,34 +347,37 @@ const Maintenance: React.FC = () => {
                   <div style={{ fontWeight: 600 }}>批量 Compact</div>
                   <div style={{ color: '#666', fontSize: 12 }}>对文件数超过阈值的表执行 minor compact，降低读取开销</div>
                   <Space wrap>
-                    <Select id="batch-compact-layer" style={{ width: 200 }} placeholder="选择分层范围" options={[
+                    <Select style={{ width: 200 }} value={batchCompactLayer} onChange={setBatchCompactLayer} options={[
                       { label: '全部分层', value: 'all' },
                       { label: '仅 ODS', value: 'ods' },
                       { label: '仅 DWD', value: 'dwd' },
+                      { label: '仅 DWS', value: 'dws' },
+                      { label: '仅 ADS', value: 'ads' },
                     ]} />
-                    <InputNumber id="batch-compact-threshold" placeholder="文件数阈值" defaultValue={200} min={10} max={10000} style={{ width: 140 }} />
-                    <Popconfirm title="确认批量执行 Compact？" onConfirm={() => {
-                      const layer = (document.getElementById('batch-compact-layer') as HTMLSelectElement)?.value || 'all';
-                      const threshold = parseInt((document.getElementById('batch-compact-threshold') as HTMLInputElement)?.value || '200');
-                      handleBatchCompact(layer, threshold);
-                    }}>
+                    <InputNumber placeholder="文件数阈值" value={batchCompactThreshold}
+                      onChange={(value) => setBatchCompactThreshold(value || 200)} min={10} max={10000} style={{ width: 140 }} />
+                    <Popconfirm title="确认批量执行 Compact？"
+                      description={`范围：${batchCompactLayer.toUpperCase()}，文件数阈值：${batchCompactThreshold}`}
+                      onConfirm={() => handleBatchCompact(batchCompactLayer, batchCompactThreshold)}>
                       <Button type="primary" icon={<ToolOutlined />}>执行批量 Compact</Button>
                     </Popconfirm>
                   </Space>
 
                   <div style={{ fontWeight: 600, marginTop: 16 }}>批量快照过期清理</div>
-                  <div style={{ color: '#666', fontSize: 12 }}>对所有快照数超过阈值的表执行 expire，释放存储空间</div>
+                  <div style={{ color: '#666', fontSize: 12 }}>保留最近 N 个快照并清理更早的无引用文件；不删除仍属于当前快照的业务数据</div>
                   <Space wrap>
-                    <Select id="batch-expire-layer" style={{ width: 200 }} placeholder="选择分层范围" options={[
+                    <Select style={{ width: 200 }} value={batchExpireLayer} onChange={setBatchExpireLayer} options={[
                       { label: '全部分层', value: 'all' },
                       { label: '仅 ODS', value: 'ods' },
+                      { label: '仅 DWD', value: 'dwd' },
+                      { label: '仅 DWS', value: 'dws' },
+                      { label: '仅 ADS', value: 'ads' },
                     ]} />
-                    <InputNumber id="batch-expire-retain" placeholder="保留最近 N 个快照" defaultValue={10} min={1} max={100} style={{ width: 160 }} />
-                    <Popconfirm title="确认批量执行过期清理？" onConfirm={() => {
-                      const layer = (document.getElementById('batch-expire-layer') as HTMLSelectElement)?.value || 'all';
-                      const retain = parseInt((document.getElementById('batch-expire-retain') as HTMLInputElement)?.value || '10');
-                      handleBatchExpire(layer, retain);
-                    }}>
+                    <InputNumber placeholder="保留最近 N 个快照" value={batchExpireRetain}
+                      onChange={(value) => setBatchExpireRetain(value || 10)} min={1} max={100} style={{ width: 160 }} />
+                    <Popconfirm title="确认批量执行过期清理？"
+                      description={`范围：${batchExpireLayer.toUpperCase()}，保留最近 ${batchExpireRetain} 个快照`}
+                      onConfirm={() => handleBatchExpire(batchExpireLayer, batchExpireRetain)}>
                       <Button type="primary" danger icon={<DeleteOutlined />}>执行批量过期清理</Button>
                     </Popconfirm>
                   </Space>
@@ -378,14 +400,15 @@ const Maintenance: React.FC = () => {
       <Modal
         title={`触发 Compact: ${compactModal.tableName || ''}`}
         open={compactModal.visible}
-        onCancel={() => setCompactModal({ visible: false })}
-        onOk={() => handleCompact(compactModal.tableId!, 'minor')}
+        onCancel={() => { setCompactModal({ visible: false }); setCompactStrategy('minor'); }}
+        onOk={() => handleCompact(compactModal.tableId!, compactStrategy)}
         okText="执行 Compact"
       >
         <Space direction="vertical" style={{ width: '100%' }}>
           <div style={{ fontWeight: 600 }}>Compact 策略</div>
           <Select
-            defaultValue="minor"
+            value={compactStrategy}
+            onChange={setCompactStrategy}
             style={{ width: '100%' }}
             options={[
               { label: 'Minor Compact（轻量合并小文件）', value: 'minor' },
@@ -393,7 +416,7 @@ const Maintenance: React.FC = () => {
             ]}
           />
           <div style={{ color: '#888', fontSize: 12 }}>
-            Minor: 合并小文件，减少文件数 · Full: 全量合并，优化读取性能
+            Minor：日常合并小文件；Full：全量重写开销较大，建议只在明确需要时执行
           </div>
         </Space>
       </Modal>
@@ -415,9 +438,12 @@ const Maintenance: React.FC = () => {
             max={100}
             style={{ width: '100%' }}
           />
-          <div style={{ color: '#888', fontSize: 12 }}>
-            建议: ODS 层保留 5-10 个，DWD/DWS 层保留 3-5 个
-          </div>
+          <Alert
+            type="warning"
+            showIcon
+            message="快照数不是业务数据保留天数"
+            description="保留过少可能影响长查询和流任务从历史快照恢复。长期审计节点请先建立 Tag，业务数据到期请使用独立分区生命周期策略。"
+          />
         </Space>
       </Modal>
     </PageContainer>

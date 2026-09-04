@@ -25,7 +25,8 @@ class DatasetProductionServiceTest {
     private final DatasetProductionRepository productions = mock(DatasetProductionRepository.class);
     private final DwhTableMetaRepository tables = mock(DwhTableMetaRepository.class);
     private final QualityCheckService quality = mock(QualityCheckService.class);
-    private final DatasetProductionService service = new DatasetProductionService(outputs, productions, tables, quality);
+    private final QueryAccessScopeService access = mock(QueryAccessScopeService.class);
+    private final DatasetProductionService service = new DatasetProductionService(outputs, productions, tables, quality, access);
 
     @Test
     void preservesProductionHistoryWhenOutputConfigurationIsRemovedAndRestored() {

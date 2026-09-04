@@ -3,6 +3,7 @@ package com.rtdwh.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rtdwh.dto.WorkflowDTO;
 import com.rtdwh.entity.SyncTask;
+import com.rtdwh.entity.TaskDefinitionVersion;
 import com.rtdwh.entity.TaskDependency;
 import com.rtdwh.entity.TaskRunInstance;
 import com.rtdwh.repository.SyncTaskRepository;
@@ -17,6 +18,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -45,8 +47,22 @@ class WorkflowServiceTest {
     }
 
     @Test
+    void rejectsVersionPublishingForContinuousJobs() {
+        when(taskRepository.findById(5L)).thenReturn(Optional.of(SyncTask.builder().id(5L)
+                .taskType(SyncTask.TaskType.cdc_sync).executionMode(SyncTask.ExecutionMode.continuous).build()));
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> service.publish(5L, "not applicable", 7L));
+
+        assertEquals("只有周期任务支持发布版本", exception.getMessage());
+        verify(versionRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
     void createsOneBackfillInstancePerBusinessDate() {
         when(taskRepository.findById(8L)).thenReturn(Optional.of(task(8L, SyncTask.TaskType.etl)));
+        when(versionRepository.findById(80L)).thenReturn(Optional.of(TaskDefinitionVersion.builder()
+                .id(80L).taskId(8L).versionNo(1).snapshotJson("{}").build()));
         when(dependencyRepository.findByDownstreamTaskId(8L)).thenReturn(List.of());
         when(instanceRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
         WorkflowDTO.BackfillRequest request = new WorkflowDTO.BackfillRequest();
@@ -58,6 +74,7 @@ class WorkflowServiceTest {
 
         assertEquals(3, instances.size());
         assertTrue(instances.stream().allMatch(item -> item.getStatus() == TaskRunInstance.RunStatus.queued));
+        assertTrue(instances.stream().allMatch(item -> item.getDefinitionVersionId().equals(80L)));
         assertEquals(LocalDate.of(2026, 8, 3), instances.get(2).getBusinessDate());
     }
 
@@ -77,6 +94,38 @@ class WorkflowServiceTest {
         assertEquals(1, service.promoteReadyInstances());
         assertEquals(TaskRunInstance.RunStatus.queued, waiting.getStatus());
         verify(instanceRepository).save(waiting);
+    }
+
+    @Test
+    void claimsOnlyInstancesInsideTheCallersDataScope() {
+        TaskRunInstance queued = TaskRunInstance.builder().id(31L).taskId(8L)
+                .status(TaskRunInstance.RunStatus.queued).createdAt(LocalDateTime.now()).build();
+        when(instanceRepository.findRunnableForTaskIdsForUpdate(
+                eq(TaskRunInstance.RunStatus.queued), any(LocalDateTime.class), eq(Set.of(8L)), any(Pageable.class)))
+                .thenReturn(List.of(queued));
+        when(instanceRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        TaskRunInstance claimed = service.claim("scoped-runner", Set.of(8L)).orElseThrow();
+
+        assertEquals(TaskRunInstance.RunStatus.running, claimed.getStatus());
+        assertEquals("scoped-runner", claimed.getExecutorId());
+        verify(instanceRepository, never()).findRunnableForUpdate(any(), any(), any());
+    }
+
+    @Test
+    void executesTheDefinitionSnapshotBoundToTheInstance() throws Exception {
+        SyncTask published = task(8L, SyncTask.TaskType.etl);
+        published.setFlinkSql("INSERT INTO ads.snapshot SELECT * FROM dwd.source");
+        when(versionRepository.findById(80L)).thenReturn(Optional.of(TaskDefinitionVersion.builder()
+                .id(80L).taskId(8L).versionNo(3)
+                .snapshotJson(new ObjectMapper().findAndRegisterModules().writeValueAsString(published)).build()));
+        TaskRunInstance instance = TaskRunInstance.builder().taskId(8L).definitionVersionId(80L).build();
+
+        SyncTask definition = service.taskForInstance(instance);
+
+        assertEquals("INSERT INTO ads.snapshot SELECT * FROM dwd.source", definition.getFlinkSql());
+        assertEquals(SyncTask.ExecutionMode.scheduled, definition.getExecutionMode());
+        verify(taskRepository, never()).findById(anyLong());
     }
 
     @Test
@@ -115,6 +164,9 @@ class WorkflowServiceTest {
 
     private SyncTask task(Long id, SyncTask.TaskType type) {
         return SyncTask.builder().id(id).taskName("task-" + id).taskType(type)
+                .executionMode(SyncTask.ExecutionMode.scheduled)
+                .definitionStatus(SyncTask.DefinitionStatus.published)
+                .publishedVersionId(80L)
                 .status(SyncTask.TaskStatus.draft).parallelism(1).checkpointIntervalMs(60000L).build();
     }
 }

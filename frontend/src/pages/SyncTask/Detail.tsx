@@ -123,7 +123,10 @@ const SyncTaskDetail: React.FC = () => {
   if (!task) return <PageContainer><Empty description="任务不存在" /></PageContainer>;
 
   const currentStatus = statusInfo?.taskStatus || task.status;
-  const statusCfg = statusConfig[currentStatus] || { color: 'default', label: currentStatus };
+  const isScheduled = task.executionMode === 'scheduled';
+  const statusCfg = isScheduled
+    ? { color: task.definitionStatus === 'published' ? 'blue' : 'default', label: task.definitionStatus === 'published' ? '已发布' : '草稿' }
+    : (statusConfig[currentStatus] || { color: 'default', label: currentStatus });
 
   // ========================================================================
   // Action handlers
@@ -222,6 +225,13 @@ const SyncTaskDetail: React.FC = () => {
 
   const getActionButtons = () => {
     if (!access.canManageTask) return [];
+    if (isScheduled) return [
+      <Button key="workflow" type="primary" icon={<ClockCircleOutlined />} onClick={() => history.push('/sync-task/workflow')}>进入任务编排</Button>,
+      <Button key="edit" icon={<EditOutlined />} onClick={handleEdit}>编辑草稿</Button>,
+      <Popconfirm key="delete" title="确认删除此周期任务？" onConfirm={handleDelete}>
+        <Button danger icon={<DeleteOutlined />}>删除</Button>
+      </Popconfirm>,
+    ];
     const btn = (action: string, label: string, icon: React.ReactNode, type?: 'primary' | 'default', danger?: boolean) => (
       <Button
         type={type || 'default'}
@@ -329,9 +339,9 @@ const SyncTaskDetail: React.FC = () => {
           type="info"
           showIcon
           icon={<PlayCircleOutlined />}
-          message="任务配置已保存，尚未启动"
-          description="点击“启动”后，系统会生成最新 CDC SQL（实时同步任务）并提交到 Flink。"
-          action={access.canManageTask ? (
+          message={isScheduled ? '周期任务草稿已保存' : '任务配置已保存，尚未启动'}
+          description={isScheduled ? '请进入任务编排发布不可变版本，再配置周期调度、依赖或补数。' : '点击“启动”后，系统会生成最新 CDC SQL（实时同步任务）并提交到 Flink。'}
+          action={access.canManageTask && !isScheduled ? (
             <Button type="primary" icon={<PlayCircleOutlined />} loading={actionLoading === 'start'} onClick={() => handleAction('start')}>
               立即启动
             </Button>
@@ -425,6 +435,8 @@ const SyncTaskDetail: React.FC = () => {
               {statusCfg.label}
             </Tag>
           </Descriptions.Item>
+          <Descriptions.Item label="运行方式">{isScheduled ? '周期实例' : '持续作业'}</Descriptions.Item>
+          <Descriptions.Item label="定义状态">{task.definitionStatus === 'published' ? '已发布' : '草稿'}</Descriptions.Item>
           <Descriptions.Item label="同步策略">{syncStrategyMap[task.syncStrategy] || task.syncStrategy}</Descriptions.Item>
           <Descriptions.Item label="执行器">{taskTypeLabel[task.taskType as keyof typeof taskTypeLabel] || task.taskType}</Descriptions.Item>
           <Descriptions.Item label="并行度">{task.parallelism || 1}</Descriptions.Item>
@@ -472,7 +484,7 @@ const SyncTaskDetail: React.FC = () => {
         </Card>
       )}
 
-      <Card title="实时监控指标" style={{ marginBottom: 16 }}>
+      {!isScheduled && <Card title="实时监控指标" style={{ marginBottom: 16 }}>
         <Row gutter={16}>
           <Col span={6}>
             <Statistic
@@ -538,9 +550,9 @@ const SyncTaskDetail: React.FC = () => {
             />
           </Col>
         </Row>
-      </Card>
+      </Card>}
 
-      {currentStatus === 'running' && task.flinkJobId && <FlinkJobScalingCard taskId={taskId} />}
+      {!isScheduled && currentStatus === 'running' && task.flinkJobId && <FlinkJobScalingCard taskId={taskId} />}
 
       {/* Error Detail */}
       {(currentStatus === 'failed' || task.lastErrorMsg) && (task.lastErrorMsg || statusInfo?.lastErrorMsg) && (

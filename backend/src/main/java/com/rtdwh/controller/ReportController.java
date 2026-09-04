@@ -28,12 +28,12 @@ public class ReportController {
 
     @GetMapping
     public ApiResponse<List<ReportTemplate>> listReports() {
-        return ApiResponse.success(reportService.listReports());
+        return ApiResponse.success(reportService.listReports(securityContextUtil.getCurrentUserId()));
     }
 
     @GetMapping("/{id}")
     public ApiResponse<ReportTemplate> getReport(@PathVariable Long id) {
-        return ApiResponse.success(reportService.getReport(id));
+        return ApiResponse.success(reportService.getReport(id, securityContextUtil.getCurrentUserId()));
     }
 
     @PostMapping
@@ -47,7 +47,7 @@ public class ReportController {
     public ApiResponse<Map<String, Object>> getReportData(
             @PathVariable Long id,
             @RequestBody(required = false) Map<String, Object> parameters) {
-        ReportTemplate report = reportService.getReport(id);
+        ReportTemplate report = reportService.getReport(id, securityContextUtil.getCurrentUserId());
         if (!Boolean.TRUE.equals(report.getIsPublished())) {
             throw new IllegalStateException("报告尚未发布，无法查询");
         }
@@ -60,13 +60,14 @@ public class ReportController {
     @PutMapping("/{id}")
     @PreAuthorize("hasAuthority('report:create')")
     public ApiResponse<ReportTemplate> updateReport(@PathVariable Long id, @RequestBody ReportTemplate template) {
-        return ApiResponse.success("Report updated", reportService.updateReport(id, template));
+        return ApiResponse.success("Report updated", reportService.updateReport(
+                id, template, securityContextUtil.getCurrentUserId()));
     }
 
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAuthority('report:create')")
     public ApiResponse<Void> deleteReport(@PathVariable Long id) {
-        reportService.deleteReport(id);
+        reportService.deleteReport(id, securityContextUtil.getCurrentUserId());
         return ApiResponse.success("Report deleted", null);
     }
 
@@ -82,11 +83,13 @@ public class ReportController {
     @GetMapping("/{id}/runs")
     public ApiResponse<List<com.rtdwh.entity.ReportRun>> runs(
             @PathVariable Long id, @RequestParam(defaultValue = "50") int limit) {
-        return ApiResponse.success(reportScheduleService.listRuns(id, limit));
+        return ApiResponse.success(reportScheduleService.listRuns(
+                id, limit, securityContextUtil.getCurrentUserId()));
     }
 
     @GetMapping("/{id}/runs/{runId}")
     public ApiResponse<Map<String, Object>> runResult(@PathVariable Long id, @PathVariable Long runId) {
-        return ApiResponse.success(reportScheduleService.result(id, runId));
+        return ApiResponse.success(reportScheduleService.result(
+                id, runId, securityContextUtil.getCurrentUserId()));
     }
 }

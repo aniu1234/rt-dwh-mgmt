@@ -18,9 +18,15 @@ import java.sql.Statement;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Arrays;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import java.util.regex.Pattern;
 
 @Slf4j
@@ -36,6 +42,7 @@ public class QualityCheckService {
     private final QualityCheckRunRepository runRepository;
     private final QualityCheckPersistenceService persistenceService;
     private final DorisConnectionService dorisConnectionService;
+    private final QualityService qualityService;
 
     public int runAllChecks() {
         return runAllChecksWithSummary("manual").abnormalCount();
@@ -53,6 +60,10 @@ public class QualityCheckService {
         return runRules(ruleRepository.findByEnabled(true), normalizeTrigger(triggerType));
     }
 
+    public QualityCheckSummary runAllChecksWithSummary(Long userId) {
+        return runRules(qualityService.filterAllowed(userId, ruleRepository.findByEnabled(true)), "manual");
+    }
+
     public int runChecksByLayer(String layer) {
         List<QualityRule> rules = ruleRepository.findByLayer(layer).stream()
                 .filter(rule -> Boolean.TRUE.equals(rule.getEnabled()))
@@ -67,6 +78,16 @@ public class QualityCheckService {
     public QualityCheckSummary runCheckWithSummary(Long ruleId) {
         QualityRule rule = ruleRepository.findById(ruleId)
                 .orElseThrow(() -> new IllegalArgumentException("质量规则不存在: " + ruleId));
+        if (!Boolean.TRUE.equals(rule.getEnabled())) {
+            throw new IllegalStateException("质量规则未启用: " + ruleId);
+        }
+        return runRules(List.of(rule), "manual");
+    }
+
+    public QualityCheckSummary runCheckWithSummary(Long ruleId, Long userId) {
+        QualityRule rule = ruleRepository.findById(ruleId)
+                .orElseThrow(() -> new IllegalArgumentException("质量规则不存在: " + ruleId));
+        qualityService.assertAccess(userId, rule);
         if (!Boolean.TRUE.equals(rule.getEnabled())) {
             throw new IllegalStateException("质量规则未启用: " + ruleId);
         }
@@ -92,6 +113,20 @@ public class QualityCheckService {
     }
 
     @Transactional(readOnly = true)
+    public List<QualityCheckRun> listRuns(Long ruleId, Long userId) {
+        if (ruleId != null) {
+            QualityRule rule = ruleRepository.findById(ruleId)
+                    .orElseThrow(() -> new IllegalArgumentException("质量规则不存在: " + ruleId));
+            qualityService.assertAccess(userId, rule);
+            return runRepository.findTop100ByRuleIdOrderByStartedAtDesc(ruleId);
+        }
+        Set<Long> visibleRuleIds = qualityService.filterAllowed(userId, ruleRepository.findAll()).stream()
+                .map(QualityRule::getId).collect(Collectors.toSet());
+        return runRepository.findTop100ByOrderByStartedAtDesc().stream()
+                .filter(run -> visibleRuleIds.contains(run.getRuleId())).toList();
+    }
+
+    @Transactional(readOnly = true)
     public QualityOverviewSummary getOverview() {
         LocalDate today = LocalDate.now();
         LocalDateTime trendStartedAt = today.minusDays(6).atStartOfDay();
@@ -106,6 +141,43 @@ public class QualityCheckService {
                 dailyRuns,
                 runRepository.countByStartedAtGreaterThanEqual(LocalDateTime.now().minusHours(24)),
                 averageDuration == null ? 0L : Math.round(averageDuration));
+    }
+
+    @Transactional(readOnly = true)
+    public QualityOverviewSummary getOverview(Long userId) {
+        Set<Long> visibleRuleIds = qualityService.filterAllowed(userId, ruleRepository.findAll()).stream()
+                .map(QualityRule::getId).collect(Collectors.toSet());
+        if (visibleRuleIds.isEmpty()) return new QualityOverviewSummary(List.of(), List.of(), 0, 0);
+
+        List<QualityCheckRun> runs = runRepository.findAll().stream()
+                .filter(run -> visibleRuleIds.contains(run.getRuleId())).toList();
+        List<QualityCheckRun> latestRuns = runs.stream()
+                .collect(Collectors.toMap(QualityCheckRun::getRuleId, Function.identity(),
+                        (left, right) -> left.getId() > right.getId() ? left : right,
+                        LinkedHashMap::new))
+                .values().stream()
+                .sorted(Comparator.comparing(QualityCheckRun::getStartedAt).reversed())
+                .toList();
+
+        LocalDate today = LocalDate.now();
+        LocalDateTime trendStartedAt = today.minusDays(6).atStartOfDay();
+        Map<LocalDate, long[]> daily = new java.util.TreeMap<>();
+        runs.stream().filter(run -> !run.getStartedAt().isBefore(trendStartedAt)).forEach(run -> {
+            long[] values = daily.computeIfAbsent(run.getStartedAt().toLocalDate(), ignored -> new long[3]);
+            values[0]++;
+            if ("passed".equals(run.getStatus())) values[1]++;
+            if ("failed".equals(run.getStatus()) || "error".equals(run.getStatus())) values[2]++;
+        });
+        List<QualityOverviewSummary.DailyRunSummary> dailyRuns = daily.entrySet().stream()
+                .map(entry -> new QualityOverviewSummary.DailyRunSummary(
+                        entry.getKey(), entry.getValue()[0], entry.getValue()[1], entry.getValue()[2]))
+                .toList();
+        LocalDateTime since = LocalDateTime.now().minusHours(24);
+        long last24h = runs.stream().filter(run -> !run.getStartedAt().isBefore(since)).count();
+        long averageDuration = Math.round(runs.stream()
+                .filter(run -> run.getDurationMs() != null && !"running".equals(run.getStatus()))
+                .mapToLong(QualityCheckRun::getDurationMs).average().orElse(0));
+        return new QualityOverviewSummary(latestRuns, dailyRuns, last24h, averageDuration);
     }
 
     private QualityCheckSummary runRules(List<QualityRule> rules, String triggerType) {

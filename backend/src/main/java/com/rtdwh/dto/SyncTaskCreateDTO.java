@@ -19,10 +19,11 @@ public class SyncTaskCreateDTO {
     @Pattern(regexp = "^[a-z][a-z0-9_]*$", message = "场景编码只能包含小写字母、数字和下划线")
     private String scenarioCode;
 
-    @NotNull(message = "源数据源配置ID不能为空")
+    @Pattern(regexp = "^(continuous|scheduled)$", message = "运行方式只能是 continuous 或 scheduled")
+    private String executionMode;
+
     private Long sourceConfigId;
 
-    @NotNull(message = "目标数据源配置ID不能为空")
     private Long targetConfigId;
 
     @NotBlank(message = "Flink SQL不能为空")

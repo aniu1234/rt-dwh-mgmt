@@ -135,6 +135,16 @@ const SyncTaskList: React.FC = () => {
     if (!access.canManageTask) return null;
     const { status, id } = task;
     const loadingAction = actionLoading[id];
+    if (task.executionMode === 'scheduled') {
+      return (
+        <>
+          <Button size="small" type="primary" onClick={() => history.push('/sync-task/workflow')}>编排</Button>
+          {task.status === 'draft' && <Popconfirm title="确定删除这个周期任务草稿？" onConfirm={() => handleDelete(id)}>
+            <Button size="small" type="link" danger>删除</Button>
+          </Popconfirm>}
+        </>
+      );
+    }
     const actionButton = (
       action: string,
       label: string,
@@ -311,8 +321,14 @@ const SyncTaskList: React.FC = () => {
               ),
             },
             {
-              title: '运行状态', dataIndex: 'status', key: 'status', width: 150,
+              title: '状态', dataIndex: 'status', key: 'status', width: 150,
               render: (value, record) => {
+                if (record.executionMode === 'scheduled') return (
+                  <div className="task-status-cell">
+                    <Tag color={record.definitionStatus === 'published' ? 'blue' : 'default'}>{record.definitionStatus === 'published' ? '已发布' : '草稿'}</Tag>
+                    <small>周期实例运行</small>
+                  </div>
+                );
                 const config = statusConfig[value] || { color: 'default', label: value, hint: '' };
                 return (
                   <div className="task-status-cell">
@@ -324,7 +340,9 @@ const SyncTaskList: React.FC = () => {
             },
             {
               title: '实时运行指标', key: 'metrics', width: 250,
-              render: (_, record) => record.status === 'running' ? (
+              render: (_, record) => record.executionMode === 'scheduled'
+                ? <span style={{ color: '#8c8c8c' }}>在任务编排查看实例</span>
+                : record.status === 'running' ? (
                 <Space size={12} wrap>
                   <span>延迟 <b style={{ color: (record.currentLagMs || 0) > 5_000 ? '#cf1322' : '#389e0d' }}>{record.currentLagMs ?? '—'} ms</b></span>
                   <span>吞吐 <b>{record.throughputQps ?? '—'}</b></span>

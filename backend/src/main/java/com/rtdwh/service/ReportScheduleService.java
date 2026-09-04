@@ -38,20 +38,21 @@ public class ReportScheduleService {
     }
 
     public ReportRun runNow(Long reportId, Long userId, Map<String, Object> parameters) {
-        ReportTemplate report = reportService.getReport(reportId);
+        ReportTemplate report = reportService.getReport(reportId, userId);
         if (!Boolean.TRUE.equals(report.getIsPublished())) {
             throw new IllegalStateException("报表尚未发布，不能执行调度");
         }
         return execute(report, "manual", LocalDateTime.now(), userId, parameters);
     }
 
-    public List<ReportRun> listRuns(Long reportId, int limit) {
-        reportService.getReport(reportId);
+    public List<ReportRun> listRuns(Long reportId, int limit, Long userId) {
+        reportService.getReport(reportId, userId);
         return runRepository.findByReportIdOrderByStartedAtDesc(
                 reportId, PageRequest.of(0, Math.max(1, Math.min(limit, 200))));
     }
 
-    public Map<String, Object> result(Long reportId, Long runId) {
+    public Map<String, Object> result(Long reportId, Long runId, Long userId) {
+        reportService.getReport(reportId, userId);
         ReportRun run = runRepository.findById(runId)
                 .filter(item -> item.getReportId().equals(reportId))
                 .orElseThrow(() -> new IllegalArgumentException("报表运行记录不存在: " + runId));

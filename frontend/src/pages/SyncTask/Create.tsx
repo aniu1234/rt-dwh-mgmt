@@ -14,7 +14,7 @@ import {
 } from '@/api';
 import {
   defaultTaskScenario, getTaskScenario, taskScenarioGroups, taskScenarios,
-  taskTypeLabel, type TaskScenario, type TaskType,
+  taskTypeLabel, type ExecutionMode, type TaskScenario, type TaskType,
 } from './scenarios';
 import './index.less';
 
@@ -30,9 +30,9 @@ type CreateFormData = {
   description: string;
   scenarioCode: string;
   taskType: TaskType;
+  executionMode: ExecutionMode;
   syncStrategy: 'full_then_incremental' | 'incremental_only';
   sourceConfigId?: number;
-  targetConfigId?: number;
   tableMappings: TableMapping[];
   flinkSql: string;
   parallelism: number;
@@ -59,9 +59,9 @@ const SyncTaskCreate: React.FC = () => {
     description: '',
     scenarioCode: defaultTaskScenario.code,
     taskType: defaultTaskScenario.taskType,
+    executionMode: defaultTaskScenario.executionMode,
     syncStrategy: 'full_then_incremental',
     sourceConfigId: undefined,
-    targetConfigId: undefined,
     tableMappings: [],
     flinkSql: '',
     parallelism: 1,
@@ -84,34 +84,19 @@ const SyncTaskCreate: React.FC = () => {
   const selectedScenario = getTaskScenario(formData.scenarioCode) || defaultTaskScenario;
   const isCdc = selectedScenario.inputMode === 'tables';
   const isDatabaseCdc = selectedScenario.tableSelection === 'all';
-  const paimonDatasources = useMemo(
-    () => datasourceList.filter((item) => item.dbType === 'paimon'),
-    [datasourceList],
-  );
   const sourceOptions = useMemo(() => {
     if (selectedScenario.sourceTypes?.length) {
       return datasourceList.filter((item) => selectedScenario.sourceTypes?.includes(item.dbType));
     }
     return datasourceList;
   }, [datasourceList, selectedScenario.sourceTypes]);
-  const targetOptions = useMemo(
-    () => selectedScenario.targetTypes?.length
-      ? datasourceList.filter((item) => selectedScenario.targetTypes?.includes(item.dbType))
-      : datasourceList,
-    [datasourceList, selectedScenario.targetTypes],
-  );
   const selectedSource = datasourceList.find((item) => item.id === formData.sourceConfigId);
-  const selectedTarget = datasourceList.find((item) => item.id === formData.targetConfigId);
 
   useEffect(() => {
     getDatasources()
       .then((data) => {
         const list = Array.isArray(data) ? data : [];
         setDatasourceList(list);
-        const paimon = list.find((item) => item.dbType === 'paimon');
-        if (paimon) {
-          setFormData((previous) => ({ ...previous, targetConfigId: previous.targetConfigId || paimon.id }));
-        }
       })
       .catch((error: any) => message.error(error?.message || '数据源加载失败'))
       .finally(() => setDatasourceLoading(false));
@@ -136,17 +121,16 @@ const SyncTaskCreate: React.FC = () => {
       message.info(`${scenario.title}正在规划中，场景注册位已预留`);
       return;
     }
-    const firstPaimon = paimonDatasources[0];
     const switchingWithinCdc = formData.taskType === 'cdc_sync' && scenario.taskType === 'cdc_sync';
     const selectedTables = scenario.tableSelection === 'all' ? sourceTables : [];
     setFormData((previous) => ({
       ...previous,
       scenarioCode: scenario.code,
       taskType: scenario.taskType,
+      executionMode: scenario.executionMode,
       sourceConfigId: scenario.taskType === 'cdc_sync'
         ? (scenario.sourceTypes?.includes(selectedSource?.dbType || '') ? previous.sourceConfigId : undefined)
-        : firstPaimon?.id,
-      targetConfigId: firstPaimon?.id || previous.targetConfigId,
+        : undefined,
       tableMappings: switchingWithinCdc ? buildMappings(selectedTables, previous.tableMappings, previous.syncStrategy) : [],
       flinkSql: '',
       taskName: scenario.tableSelection === 'all' && previous.sourceConfigId
@@ -261,12 +245,8 @@ const SyncTaskCreate: React.FC = () => {
       message.warning('请填写任务名称');
       return false;
     }
-    if (!formData.sourceConfigId) {
-      message.warning(isCdc ? '请选择业务源库' : '请选择输入数据源');
-      return false;
-    }
-    if (!formData.targetConfigId) {
-      message.warning('请选择目标数据源');
+    if (isCdc && !formData.sourceConfigId) {
+      message.warning('请选择业务源库');
       return false;
     }
     if (isCdc && formData.tableMappings.length === 0) {
@@ -287,9 +267,9 @@ const SyncTaskCreate: React.FC = () => {
         taskName: formData.taskName,
         scenarioCode: formData.scenarioCode,
         taskType: formData.taskType,
+        executionMode: formData.executionMode,
         syncStrategy: formData.syncStrategy,
         sourceConfigId: formData.sourceConfigId,
-        targetConfigId: formData.targetConfigId,
         tableMappings: formData.tableMappings,
         parallelism: formData.parallelism,
         checkpointIntervalMs: formData.checkpointIntervalMs,
@@ -329,8 +309,8 @@ const SyncTaskCreate: React.FC = () => {
         description: formData.description.trim(),
         scenarioCode: formData.scenarioCode,
         taskType: formData.taskType,
+        executionMode: formData.executionMode,
         sourceConfigId: formData.sourceConfigId,
-        targetConfigId: formData.targetConfigId,
         flinkSql: formData.flinkSql,
         syncStrategy: formData.syncStrategy,
         tableMappings: JSON.stringify(formData.tableMappings),
@@ -339,11 +319,18 @@ const SyncTaskCreate: React.FC = () => {
       });
 
       if (!startImmediately) {
-        message.success('任务已保存为草稿，可确认后再启动');
-        history.push(`/sync-task/detail/${createdTask.id}`);
+        message.success(formData.executionMode === 'scheduled'
+          ? '周期任务草稿已创建，请发布版本后配置调度'
+          : '任务已保存为草稿，可确认后再启动');
+        history.push(formData.executionMode === 'scheduled' ? '/sync-task/workflow' : `/sync-task/detail/${createdTask.id}`);
         return;
       }
 
+      if (formData.executionMode === 'scheduled') {
+        message.success('周期任务草稿已创建，请前往任务编排发布版本并配置调度');
+        history.push('/sync-task/workflow');
+        return;
+      }
       const startedTask = await startSyncTask(createdTask.id);
       if (startedTask.status === 'failed') {
         message.error(startedTask.lastErrorMsg || '任务已创建，但启动失败，请查看详情后重试');
@@ -390,7 +377,7 @@ const SyncTaskCreate: React.FC = () => {
   return (
     <PageContainer
       title="创建任务"
-      subTitle="完成必要配置后可直接提交到 Flink"
+      subTitle="持续任务直接运行，周期任务发布版本后按实例调度"
       className="task-create-page"
       extra={<Button onClick={() => history.push('/sync-task/list')}>退出创建</Button>}
     >
@@ -399,8 +386,8 @@ const SyncTaskCreate: React.FC = () => {
           current={currentStep}
           responsive={false}
           items={[
-            { title: '配置任务', description: '选择场景、数据源和表' },
-            { title: '确认并启动', description: '检查配置后直接运行' },
+            { title: '配置任务', description: '选择场景并填写必要配置' },
+            { title: '确认并创建', description: '按运行方式进入对应闭环' },
           ]}
         />
       </Card>
@@ -486,9 +473,9 @@ const SyncTaskCreate: React.FC = () => {
                   </Col>
                 </Row>
 
-                <Row gutter={[16, 0]}>
+                {isCdc ? <Row gutter={[16, 0]}>
                   <Col xs={24} lg={12}>
-                    <Form.Item label={isCdc ? '业务源库' : '输入数据源'} required>
+                    <Form.Item label="业务源库" required>
                       <Select
                         showSearch
                         optionFilterProp="label"
@@ -502,19 +489,13 @@ const SyncTaskCreate: React.FC = () => {
                     </Form.Item>
                   </Col>
                   <Col xs={24} lg={12}>
-                    <Form.Item label={isCdc ? 'Paimon 目标库' : '输出数据源'} required>
-                      <Select
-                        showSearch
-                        optionFilterProp="label"
-                        value={formData.targetConfigId}
-                        placeholder={targetOptions.length ? '请选择目标数据源' : '暂无可用目标数据源'}
-                        onChange={(targetConfigId) => setFormData((previous) => ({ ...previous, targetConfigId, flinkSql: '' }))}
-                        options={targetOptions.map((item) => ({ label: datasourceLabel(item), value: item.id }))}
-                        notFoundContent={<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="请先创建 Paimon 数据源" />}
-                      />
-                    </Form.Item>
+                    <Alert type="info" showIcon message="目标：平台 Paimon Catalog" description="Catalog、Metastore 与 Warehouse 由系统设置统一管理，无需为任务重复选择。" />
                   </Col>
-                </Row>
+                </Row> : (
+                  <Alert type="info" showIcon message="运行环境：平台 Paimon Catalog" description={formData.executionMode === 'scheduled'
+                    ? '该 SQL 按业务日期生成运行实例；发布版本后可配置调度、依赖和补数。'
+                    : '该 SQL 作为持续 Flink Job 运行；Catalog、Metastore 与 Warehouse 使用平台统一配置。'} />
+                )}
 
                 {isCdc ? (
                   <div className="task-table-picker">
@@ -697,15 +678,20 @@ const SyncTaskCreate: React.FC = () => {
               type="success"
               showIcon
               message="配置检查通过，可以创建任务"
-              description={isCdc ? 'CDC SQL 已根据源表结构自动生成，启动时会再次按最新 Schema 生成。' : '请确认 SQL 和运行参数，创建后将提交给 Flink SQL Gateway。'}
+              description={isCdc
+                ? 'CDC SQL 已根据源表结构自动生成，启动时会再次按最新 Schema 生成。'
+                : formData.executionMode === 'scheduled'
+                  ? '请确认 SQL 和运行参数；创建草稿后需发布版本，调度实例始终执行绑定的版本快照。'
+                  : '请确认 SQL 和运行参数，创建并启动后将提交给 Flink SQL Gateway。'}
             />
             <Card title="任务配置" className="task-create-section">
               <Descriptions column={{ xs: 1, sm: 2 }} size="small">
                 <Descriptions.Item label="任务名称">{formData.taskName}</Descriptions.Item>
                 <Descriptions.Item label="任务场景"><Tag color="blue">{selectedScenario.title}</Tag></Descriptions.Item>
                 <Descriptions.Item label="执行器">{taskTypeLabel[formData.taskType]}</Descriptions.Item>
-                <Descriptions.Item label="输入数据源">{selectedSource?.configName || '—'}</Descriptions.Item>
-                <Descriptions.Item label="输出数据源">{selectedTarget?.configName || '—'}</Descriptions.Item>
+                <Descriptions.Item label="运行方式">{formData.executionMode === 'scheduled' ? '周期实例' : '持续作业'}</Descriptions.Item>
+                <Descriptions.Item label="业务源库">{selectedSource?.configName || (isCdc ? '—' : '由 SQL 声明')}</Descriptions.Item>
+                <Descriptions.Item label="湖仓目标">平台 Paimon Catalog</Descriptions.Item>
                 <Descriptions.Item label="并行度">{formData.parallelism}</Descriptions.Item>
                 <Descriptions.Item label="Checkpoint">{formData.checkpointIntervalMs / 1000} 秒</Descriptions.Item>
                 {isCdc && <Descriptions.Item label="同步策略">{formData.syncStrategy === 'incremental_only' ? '仅增量' : '首次全量 + 持续增量'}</Descriptions.Item>}
@@ -741,9 +727,11 @@ const SyncTaskCreate: React.FC = () => {
             <div className="task-launch-icon"><PlayCircleOutlined /></div>
             <Typography.Title level={4}>下一步怎么做？</Typography.Title>
             <Typography.Paragraph type="secondary">
-              推荐直接创建并启动。系统会提交到 Flink，并自动跳转到任务详情查看启动状态、Checkpoint 和错误信息。
+              {formData.executionMode === 'scheduled'
+                ? '周期任务先保存草稿，再到任务编排发布不可变版本并配置调度、依赖或补数。'
+                : '推荐直接创建并启动。系统会提交到 Flink，并跳转到任务详情查看运行状态。'}
             </Typography.Paragraph>
-            {access.canManageTask ? (
+            {access.canManageTask && formData.executionMode === 'continuous' ? (
               <Button
                 type="primary"
                 size="large"
@@ -755,9 +743,9 @@ const SyncTaskCreate: React.FC = () => {
               >
                 创建并启动
               </Button>
-            ) : (
+            ) : formData.executionMode === 'continuous' ? (
               <Alert type="info" showIcon message="当前账号只能创建草稿，启动需要任务管理权限" />
-            )}
+            ) : null}
             <Button
               block
               icon={<SaveOutlined />}
@@ -765,7 +753,7 @@ const SyncTaskCreate: React.FC = () => {
               disabled={!!submitAction && submitAction !== 'draft'}
               onClick={() => handleCreate(false)}
             >
-              仅保存草稿
+              {formData.executionMode === 'scheduled' ? '创建周期任务草稿' : '仅保存草稿'}
             </Button>
             <Button block type="text" icon={<ArrowLeftOutlined />} onClick={() => setCurrentStep(0)}>
               返回修改配置
@@ -776,7 +764,7 @@ const SyncTaskCreate: React.FC = () => {
 
       {currentStep === 0 && (
         <div className="task-create-footer">
-          <span>只需完成当前页必要配置，下一步即可确认并启动</span>
+          <span>完成必要配置后，下一步确认任务将采用持续运行还是周期实例</span>
           <Space>
             <Button onClick={() => history.push('/sync-task/list')}>取消</Button>
             <Button

@@ -8,13 +8,13 @@ import {
   ProFormText,
   ProFormTextArea,
 } from '@ant-design/pro-components';
-import { Badge, Button, Card, Descriptions, Form, Modal, Popconfirm, Space, Table, Tag, message } from 'antd';
+import { Alert, Badge, Button, Card, Descriptions, Form, Modal, Popconfirm, Space, Table, Tag, message } from 'antd';
 import { DatabaseOutlined, LinkOutlined, PlusOutlined, ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { getDatasources, createDatasource, testDatasourceConnection, deleteDatasource, updateDatasource } from '@/api';
 import { useAccess } from '@umijs/max';
 import './index.less';
 
-type DatasourceType = 'mysql' | 'postgresql' | 'paimon';
+type DatasourceType = 'mysql' | 'postgresql';
 
 interface DatasourceTemplate {
   key: string;
@@ -93,47 +93,6 @@ const datasourceTemplates: Record<DatasourceType, DatasourceTemplate[]> = {
         database: 'business_db',
         username: 'postgres',
         extraConfig: JSON.stringify({ schema: 'public', 'decoding.plugin.name': 'pgoutput' }, null, 2),
-      },
-    },
-  ],
-  paimon: [
-    {
-      key: 'paimon-compose',
-      name: 'Docker Compose Paimon',
-      description: '使用共享卷 /data/paimon 和 MySQL JDBC Catalog。',
-      recommended: true,
-      values: {
-        configName: 'compose_paimon',
-        dbType: 'paimon',
-        host: '/data/paimon',
-        port: 3306,
-        database: 'rtdwh_paimon_meta',
-        username: 'rtdwh_admin',
-        extraConfig: JSON.stringify({
-          metastore: 'jdbc',
-          uri: 'jdbc:mysql://mysql:3306/rtdwh_paimon_meta',
-          'catalog-key': 'rtdwh',
-          warehouse: '/data/paimon',
-        }, null, 2),
-      },
-    },
-    {
-      key: 'paimon-local',
-      name: '本地文件 Paimon',
-      description: '适合后端与 Flink 均在宿主机运行的开发环境。',
-      values: {
-        configName: 'local_paimon',
-        dbType: 'paimon',
-        host: './rtdwh-data/paimon',
-        port: 3306,
-        database: 'rtdwh_paimon_meta',
-        username: 'root',
-        extraConfig: JSON.stringify({
-          metastore: 'jdbc',
-          uri: 'jdbc:mysql://127.0.0.1:3306/rtdwh_paimon_meta',
-          'catalog-key': 'rtdwh',
-          warehouse: './rtdwh-data/paimon',
-        }, null, 2),
       },
     },
   ],
@@ -280,6 +239,13 @@ const Datasource: React.FC = () => {
   return (
     <PageContainer>
       <Card>
+        <Alert
+          type="info"
+          showIcon
+          message="这里仅管理业务源库"
+          description="Paimon Catalog、Metastore 和 Warehouse 是平台运行配置，请在系统设置中统一维护。"
+          style={{ marginBottom: 16 }}
+        />
         <Space style={{ marginBottom: 16 }}>
           {access.canManageDatasource && <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>
             新建数据源
@@ -408,7 +374,7 @@ const Datasource: React.FC = () => {
           <ProFormText
             name="configName"
             label="配置名称"
-            placeholder="例如: business_mysql, ods_paimon"
+            placeholder="例如：business_mysql"
             rules={[{ required: true, message: '请输入配置名称' }]}
           />
           <ProFormSelect
@@ -417,7 +383,6 @@ const Datasource: React.FC = () => {
             options={[
               { label: 'MySQL', value: 'mysql' },
               { label: 'PostgreSQL', value: 'postgresql' },
-              { label: 'Paimon (湖仓)', value: 'paimon' },
             ]}
             rules={[{ required: true }]}
           />
@@ -450,7 +415,7 @@ const Datasource: React.FC = () => {
             <ProFormText
               name="host"
               label="主机地址"
-              placeholder="192.168.1.10 或 /data/paimon"
+              placeholder="例如：192.168.1.10"
               rules={[{ required: true }]}
             />
             <ProFormDigit
@@ -465,13 +430,13 @@ const Datasource: React.FC = () => {
             <ProFormText
               name="database"
               label="数据库"
-              placeholder="业务库 / Catalog 元数据库"
+              placeholder="业务数据库"
               rules={[{ required: true, message: '请输入数据库名称' }]}
             />
             <ProFormText
               name="username"
               label="用户名"
-              placeholder="数据库用户 / Catalog 用户"
+              placeholder="数据库用户"
               rules={[{ required: true, message: '请输入用户名' }]}
             />
           </div>
@@ -520,7 +485,6 @@ const Datasource: React.FC = () => {
           <ProFormSelect name="dbType" label="数据库类型" disabled options={[
             { label: 'MySQL', value: 'mysql' },
             { label: 'PostgreSQL', value: 'postgresql' },
-            { label: 'Paimon (湖仓)', value: 'paimon' },
           ]} />
           <ProFormText name="host" label="主机地址" rules={[{ required: true }]} />
           <ProFormDigit name="port" label="端口" fieldProps={{ min: 1, max: 65535 }} />

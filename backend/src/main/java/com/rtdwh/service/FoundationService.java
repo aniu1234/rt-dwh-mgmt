@@ -1,5 +1,7 @@
 package com.rtdwh.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rtdwh.dto.FoundationDTO;
 import com.rtdwh.entity.*;
 import com.rtdwh.repository.*;
@@ -32,6 +34,7 @@ public class FoundationService {
     private final OperationAuditRepository auditRepository;
     private final TaskDefinitionVersionRepository versionRepository;
     private final QueryAccessScopeService accessScopeService;
+    private final ObjectMapper objectMapper;
 
     @Transactional(readOnly = true)
     public FoundationDTO.Summary summary(Long userId, boolean canViewReports, boolean canViewDataServices,
@@ -39,9 +42,14 @@ public class FoundationService {
         SysUser user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("用户不存在: " + userId));
         List<DwhTableMeta> tables = visibleTables(userId, tableRepository.findAll());
-        long reports = canViewReports ? reportRepository.countByIsPublishedTrue() : 0;
+        long reports = canViewReports ? reportRepository.findByIsPublished(true).stream()
+                .filter(report -> accessScopeService.canAccessSql(userId, report.getSqlQuery(), DEFAULT_CATALOG, "ods"))
+                .count() : 0;
         long services = canViewDataServices
-                ? dataServiceRepository.countByStatus(DataServiceDefinition.ServiceStatus.published) : 0;
+                ? dataServiceRepository.findAll().stream()
+                .filter(service -> service.getStatus() == DataServiceDefinition.ServiceStatus.published)
+                .filter(service -> accessScopeService.canAccessSql(userId, service.getSqlTemplate(),
+                        service.getCatalogName(), service.getDatabaseName())).count() : 0;
         long unowned = tables.stream().filter(table -> table.getOwner() == null || table.getOwner().isBlank()).count();
         int assetScore = ratioScore(tables.size(), unowned);
 
@@ -54,14 +62,18 @@ public class FoundationService {
         int securityRisk = roles.isEmpty() || permissions == 0 || !admin && scopes == 0 ? 1 : 0;
 
         List<FoundationDTO.SlaRisk> slaRisks = slaRisks(userId);
-        long qualityAlerts = qualityAlertRepository.countByResolvedFalse();
-        long qualityRules = qualityRuleRepository.countByEnabledTrue();
+        List<QualityRule> visibleRules = visibleQualityRules(userId, qualityRuleRepository.findByEnabled(true));
+        Set<Long> visibleRuleIds = visibleRules.stream().map(QualityRule::getId).collect(java.util.stream.Collectors.toSet());
+        long qualityAlerts = qualityAlertRepository.findByResolvedFalseOrderByTriggeredAtDesc().stream()
+                .filter(alert -> visibleRuleIds.contains(alert.getRuleId())).count();
+        long qualityRules = visibleRules.size();
         int qualityRisk = safeInt(qualityAlerts + slaRisks.size());
 
         long unhealthy = healthRepository.findAll().stream()
                 .filter(status -> !Set.of("UP", "HEALTHY", "OK").contains(status.getOverallStatus().toUpperCase(Locale.ROOT))).count();
         long openAlerts = alertRepository.countByResolvedFalse();
-        long failedTasks = taskRepository.countByStatus(SyncTask.TaskStatus.failed);
+        List<SyncTask> visibleTasks = visibleTasks(userId, taskRepository.findAll());
+        long failedTasks = visibleTasks.stream().filter(task -> task.getStatus() == SyncTask.TaskStatus.failed).count();
         int observableRisk = safeInt(unhealthy + openAlerts + failedTasks);
 
         LocalDateTime since = LocalDateTime.now().minusHours(24);
@@ -69,7 +81,9 @@ public class FoundationService {
                 : auditRepository.countByUsernameAndCreatedAtAfter(user.getUsername(), since);
         long failedOperations = canViewAudit ? auditRepository.countByCreatedAtAfterAndSuccessFalse(since)
                 : auditRepository.countByUsernameAndCreatedAtAfterAndSuccessFalse(user.getUsername(), since);
-        long versions = versionRepository.count();
+        Set<Long> visibleTaskIds = visibleTasks.stream().map(SyncTask::getId).collect(java.util.stream.Collectors.toSet());
+        long versions = versionRepository.findAll().stream()
+                .filter(version -> visibleTaskIds.contains(version.getTaskId())).count();
 
         List<FoundationDTO.Capability> capabilities = List.of(
                 capability("asset", "统一检索与资产发现", "表、任务、报表和数据服务统一检索，资产责任可追踪",
@@ -103,14 +117,17 @@ public class FoundationService {
                 new FoundationDTO.SearchItem("table", table.getId(), table.getPaimonTable(),
                         table.getPaimonDb() + " · " + table.getLayer() + owner(table.getOwner()),
                         table.getLifecycleStatus(), "/dwh/tables/" + table.getId())));
-        taskRepository.searchTasks(null, null, query).stream().limit(limit).forEach(task -> items.add(
+        visibleTasks(userId, taskRepository.searchTasks(null, null, query)).stream().limit(limit).forEach(task -> items.add(
                 new FoundationDTO.SearchItem("task", task.getId(), task.getTaskName(),
                         task.getTaskType() + optional(task.getDescription()), task.getStatus().name(),
                         "/sync-task/detail/" + task.getId())));
-        if (canViewReports) reportRepository.findByReportNameContainingIgnoreCase(query, PageRequest.of(0, limit)).forEach(report -> items.add(
+        if (canViewReports) reportRepository.findByReportNameContainingIgnoreCase(query, PageRequest.of(0, limit)).stream()
+                .filter(report -> accessScopeService.canAccessSql(userId, report.getSqlQuery(), DEFAULT_CATALOG, "ods")).forEach(report -> items.add(
                 new FoundationDTO.SearchItem("report", report.getId(), report.getReportName(),
                         report.getReportType() + " 报表", Boolean.TRUE.equals(report.getIsPublished()) ? "published" : "draft", "/query/report")));
-        if (canViewDataServices) dataServiceRepository.searchByKeyword(query, PageRequest.of(0, limit)).forEach(service -> items.add(
+        if (canViewDataServices) dataServiceRepository.searchByKeyword(query, PageRequest.of(0, limit)).stream()
+                .filter(service -> accessScopeService.canAccessSql(userId, service.getSqlTemplate(),
+                        service.getCatalogName(), service.getDatabaseName())).forEach(service -> items.add(
                 new FoundationDTO.SearchItem("data_service", service.getId(), service.getServiceName(),
                         service.getServiceCode() + optional(service.getDescription()), service.getStatus().name(), "/query/data-service")));
         return items.stream().limit(limit).toList();
@@ -155,6 +172,41 @@ public class FoundationService {
     private List<DwhTableMeta> visibleTables(Long userId, List<DwhTableMeta> tables) {
         return accessScopeService.filterAllowed(userId, DEFAULT_CATALOG, tables,
                 DwhTableMeta::getPaimonDb, DwhTableMeta::getPaimonTable);
+    }
+
+    private List<QualityRule> visibleQualityRules(Long userId, List<QualityRule> rules) {
+        return rules.stream().filter(rule -> {
+            String database = rule.getLayer() == null || rule.getLayer().isBlank() ? "ods" : rule.getLayer();
+            try {
+                return accessScopeService.allowedReference(userId, rule.getTargetTable(), DEFAULT_CATALOG, database);
+            } catch (IllegalArgumentException invalidReference) {
+                return false;
+            }
+        }).toList();
+    }
+
+    private List<SyncTask> visibleTasks(Long userId, List<SyncTask> tasks) {
+        if (accessScopeService.isAdmin(userId)) return List.copyOf(tasks);
+        return tasks.stream().filter(task -> taskVisible(userId, task)).toList();
+    }
+
+    private boolean taskVisible(Long userId, SyncTask task) {
+        if (task.getTaskType() != SyncTask.TaskType.cdc_sync) {
+            return task.getFlinkSql() != null && accessScopeService.canAccessSql(
+                    userId, task.getFlinkSql(), DEFAULT_CATALOG, "ods");
+        }
+        try {
+            JsonNode mappings = objectMapper.readTree(task.getTableMappings());
+            if (!mappings.isArray() || mappings.isEmpty()) return false;
+            for (JsonNode mapping : mappings) {
+                String database = mapping.path("targetDb").asText("ods");
+                String table = mapping.path("targetTable").asText();
+                if (table.isBlank() || !accessScopeService.allowed(userId, DEFAULT_CATALOG, database, table)) return false;
+            }
+            return true;
+        } catch (Exception invalidMappings) {
+            return false;
+        }
     }
     private FoundationDTO.Capability capability(String key, String name, String description, int score,
                                                  int risks, Map<String, Long> metrics, String path) {

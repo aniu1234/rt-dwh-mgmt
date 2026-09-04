@@ -108,9 +108,10 @@ const HealthCard: React.FC<{
     }
     if (component === 'paimon') {
       return [
+        ['Catalog Key', result?.catalogKey || '—'],
         ['Warehouse', result?.warehousePath || '—'],
-        ['元数据库', result?.metastoreUri || '—'],
-        ['库数量', `${result?.databaseCount ?? 0} 个`],
+        ['JDBC Metastore', result?.metastoreUri || '—'],
+        ['Metastore 类型', result?.metastoreProduct || '—'],
         ['连接模式', result?.readOnly ? '只读' : '可读写'],
         ['响应耗时', formatResponseTime(result?.responseTimeMs)],
       ];
@@ -440,6 +441,57 @@ const Settings: React.FC = () => {
       </Card>
 
       <FlinkCapacityCard />
+
+      <Card
+        className="settings-section-card settings-paimon-card"
+        title={<Space><HddOutlined />Paimon 湖仓存储</Space>}
+        extra={<Space size={8}>
+          <Tag color="blue">部署级配置</Tag>
+          {access.canManageSettings && <Button
+            icon={<ReloadOutlined spin={checkingComponent === 'paimon'} />}
+            disabled={checkingComponent === 'paimon'}
+            onClick={() => handleCheckComponent('paimon')}
+          >检查连接</Button>}
+        </Space>}
+      >
+        <Alert
+          className="settings-paimon-note"
+          type="info"
+          showIcon
+          message="统一 Catalog 与共享 Warehouse"
+          description="Flink 写入、Doris 查询和管理平台元数据同步必须指向同一个 Catalog／Warehouse。ODS、DWD、DWS、ADS 是逻辑 Database 分层，不是四套物理存储。"
+        />
+        <Descriptions column={{ xs: 1, sm: 2, xl: 4 }} size="small">
+          <Descriptions.Item label="Catalog Key">
+            <Typography.Text copyable>{health?.paimon?.catalogKey || '等待连接检测'}</Typography.Text>
+          </Descriptions.Item>
+          <Descriptions.Item label="JDBC Metastore">
+            <Typography.Text copyable ellipsis={{ tooltip: health?.paimon?.metastoreUri }}>
+              {health?.paimon?.metastoreUri || '等待连接检测'}
+            </Typography.Text>
+          </Descriptions.Item>
+          <Descriptions.Item label="共享 Warehouse" span={2}>
+            <Typography.Text copyable ellipsis={{ tooltip: health?.paimon?.warehousePath }}>
+              {health?.paimon?.warehousePath || '等待连接检测'}
+            </Typography.Text>
+          </Descriptions.Item>
+          <Descriptions.Item label="逻辑分层" span={2}>
+            <Space size={4} wrap>
+              <Tag color="blue">ODS 原始</Tag><Tag color="green">DWD 明细</Tag>
+              <Tag color="orange">DWS 汇总</Tag><Tag color="red">ADS 应用</Tag>
+            </Space>
+          </Descriptions.Item>
+          <Descriptions.Item label="配置方式" span={2}>
+            部署环境变量／配置文件管理，变更后需确保所有 Flink 与 Doris 节点同时生效
+          </Descriptions.Item>
+        </Descriptions>
+        <div className="settings-storage-path">
+          <span><b>JDBC Catalog</b><small>表结构与元数据指针</small></span>
+          <i>→</i><span><b>Warehouse</b><small>Snapshot / Manifest / Data File</small></span>
+          <i>→</i><span><b>逻辑分层</b><small>ods / dwd / dws / ads</small></span>
+          <i>→</i><span><b>Doris Catalog</b><small>统一只读查询</small></span>
+        </div>
+      </Card>
 
       <Card
         className="settings-section-card"

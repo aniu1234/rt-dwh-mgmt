@@ -54,8 +54,11 @@ public class WorkflowService {
         if (Objects.equals(upstreamId, downstreamId)) {
             throw new IllegalArgumentException("任务不能依赖自身");
         }
-        requireTask(upstreamId);
-        requireTask(downstreamId);
+        SyncTask upstream = requireScheduledTask(upstreamId, "配置工作流依赖");
+        SyncTask downstream = requireScheduledTask(downstreamId, "配置工作流依赖");
+        if (upstream.getPublishedVersionId() == null || downstream.getPublishedVersionId() == null) {
+            throw new IllegalStateException("上下游任务都必须先发布版本再配置依赖");
+        }
         if (dependencyRepository.existsByUpstreamTaskIdAndDownstreamTaskId(upstreamId, downstreamId)) {
             throw new IllegalStateException("该依赖关系已存在");
         }
@@ -78,11 +81,11 @@ public class WorkflowService {
 
     @Transactional
     public TaskDefinitionVersion publish(Long taskId, String summary, Long userId) {
-        SyncTask task = requireTask(taskId);
+        SyncTask task = requireScheduledTask(taskId, "发布版本");
         int nextVersion = versionRepository.findFirstByTaskIdOrderByVersionNoDesc(taskId)
                 .map(item -> item.getVersionNo() + 1).orElse(1);
         try {
-            return versionRepository.save(TaskDefinitionVersion.builder()
+            TaskDefinitionVersion version = versionRepository.saveAndFlush(TaskDefinitionVersion.builder()
                     .taskId(taskId)
                     .versionNo(nextVersion)
                     .changeSummary(summary.trim())
@@ -90,6 +93,10 @@ public class WorkflowService {
                     .createdBy(userId)
                     .createdAt(LocalDateTime.now())
                     .build());
+            task.setPublishedVersionId(version.getId());
+            task.setDefinitionStatus(SyncTask.DefinitionStatus.published);
+            taskRepository.save(task);
+            return version;
         } catch (DataIntegrityViolationException exception) {
             throw new IllegalStateException("任务版本并发冲突，请重试");
         } catch (Exception exception) {
@@ -98,13 +105,13 @@ public class WorkflowService {
     }
 
     public List<TaskDefinitionVersion> versions(Long taskId) {
-        requireTask(taskId);
+        requireScheduledTask(taskId, "查看版本");
         return versionRepository.findByTaskIdOrderByVersionNoDesc(taskId);
     }
 
     @Transactional
     public SyncTask rollback(Long taskId, Integer versionNo) {
-        SyncTask task = requireTask(taskId);
+        SyncTask task = requireScheduledTask(taskId, "回滚版本");
         if (task.getStatus() != SyncTask.TaskStatus.draft) {
             throw new IllegalStateException("只有 draft 状态任务可以回滚配置");
         }
@@ -118,6 +125,7 @@ public class WorkflowService {
             task.setTableMappings(nullableText(snapshot, "tableMappings"));
             task.setParallelism(snapshot.path("parallelism").asInt(task.getParallelism()));
             task.setCheckpointIntervalMs(snapshot.path("checkpointIntervalMs").asLong(task.getCheckpointIntervalMs()));
+            task.setDefinitionStatus(SyncTask.DefinitionStatus.draft);
             return taskRepository.save(task);
         } catch (Exception exception) {
             throw new IllegalStateException("任务版本快照损坏，无法回滚");
@@ -126,10 +134,8 @@ public class WorkflowService {
 
     @Transactional
     public List<TaskRunInstance> createBackfill(Long taskId, WorkflowDTO.BackfillRequest request, Long userId) {
-        SyncTask task = requireTask(taskId);
-        if (task.getTaskType() == SyncTask.TaskType.cdc_sync) {
-            throw new IllegalArgumentException("CDC 长流任务不支持按业务日期补数");
-        }
+        SyncTask task = requireScheduledTask(taskId, "补数");
+        TaskDefinitionVersion publishedVersion = requirePublishedVersion(task);
         if (request.getEndDate().isBefore(request.getStartDate())) {
             throw new IllegalArgumentException("结束日期不能早于开始日期");
         }
@@ -144,6 +150,7 @@ public class WorkflowService {
             LocalDate businessDate = request.getStartDate().plusDays(offset);
             instances.add(TaskRunInstance.builder()
                     .taskId(taskId)
+                    .definitionVersionId(publishedVersion.getId())
                     .batchId(batchId)
                     .businessDate(businessDate)
                     .triggerType("backfill")
@@ -160,11 +167,12 @@ public class WorkflowService {
     @Transactional
     public TaskRunInstance createScheduledInstance(Long taskId, Long scheduleId, java.time.Instant scheduledAt,
                                                    LocalDate businessDate, String parametersJson, Long userId) {
-        SyncTask task = requireTask(taskId);
-        if (task.getTaskType() == SyncTask.TaskType.cdc_sync) throw new IllegalArgumentException("CDC 长流任务不能周期调度");
+        SyncTask task = requireScheduledTask(taskId, "周期调度");
+        TaskDefinitionVersion publishedVersion = requirePublishedVersion(task);
         boolean hasUpstream = !dependencyRepository.findByDownstreamTaskId(taskId).isEmpty();
         return instanceRepository.save(TaskRunInstance.builder()
                 .taskId(taskId)
+                .definitionVersionId(publishedVersion.getId())
                 .batchId("schedule-" + scheduleId + "-" + scheduledAt.toEpochMilli())
                 .businessDate(businessDate)
                 .triggerType("schedule")
@@ -190,12 +198,21 @@ public class WorkflowService {
 
     @Transactional
     public Optional<TaskRunInstance> claim(String executorId) {
+        return claim(executorId, null);
+    }
+
+    @Transactional
+    public Optional<TaskRunInstance> claim(String executorId, Set<Long> allowedTaskIds) {
         if (executorId == null || executorId.isBlank()) {
             throw new IllegalArgumentException("executorId 不能为空");
         }
+        if (allowedTaskIds != null && allowedTaskIds.isEmpty()) return Optional.empty();
         LocalDateTime now = LocalDateTime.now();
-        Optional<TaskRunInstance> candidate = instanceRepository.findRunnableForUpdate(
-                RunStatus.queued, now, PageRequest.of(0, 1)).stream().findFirst();
+        List<TaskRunInstance> runnable = allowedTaskIds == null
+                ? instanceRepository.findRunnableForUpdate(RunStatus.queued, now, PageRequest.of(0, 1))
+                : instanceRepository.findRunnableForTaskIdsForUpdate(
+                        RunStatus.queued, now, allowedTaskIds, PageRequest.of(0, 1));
+        Optional<TaskRunInstance> candidate = runnable.stream().findFirst();
         candidate.ifPresent(instance -> {
             instance.setStatus(RunStatus.running);
             instance.setExecutorId(executorId.trim());
@@ -337,7 +354,20 @@ public class WorkflowService {
     }
 
     public SyncTask taskForInstance(TaskRunInstance instance) {
-        return requireTask(instance.getTaskId());
+        if (instance.getDefinitionVersionId() == null) {
+            throw new IllegalStateException("运行实例未绑定任务版本，请重新创建实例");
+        }
+        TaskDefinitionVersion version = versionRepository.findById(instance.getDefinitionVersionId())
+                .filter(item -> Objects.equals(item.getTaskId(), instance.getTaskId()))
+                .orElseThrow(() -> new IllegalStateException("运行实例绑定的任务版本不存在"));
+        try {
+            SyncTask snapshot = objectMapper.readValue(version.getSnapshotJson(), SyncTask.class);
+            snapshot.setId(instance.getTaskId());
+            if (snapshot.getExecutionMode() == null) snapshot.setExecutionMode(SyncTask.ExecutionMode.scheduled);
+            return snapshot;
+        } catch (Exception exception) {
+            throw new IllegalStateException("任务版本快照损坏，无法执行", exception);
+        }
     }
 
     public TaskRunInstance getInstance(Long instanceId) {
@@ -346,6 +376,16 @@ public class WorkflowService {
     }
 
     public SyncTask getTask(Long taskId) { return requireTask(taskId); }
+
+    public TaskDefinitionVersion definitionForInstance(Long instanceId) {
+        TaskRunInstance instance = getInstance(instanceId);
+        if (instance.getDefinitionVersionId() == null) {
+            throw new IllegalStateException("运行实例未绑定任务版本");
+        }
+        return versionRepository.findById(instance.getDefinitionVersionId())
+                .filter(item -> Objects.equals(item.getTaskId(), instance.getTaskId()))
+                .orElseThrow(() -> new IllegalStateException("运行实例绑定的任务版本不存在"));
+    }
 
     @Transactional
     public int promoteReadyInstances() {
@@ -388,6 +428,23 @@ public class WorkflowService {
     private SyncTask requireTask(Long taskId) {
         return taskRepository.findById(taskId)
                 .orElseThrow(() -> new IllegalArgumentException("任务不存在: " + taskId));
+    }
+
+    private SyncTask requireScheduledTask(Long taskId, String action) {
+        SyncTask task = requireTask(taskId);
+        if (task.getExecutionMode() != SyncTask.ExecutionMode.scheduled) {
+            throw new IllegalArgumentException("只有周期任务支持" + action);
+        }
+        return task;
+    }
+
+    private TaskDefinitionVersion requirePublishedVersion(SyncTask task) {
+        if (task.getPublishedVersionId() == null) {
+            throw new IllegalStateException("请先发布任务版本再创建运行实例");
+        }
+        return versionRepository.findById(task.getPublishedVersionId())
+                .filter(version -> Objects.equals(version.getTaskId(), task.getId()))
+                .orElseThrow(() -> new IllegalStateException("任务发布版本不存在，请重新发布"));
     }
 
     private TaskRunInstance requireRunningInstance(Long instanceId, String executorId) {

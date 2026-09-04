@@ -64,13 +64,16 @@ public class DatasourceController {
     @GetMapping("/{id}/test-connection")
     public ApiResponse<Map<String, Object>> testConnection(@PathVariable Long id) {
         DatasourceConfig config = datasourceService.getDatasource(id);
+        if (config.getDbType() == DbType.paimon) {
+            throw new IllegalArgumentException("Paimon Catalog 请在系统设置的依赖健康中检测");
+        }
 
         try {
             String decryptedPassword = encryptionUtil.decrypt(config.getPasswordEncrypted());
             String url = switch (config.getDbType()) {
                 case mysql -> "jdbc:mysql://" + config.getHost() + ":" + config.getPort() + "/" + config.getDatabase();
                 case postgresql -> "jdbc:postgresql://" + config.getHost() + ":" + config.getPort() + "/" + config.getDatabase();
-                case paimon -> "paimon://" + config.getHost();
+                case paimon -> throw new IllegalArgumentException("Paimon Catalog 请在系统设置中检测");
             };
 
             java.sql.Connection conn = java.sql.DriverManager.getConnection(

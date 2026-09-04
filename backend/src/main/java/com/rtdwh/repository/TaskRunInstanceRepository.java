@@ -13,6 +13,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 public interface TaskRunInstanceRepository extends JpaRepository<TaskRunInstance, Long> {
     List<TaskRunInstance> findByStatusOrderByCreatedAtAsc(RunStatus status, Pageable pageable);
@@ -33,4 +34,15 @@ public interface TaskRunInstanceRepository extends JpaRepository<TaskRunInstance
     List<TaskRunInstance> findRunnableForUpdate(@Param("status") RunStatus status,
                                                 @Param("now") LocalDateTime now,
                                                 Pageable pageable);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select instance from TaskRunInstance instance "
+            + "where instance.status = :status "
+            + "and instance.taskId in :taskIds "
+            + "and (instance.nextRetryAt is null or instance.nextRetryAt <= :now) "
+            + "order by instance.createdAt asc")
+    List<TaskRunInstance> findRunnableForTaskIdsForUpdate(@Param("status") RunStatus status,
+                                                          @Param("now") LocalDateTime now,
+                                                          @Param("taskIds") Set<Long> taskIds,
+                                                          Pageable pageable);
 }

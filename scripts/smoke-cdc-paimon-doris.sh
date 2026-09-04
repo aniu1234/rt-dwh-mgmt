@@ -20,7 +20,6 @@ PAYLOAD="smoke-${RUN_ID}"
 
 TOKEN=""
 SOURCE_ID=""
-TARGET_ID=""
 TASK_ID=""
 
 fail() {
@@ -68,9 +67,6 @@ cleanup() {
   if [[ -n "$SOURCE_ID" && -n "$TOKEN" ]]; then
     api DELETE "/datasources/$SOURCE_ID" >/dev/null 2>&1
   fi
-  if [[ -n "$TARGET_ID" && -n "$TOKEN" ]]; then
-    api DELETE "/datasources/$TARGET_ID" >/dev/null 2>&1
-  fi
 }
 trap cleanup EXIT
 
@@ -100,7 +96,7 @@ GRANT ALL PRIVILEGES ON ${SOURCE_DATABASE}.* TO '${MYSQL_USER}'@'%';
 FLUSH PRIVILEGES;"
 "${COMPOSE[@]}" exec -T mysql mysql -uroot "-p${MYSQL_ROOT_PASSWORD}" -e "$SOURCE_SQL"
 
-printf '[4/7] 创建临时数据源配置...\n'
+printf '[4/7] 创建临时业务数据源配置...\n'
 SOURCE_BODY="$(jq -nc \
   --arg name "smoke-mysql-${RUN_ID}" --arg database "$SOURCE_DATABASE" \
   --arg username "$MYSQL_USER" --arg password "$MYSQL_PASSWORD" \
@@ -109,20 +105,13 @@ SOURCE_RESPONSE="$(api POST /datasources "$SOURCE_BODY")"
 require_success "$SOURCE_RESPONSE" "创建 MySQL 数据源"
 SOURCE_ID="$(jq -r '.data.id' <<<"$SOURCE_RESPONSE")"
 
-TARGET_BODY="$(jq -nc \
-  --arg name "smoke-paimon-${RUN_ID}" --arg username "$MYSQL_USER" --arg password "$MYSQL_PASSWORD" \
-  '{configName:$name,dbType:"paimon",host:"/data/paimon",port:3306,database:"rtdwh_paimon_meta",username:$username,passwordEncrypted:$password,extraParams:"{}"}')"
-TARGET_RESPONSE="$(api POST /datasources "$TARGET_BODY")"
-require_success "$TARGET_RESPONSE" "创建 Paimon 数据源"
-TARGET_ID="$(jq -r '.data.id' <<<"$TARGET_RESPONSE")"
-
 printf '[5/7] 创建并启动 CDC 任务...\n'
 MAPPINGS="$(jq -nc --arg source "$SOURCE_TABLE" --arg db "$TARGET_DATABASE" --arg target "$TARGET_TABLE" \
   '[{sourceTable:$source,targetDb:$db,targetTable:$target,syncMode:"full+incremental"}]')"
 TASK_BODY="$(jq -nc \
-  --arg name "smoke-cdc-${RUN_ID}" --argjson sourceId "$SOURCE_ID" --argjson targetId "$TARGET_ID" \
+  --arg name "smoke-cdc-${RUN_ID}" --argjson sourceId "$SOURCE_ID" \
   --arg mappings "$MAPPINGS" \
-  '{taskName:$name,description:"CDC -> Paimon -> Doris smoke test",taskType:"cdc_sync",sourceConfigId:$sourceId,targetConfigId:$targetId,flinkSql:"-- generated when task starts",syncStrategy:"full_then_incremental",tableMappings:$mappings,parallelism:1,checkpointIntervalMs:5000}')"
+  '{taskName:$name,description:"CDC -> Paimon -> Doris smoke test",taskType:"cdc_sync",scenarioCode:"table_realtime_sync",executionMode:"continuous",sourceConfigId:$sourceId,flinkSql:"-- generated when task starts",syncStrategy:"full_then_incremental",tableMappings:$mappings,parallelism:1,checkpointIntervalMs:5000}')"
 TASK_RESPONSE="$(api POST /sync-tasks "$TASK_BODY")"
 require_success "$TASK_RESPONSE" "创建 CDC 任务"
 TASK_ID="$(jq -r '.data.id' <<<"$TASK_RESPONSE")"

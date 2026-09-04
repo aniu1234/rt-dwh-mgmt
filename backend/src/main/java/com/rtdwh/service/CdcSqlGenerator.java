@@ -53,21 +53,16 @@ public class CdcSqlGenerator {
     /**
      * Generate CDC SQL for a sync task based on its table mappings.
      */
-    public String generateCdcSql(SyncTask task, DatasourceConfig sourceConfig, DatasourceConfig targetConfig) {
+    public String generateCdcSql(SyncTask task, DatasourceConfig sourceConfig) {
         List<Map<String, String>> mappings = parseTableMappings(task.getTableMappings());
         if (mappings.isEmpty()) {
             throw new IllegalArgumentException("表映射配置为空");
         }
-        if (sourceConfig == null || targetConfig == null) {
-            throw new IllegalArgumentException("源/目标数据源配置不存在");
-        }
-        if (targetConfig.getDbType() != DbType.paimon) {
-            throw new IllegalArgumentException("CDC 目标数据源必须是 Paimon");
-        }
+        if (sourceConfig == null) throw new IllegalArgumentException("源数据源配置不存在");
 
         StringBuilder sql = new StringBuilder();
         sql.append("-- Flink CDC 同步任务: ").append(task.getTaskName()).append("\n");
-        sql.append("-- 源: ").append(sourceConfig.getConfigName()).append(" -> 目标: ").append(targetConfig.getConfigName()).append("\n");
+        sql.append("-- 源: ").append(sourceConfig.getConfigName()).append(" -> 目标: 平台 Paimon Catalog\n");
         sql.append("-- 策略: ").append(task.getSyncStrategy() != null ? task.getSyncStrategy() : defaultStartMode).append("\n\n");
         sql.append(generatePaimonCatalogSql());
         sql.append("\n");
@@ -90,7 +85,7 @@ public class CdcSqlGenerator {
                     || task.getSyncStrategy() == SyncTask.SyncStrategy.incremental_only
                     ? "latest-offset" : defaultStartMode;
             TableCdcSql tableSql = generateTableCdcSql(
-                    sourceConfig, sourceTable, targetConfig, targetDb, targetTable, task, startMode);
+                    sourceConfig, sourceTable, targetDb, targetTable, task, startMode);
             sql.append(tableSql.setupSql());
             insertStatements.add(tableSql.insertSql());
         }
@@ -110,12 +105,17 @@ public class CdcSqlGenerator {
         return sql.toString();
     }
 
+    /** Compatibility overload for callers created before Paimon became platform runtime configuration. */
+    public String generateCdcSql(SyncTask task, DatasourceConfig sourceConfig, DatasourceConfig ignoredTargetConfig) {
+        return generateCdcSql(task, sourceConfig);
+    }
+
     /**
      * Generate CDC SQL for a single table mapping.
      */
     private TableCdcSql generateTableCdcSql(DatasourceConfig sourceConfig, String sourceTable,
-                                             DatasourceConfig targetConfig, String targetDb,
-                                             String targetTable, SyncTask task, String startMode) {
+                                             String targetDb, String targetTable,
+                                             SyncTask task, String startMode) {
         StringBuilder sql = new StringBuilder();
 
         sql.append("CREATE DATABASE IF NOT EXISTS ").append(identifier(targetDb)).append(";\n\n");

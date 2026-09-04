@@ -6,7 +6,6 @@ import com.rtdwh.dto.WorkflowDTO;
 import com.rtdwh.entity.SyncTask;
 import com.rtdwh.entity.TaskSchedule;
 import com.rtdwh.repository.SyncTaskRepository;
-import com.rtdwh.repository.TaskDefinitionVersionRepository;
 import com.rtdwh.repository.TaskScheduleRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
@@ -22,7 +21,6 @@ import java.util.List;
 public class TaskScheduleService {
     private final TaskScheduleRepository repository;
     private final SyncTaskRepository taskRepository;
-    private final TaskDefinitionVersionRepository versionRepository;
     private final WorkflowService workflowService;
     private final ObjectMapper objectMapper;
 
@@ -31,9 +29,11 @@ public class TaskScheduleService {
     @Transactional
     public TaskSchedule configure(Long taskId, WorkflowDTO.ScheduleRequest request, Long userId) {
         SyncTask task = taskRepository.findById(taskId).orElseThrow(() -> new IllegalArgumentException("任务不存在: " + taskId));
-        if (task.getTaskType() == SyncTask.TaskType.cdc_sync) throw new IllegalArgumentException("CDC 长流任务不能配置周期产出");
-        if (versionRepository.findFirstByTaskIdOrderByVersionNoDesc(taskId).isEmpty()) {
-            throw new IllegalStateException("请先发布至少一个任务版本再启用周期调度");
+        if (task.getExecutionMode() != SyncTask.ExecutionMode.scheduled) {
+            throw new IllegalArgumentException("只有周期任务可以配置周期调度");
+        }
+        if (task.getPublishedVersionId() == null) {
+            throw new IllegalStateException("请先发布任务版本再启用周期调度");
         }
         ZoneId zone = zone(request.getTimezone());
         CronExpression cron = cron(request.getCronExpression());

@@ -761,8 +761,8 @@ public class DwhMetaService {
         DwhTableMeta table = getTableDetail(tableMetaId);
         log.info("Triggering expire snapshots on table: {}.{}, retainLast: {}", table.getPaimonDb(), table.getPaimonTable(), retainLast);
 
-        // Paimon expire_snapshots: CALL sys.expire_snapshots('db.table', retainLast)
-        String sql = String.format("CALL sys.expire_snapshots('%s.%s', %d)",
+        // Paimon 2.x / Flink 1.19+ requires named procedure arguments.
+        String sql = String.format("CALL sys.expire_snapshots(table => '%s.%s', retain_max => %d)",
                 table.getPaimonDb(), table.getPaimonTable(), retainLast);
 
         // Record maintenance log

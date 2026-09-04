@@ -39,10 +39,18 @@ public class SyncTask {
     @Column(nullable = false, length = 64)
     private String scenarioCode;
 
-    @Column(nullable = false)
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 16)
+    private ExecutionMode executionMode;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 16)
+    private DefinitionStatus definitionStatus;
+
+    private Long publishedVersionId;
+
     private Long sourceConfigId;
 
-    @Column(nullable = false)
     private Long targetConfigId;
 
     @Column(columnDefinition = "TEXT")
@@ -110,6 +118,14 @@ public class SyncTask {
 
     public enum TaskType {
         cdc_sync, etl, materialized
+    }
+
+    public enum ExecutionMode {
+        continuous, scheduled
+    }
+
+    public enum DefinitionStatus {
+        draft, published, disabled
     }
 
     public enum TaskStatus {

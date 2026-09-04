@@ -17,15 +17,15 @@ import static org.mockito.Mockito.*;
 class TaskScheduleServiceTest {
     private final TaskScheduleRepository repository = mock(TaskScheduleRepository.class);
     private final SyncTaskRepository taskRepository = mock(SyncTaskRepository.class);
-    private final TaskDefinitionVersionRepository versionRepository = mock(TaskDefinitionVersionRepository.class);
     private final WorkflowService workflowService = mock(WorkflowService.class);
     private final TaskScheduleService service = new TaskScheduleService(repository, taskRepository,
-            versionRepository, workflowService, new ObjectMapper());
+            workflowService, new ObjectMapper());
 
     @Test
     void configuresPublishedBatchTaskWithNextRun() {
-        when(taskRepository.findById(8L)).thenReturn(Optional.of(SyncTask.builder().id(8L).taskType(SyncTask.TaskType.etl).build()));
-        when(versionRepository.findFirstByTaskIdOrderByVersionNoDesc(8L)).thenReturn(Optional.of(TaskDefinitionVersion.builder().build()));
+        when(taskRepository.findById(8L)).thenReturn(Optional.of(SyncTask.builder().id(8L)
+                .taskType(SyncTask.TaskType.etl).executionMode(SyncTask.ExecutionMode.scheduled)
+                .definitionStatus(SyncTask.DefinitionStatus.draft).publishedVersionId(80L).build()));
         when(repository.findByTaskId(8L)).thenReturn(Optional.empty());
         when(repository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         WorkflowDTO.ScheduleRequest request = new WorkflowDTO.ScheduleRequest();

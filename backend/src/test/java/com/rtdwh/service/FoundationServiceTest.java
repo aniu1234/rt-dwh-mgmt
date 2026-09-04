@@ -29,7 +29,8 @@ class FoundationServiceTest {
     private final TaskDefinitionVersionRepository versions = mock(TaskDefinitionVersionRepository.class);
     private final QueryAccessScopeService access = mock(QueryAccessScopeService.class);
     private final FoundationService service = new FoundationService(tables, tasks, reports, dataServices,
-            outputs, schedules, qualityRules, qualityAlerts, health, alerts, users, scopes, audits, versions, access);
+            outputs, schedules, qualityRules, qualityAlerts, health, alerts, users, scopes, audits, versions, access,
+            new com.fasterxml.jackson.databind.ObjectMapper());
 
     @Test
     void buildsFiveCapabilitySummaryFromExistingGovernanceData() {

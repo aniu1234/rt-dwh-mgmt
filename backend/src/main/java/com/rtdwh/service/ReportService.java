@@ -23,10 +23,18 @@ public class ReportService {
     private final ReportRunRepository reportRunRepository;
     private final ObjectMapper objectMapper;
     private final ReportParameterRenderer parameterRenderer;
+    private final QueryAccessScopeService accessScopeService;
+    private final DorisConnectionService dorisConnectionService;
 
     @Transactional(readOnly = true)
     public List<ReportTemplate> listReports() {
         return reportTemplateRepository.findAll();
+    }
+
+    @Transactional(readOnly = true)
+    public List<ReportTemplate> listReports(Long userId) {
+        return accessScopeService.filterAllowedSql(userId, reportTemplateRepository.findAll(),
+                ReportTemplate::getSqlQuery, dorisConnectionService.getCatalog(), dorisConnectionService.getDatabase());
     }
 
     @Transactional(readOnly = true)
@@ -35,8 +43,16 @@ public class ReportService {
                 .orElseThrow(() -> new IllegalArgumentException("报表不存在: " + id));
     }
 
+    @Transactional(readOnly = true)
+    public ReportTemplate getReport(Long id, Long userId) {
+        ReportTemplate report = getReport(id);
+        assertAccess(report, userId);
+        return report;
+    }
+
     @Transactional
     public ReportTemplate createReport(ReportTemplate template, Long creatorId) {
+        assertAccess(template, creatorId);
         template.setId(null);
         LocalDateTime now = LocalDateTime.now();
         template.setCreatedAt(now);
@@ -48,9 +64,11 @@ public class ReportService {
     }
 
     @Transactional
-    public ReportTemplate updateReport(Long id, ReportTemplate template) {
+    public ReportTemplate updateReport(Long id, ReportTemplate template, Long userId) {
         ReportTemplate existing = reportTemplateRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("报表不存在: " + id));
+        assertAccess(existing, userId);
+        assertAccess(template, userId);
         template.setId(existing.getId());
         template.setCreatedAt(existing.getCreatedAt());
         template.setUpdatedAt(LocalDateTime.now());
@@ -61,9 +79,8 @@ public class ReportService {
     }
 
     @Transactional
-    public void deleteReport(Long id) {
-        reportTemplateRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("报表不存在: " + id));
+    public void deleteReport(Long id, Long userId) {
+        getReport(id, userId);
         reportRunRepository.deleteByReportId(id);
         reportTemplateRepository.deleteById(id);
     }
@@ -96,6 +113,13 @@ public class ReportService {
         ReportScheduleConfig config = ReportScheduleConfig.parse(template.getScheduleConfig(), objectMapper);
         template.setScheduleEnabled(config.enabled());
         template.setNextRunAt(config.enabled() ? config.nextAfter(now) : null);
+    }
+
+    private void assertAccess(ReportTemplate report, Long userId) {
+        if (report.getSqlQuery() == null || !accessScopeService.canAccessSql(userId, report.getSqlQuery(),
+                dorisConnectionService.getCatalog(), dorisConnectionService.getDatabase())) {
+            throw new IllegalArgumentException("无权访问报表涉及的数据表");
+        }
     }
 
     public record ReportClaim(ReportTemplate report, LocalDateTime scheduledAt) {}

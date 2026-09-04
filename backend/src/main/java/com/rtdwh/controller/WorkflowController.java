@@ -10,6 +10,7 @@ import com.rtdwh.service.WorkflowService;
 import com.rtdwh.service.WorkflowSqlRunnerService;
 import com.rtdwh.service.TaskScheduleService;
 import com.rtdwh.service.DatasetProductionService;
+import com.rtdwh.service.SyncTaskService;
 import com.rtdwh.util.SecurityContextUtil;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -17,6 +18,8 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.Map;
 
 @RestController
@@ -29,15 +32,25 @@ public class WorkflowController {
     private final SecurityContextUtil securityContextUtil;
     private final TaskScheduleService taskScheduleService;
     private final DatasetProductionService datasetProductionService;
+    private final SyncTaskService syncTaskService;
 
     @GetMapping("/graph")
     public ApiResponse<Map<String, Object>> graph() {
-        return ApiResponse.success(workflowService.graph());
+        Set<Long> visible = visibleTaskIds();
+        Map<String, Object> graph = workflowService.graph();
+        List<SyncTask> tasks = ((List<SyncTask>) graph.get("tasks")).stream()
+                .filter(task -> visible.contains(task.getId())).toList();
+        List<TaskDependency> dependencies = ((List<TaskDependency>) graph.get("dependencies")).stream()
+                .filter(edge -> visible.contains(edge.getUpstreamTaskId()) && visible.contains(edge.getDownstreamTaskId()))
+                .toList();
+        return ApiResponse.success(Map.of("tasks", tasks, "dependencies", dependencies));
     }
 
     @PostMapping("/dependencies")
     @PreAuthorize("hasAuthority('task:manage')")
     public ApiResponse<TaskDependency> addDependency(@Valid @RequestBody WorkflowDTO.DependencyRequest request) {
+        authorize(request.getUpstreamTaskId());
+        authorize(request.getDownstreamTaskId());
         return ApiResponse.success("依赖创建成功", workflowService.addDependency(
                 request.getUpstreamTaskId(), request.getDownstreamTaskId(), securityContextUtil.getCurrentUserId()));
     }
@@ -46,6 +59,8 @@ public class WorkflowController {
     @PreAuthorize("hasAuthority('task:manage')")
     public ApiResponse<Void> removeDependency(@RequestParam Long upstreamTaskId,
                                               @RequestParam Long downstreamTaskId) {
+        authorize(upstreamTaskId);
+        authorize(downstreamTaskId);
         workflowService.removeDependency(upstreamTaskId, downstreamTaskId);
         return ApiResponse.success("依赖已删除", null);
     }
@@ -54,18 +69,21 @@ public class WorkflowController {
     @PreAuthorize("hasAuthority('task:manage')")
     public ApiResponse<TaskDefinitionVersion> publish(@PathVariable Long taskId,
                                                        @Valid @RequestBody WorkflowDTO.PublishRequest request) {
+        authorize(taskId);
         return ApiResponse.success("任务版本已发布", workflowService.publish(
                 taskId, request.getChangeSummary(), securityContextUtil.getCurrentUserId()));
     }
 
     @GetMapping("/tasks/{taskId}/versions")
     public ApiResponse<List<TaskDefinitionVersion>> versions(@PathVariable Long taskId) {
+        authorize(taskId);
         return ApiResponse.success(workflowService.versions(taskId));
     }
 
     @PostMapping("/tasks/{taskId}/rollback/{versionNo}")
     @PreAuthorize("hasAuthority('task:manage')")
     public ApiResponse<SyncTask> rollback(@PathVariable Long taskId, @PathVariable Integer versionNo) {
+        authorize(taskId);
         return ApiResponse.success("任务配置已回滚", workflowService.rollback(taskId, versionNo));
     }
 
@@ -73,19 +91,23 @@ public class WorkflowController {
     @PreAuthorize("hasAuthority('task:manage')")
     public ApiResponse<List<TaskRunInstance>> backfill(@PathVariable Long taskId,
                                                         @Valid @RequestBody WorkflowDTO.BackfillRequest request) {
+        authorize(taskId);
         return ApiResponse.success("补数实例已创建", workflowService.createBackfill(
                 taskId, request, securityContextUtil.getCurrentUserId()));
     }
 
     @GetMapping("/schedules")
     public ApiResponse<List<com.rtdwh.entity.TaskSchedule>> schedules() {
-        return ApiResponse.success(taskScheduleService.list());
+        Set<Long> visible = visibleTaskIds();
+        return ApiResponse.success(taskScheduleService.list().stream()
+                .filter(schedule -> visible.contains(schedule.getTaskId())).toList());
     }
 
     @PutMapping("/tasks/{taskId}/schedule")
     @PreAuthorize("hasAuthority('task:manage')")
     public ApiResponse<com.rtdwh.entity.TaskSchedule> configureSchedule(
             @PathVariable Long taskId, @Valid @RequestBody WorkflowDTO.ScheduleRequest request) {
+        authorize(taskId);
         return ApiResponse.success("周期调度已保存", taskScheduleService.configure(
                 taskId, request, securityContextUtil.getCurrentUserId()));
     }
@@ -93,14 +115,17 @@ public class WorkflowController {
     @DeleteMapping("/tasks/{taskId}/schedule")
     @PreAuthorize("hasAuthority('task:manage')")
     public ApiResponse<Void> deleteSchedule(@PathVariable Long taskId) {
+        authorize(taskId);
         taskScheduleService.delete(taskId);
         return ApiResponse.success("周期调度已删除", null);
     }
 
     @GetMapping("/tasks/{taskId}/outputs")
     public ApiResponse<List<com.rtdwh.entity.TaskOutputDataset>> outputs(@PathVariable Long taskId) {
+        authorize(taskId);
         workflowService.getTask(taskId);
-        return ApiResponse.success(datasetProductionService.outputs(taskId));
+        return ApiResponse.success(datasetProductionService.outputs(
+                taskId, securityContextUtil.getCurrentUserId()));
     }
 
     @PutMapping("/tasks/{taskId}/outputs")
@@ -108,14 +133,17 @@ public class WorkflowController {
     public ApiResponse<List<com.rtdwh.entity.TaskOutputDataset>> configureOutputs(
             @PathVariable Long taskId,
             @RequestBody List<WorkflowDTO.OutputDatasetRequest> requests) {
+        authorize(taskId);
         workflowService.getTask(taskId);
-        return ApiResponse.success("产出数据资源已保存", datasetProductionService.replaceOutputs(taskId, requests));
+        return ApiResponse.success("产出数据资源已保存", datasetProductionService.replaceOutputs(
+                taskId, requests, securityContextUtil.getCurrentUserId()));
     }
 
     @GetMapping("/outputs/{outputId}/productions")
     public ApiResponse<List<com.rtdwh.entity.DatasetProduction>> productions(
             @PathVariable Long outputId, @RequestParam(defaultValue = "50") int limit) {
-        return ApiResponse.success(datasetProductionService.productions(outputId, limit));
+        return ApiResponse.success(datasetProductionService.productions(
+                outputId, limit, securityContextUtil.getCurrentUserId()));
     }
 
     @GetMapping("/instances")
@@ -123,13 +151,22 @@ public class WorkflowController {
             @RequestParam(required = false) Long taskId,
             @RequestParam(required = false) TaskRunInstance.RunStatus status,
             @RequestParam(defaultValue = "100") int limit) {
-        return ApiResponse.success(workflowService.instances(taskId, status, limit));
+        if (taskId != null) authorize(taskId);
+        Set<Long> visible = visibleTaskIds();
+        return ApiResponse.success(workflowService.instances(taskId, status, limit).stream()
+                .filter(instance -> visible.contains(instance.getTaskId())).toList());
+    }
+
+    @GetMapping("/instances/{instanceId}/definition")
+    public ApiResponse<TaskDefinitionVersion> instanceDefinition(@PathVariable Long instanceId) {
+        authorize(workflowService.getInstance(instanceId).getTaskId());
+        return ApiResponse.success(workflowService.definitionForInstance(instanceId));
     }
 
     @PostMapping("/instances/claim")
     @PreAuthorize("hasAuthority('task:manage')")
     public ApiResponse<TaskRunInstance> claim(@RequestParam String executorId) {
-        return workflowService.claim(executorId)
+        return workflowService.claim(executorId, visibleTaskIds())
                 .map(ApiResponse::success)
                 .orElseGet(() -> ApiResponse.success("当前没有可执行实例", null));
     }
@@ -138,6 +175,7 @@ public class WorkflowController {
     @PreAuthorize("hasAuthority('task:manage')")
     public ApiResponse<TaskRunInstance> complete(@PathVariable Long instanceId,
                                                   @Valid @RequestBody WorkflowDTO.CompleteRequest request) {
+        authorize(workflowService.getInstance(instanceId).getTaskId());
         return ApiResponse.success("实例状态已更新", workflowService.complete(
                 instanceId, request.getSuccess(), request.getErrorMessage()));
     }
@@ -146,6 +184,7 @@ public class WorkflowController {
     @PreAuthorize("hasAuthority('task:manage')")
     public ApiResponse<TaskRunInstance> heartbeat(@PathVariable Long instanceId,
                                                    @RequestParam String executorId) {
+        authorize(workflowService.getInstance(instanceId).getTaskId());
         return ApiResponse.success(workflowService.heartbeat(instanceId, executorId));
     }
 
@@ -154,6 +193,7 @@ public class WorkflowController {
     public ApiResponse<TaskRunInstance> attachExternalJob(
             @PathVariable Long instanceId,
             @Valid @RequestBody WorkflowDTO.AttachJobRequest request) {
+        authorize(workflowService.getInstance(instanceId).getTaskId());
         return ApiResponse.success(workflowService.attachExternalJob(
                 instanceId, request.getExecutorId(), request.getExternalJobId()));
     }
@@ -161,12 +201,23 @@ public class WorkflowController {
     @PostMapping("/instances/{instanceId}/retry")
     @PreAuthorize("hasAuthority('task:manage')")
     public ApiResponse<TaskRunInstance> retry(@PathVariable Long instanceId) {
+        authorize(workflowService.getInstance(instanceId).getTaskId());
         return ApiResponse.success("实例已重新入队", workflowService.retryFailed(instanceId));
     }
 
     @PostMapping("/instances/{instanceId}/cancel")
     @PreAuthorize("hasAuthority('task:manage')")
     public ApiResponse<TaskRunInstance> cancel(@PathVariable Long instanceId) {
+        authorize(workflowService.getInstance(instanceId).getTaskId());
         return ApiResponse.success("实例已取消", workflowSqlRunnerService.cancel(instanceId));
+    }
+
+    private Set<Long> visibleTaskIds() {
+        return syncTaskService.listTasksForUser(securityContextUtil.getCurrentUserId(), null, null, null).stream()
+                .map(SyncTask::getId).collect(Collectors.toSet());
+    }
+
+    private void authorize(Long taskId) {
+        syncTaskService.assertTaskAccess(taskId, securityContextUtil.getCurrentUserId());
     }
 }

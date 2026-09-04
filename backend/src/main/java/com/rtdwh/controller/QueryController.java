@@ -138,7 +138,7 @@ public class QueryController {
             @PathVariable Long reportId,
             @RequestBody(required = false) Map<String, Object> params) {
         Long userId = securityContextUtil.getCurrentUserId();
-        com.rtdwh.entity.ReportTemplate report = reportService.getReport(reportId);
+        com.rtdwh.entity.ReportTemplate report = reportService.getReport(reportId, userId);
         if (!Boolean.TRUE.equals(report.getIsPublished())) {
             throw new IllegalStateException("报告尚未发布，无法查询");
         }

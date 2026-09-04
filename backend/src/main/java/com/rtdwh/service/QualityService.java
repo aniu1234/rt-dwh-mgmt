@@ -33,17 +33,20 @@ public class QualityService {
     private final QualityRuleRepository ruleRepository;
     private final QualityAlertRepository alertRepository;
     private final QualityCheckPersistenceService persistenceService;
+    private final QueryAccessScopeService accessScopeService;
+    private final DorisConnectionService dorisConnectionService;
 
     @Transactional(readOnly = true)
-    public List<QualityRule> listRules(String layer, String ruleType) {
-        return ruleRepository.searchRules(layer, ruleType, null);
+    public List<QualityRule> listRules(String layer, String ruleType, Long userId) {
+        return filterAllowed(userId, ruleRepository.searchRules(layer, ruleType, null));
     }
 
     @Transactional
-    public QualityRule createRule(QualityRule rule) {
+    public QualityRule createRule(QualityRule rule, Long userId) {
         rule.setId(null);
         rule.setVersion(null);
         normalizeAndValidate(rule);
+        assertAccess(userId, rule);
         LocalDateTime now = LocalDateTime.now();
         rule.setCreatedAt(now);
         rule.setUpdatedAt(now);
@@ -51,9 +54,10 @@ public class QualityService {
     }
 
     @Transactional
-    public QualityRule updateRule(Long id, QualityRule input) {
+    public QualityRule updateRule(Long id, QualityRule input, Long userId) {
         QualityRule rule = ruleRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new IllegalArgumentException("质量规则不存在: " + id));
+        assertAccess(userId, rule);
         rule.setRuleName(input.getRuleName());
         rule.setRuleType(input.getRuleType());
         rule.setLayer(input.getLayer());
@@ -65,15 +69,17 @@ public class QualityService {
             rule.setEnabled(input.getEnabled());
         }
         normalizeAndValidate(rule);
+        assertAccess(userId, rule);
         resolveOpenAlerts(id, "suppressed");
         rule.setUpdatedAt(LocalDateTime.now());
         return ruleRepository.save(rule);
     }
 
     @Transactional
-    public QualityRule setRuleEnabled(Long id, boolean enabled) {
+    public QualityRule setRuleEnabled(Long id, boolean enabled, Long userId) {
         QualityRule rule = ruleRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new IllegalArgumentException("质量规则不存在: " + id));
+        assertAccess(userId, rule);
         rule.setEnabled(enabled);
         if (!enabled) resolveOpenAlerts(id, "suppressed");
         rule.setUpdatedAt(LocalDateTime.now());
@@ -81,22 +87,59 @@ public class QualityService {
     }
 
     @Transactional
-    public void deleteRule(Long id) {
+    public void deleteRule(Long id, Long userId) {
         QualityRule rule = ruleRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new IllegalArgumentException("质量规则不存在: " + id));
+        assertAccess(userId, rule);
         resolveOpenAlerts(id, "suppressed");
         ruleRepository.delete(rule);
     }
 
     @Transactional(readOnly = true)
-    public List<QualityAlert> listAlerts(String level, Boolean resolved) {
-        return alertRepository.searchAlerts(level, resolved, null);
+    public List<QualityAlert> listAlerts(String level, Boolean resolved, Long userId) {
+        return alertRepository.searchAlerts(level, resolved, null).stream()
+                .filter(alert -> canAccessAlert(userId, alert))
+                .toList();
     }
 
-    public QualityAlert resolveAlert(Long id) {
+    public QualityAlert resolveAlert(Long id, Long userId) {
         QualityAlert snapshot = alertRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("质量告警不存在: " + id));
+        if (!canAccessAlert(userId, snapshot)) throw new IllegalArgumentException("无权处置该质量告警");
         return persistenceService.resolveAlertManually(id, snapshot.getRuleId());
+    }
+
+    public List<QualityRule> filterAllowed(Long userId, List<QualityRule> rules) {
+        return rules.stream().filter(rule -> canAccess(userId, rule)).toList();
+    }
+
+    public void assertAccess(Long userId, QualityRule rule) {
+        if (!canAccess(userId, rule)) throw new IllegalArgumentException("无权访问质量规则涉及的数据表");
+    }
+
+    private boolean canAccess(Long userId, QualityRule rule) {
+        if (rule == null || rule.getTargetTable() == null) return false;
+        String database = rule.getLayer() == null || rule.getLayer().isBlank()
+                ? dorisConnectionService.getDatabase() : rule.getLayer();
+        try {
+            return accessScopeService.allowedReference(userId, rule.getTargetTable(),
+                    dorisConnectionService.getCatalog(), database);
+        } catch (IllegalArgumentException invalidReference) {
+            return false;
+        }
+    }
+
+    private boolean canAccessAlert(Long userId, QualityAlert alert) {
+        if (alert.getRuleId() != null) {
+            var rule = ruleRepository.findById(alert.getRuleId());
+            if (rule.isPresent()) return canAccess(userId, rule.get());
+        }
+        try {
+            return accessScopeService.allowedReference(userId, alert.getTargetTable(),
+                    dorisConnectionService.getCatalog(), dorisConnectionService.getDatabase());
+        } catch (IllegalArgumentException invalidReference) {
+            return false;
+        }
     }
 
     private void resolveOpenAlerts(Long ruleId, String reason) {
