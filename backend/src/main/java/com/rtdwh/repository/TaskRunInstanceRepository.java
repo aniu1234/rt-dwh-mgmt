@@ -15,7 +15,17 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
-public interface TaskRunInstanceRepository extends JpaRepository<TaskRunInstance, Long> {
+public interface TaskRunInstanceRepository extends JpaRepository<TaskRunInstance, Long>, TaskRunInstanceLockRepository {
+    @org.springframework.transaction.annotation.Transactional
+    @org.springframework.data.jpa.repository.Modifying
+    @Query("update TaskRunInstance instance set instance.accessCheckedAt = :checked where instance.id = :id")
+    void recordAccessCheckedAt(@Param("id") Long id, @Param("checked") LocalDateTime checked);
+
+    List<TaskRunInstance> findTop100ByStatusAndDeliveryStatusOrderById(RunStatus status, String deliveryStatus);
+    Optional<TaskRunInstance> findByTaskIdAndBatchIdAndBusinessDate(Long taskId, String batchId, LocalDate businessDate);
+    Optional<TaskRunInstance> findFirstByTaskIdAndDefinitionVersionIdAndBusinessDateAndStatusOrderByIdDesc(
+            Long taskId, Long definitionVersionId, LocalDate businessDate, RunStatus status);
+    Optional<TaskRunInstance> findFirstByTaskIdAndBusinessDateOrderByCreatedAtDesc(Long taskId, LocalDate businessDate);
     List<TaskRunInstance> findByStatusOrderByCreatedAtAsc(RunStatus status, Pageable pageable);
     List<TaskRunInstance> findByTaskIdOrderByCreatedAtDesc(Long taskId, Pageable pageable);
     List<TaskRunInstance> findByTaskIdAndStatusOrderByCreatedAtDesc(Long taskId, RunStatus status, Pageable pageable);

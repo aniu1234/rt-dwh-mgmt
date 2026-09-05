@@ -783,65 +783,23 @@ public class FlinkClusterService {
      * Returns a triggerId that can be polled for completion.
      */
     public Map<String, Object> triggerStopWithSavepoint(String flinkJobId) {
-        log.info("Triggering stop-with-savepoint for job: {}", flinkJobId);
+        return triggerSavepointRequest(flinkJobId, true);
+    }
 
+    private Map<String, Object> triggerSavepointRequest(String jobId, boolean stop) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put(stop ? "targetDirectory" : "target-directory", normalizeStorageUri(savepointDir));
+        if (stop) payload.put("drain", false); else payload.put("cancel-job", false);
+        HttpHeaders headers = new HttpHeaders(); headers.setContentType(MediaType.APPLICATION_JSON);
+        // One request only: a timeout may have been accepted by the engine.
+        ResponseEntity<String> response = restTemplate.postForEntity(
+                flinkRestUrl + "/jobs/" + jobId + (stop ? "/stop" : "/savepoints"), new HttpEntity<>(payload, headers), String.class);
         try {
-            Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("targetDirectory", normalizeStorageUri(savepointDir));
-            payload.put("drain", false);  // Don't drain before savepoint for CDC jobs
-
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            HttpEntity<Map<String, Object>> request = new HttpEntity<>(payload, headers);
-
-            // Flink 2.x: POST /jobs/{jobId}/stop with JSON body
-            // Flink 1.x: POST /jobs/{jobId}/savepoints with mode=cancel_or_savepoint
-            ResponseEntity<String> response;
-            try {
-                // Try Flink 2.x style first
-                response = restTemplate.postForEntity(
-                    flinkRestUrl + "/jobs/" + flinkJobId + "/stop", request, String.class);
-            } catch (Exception e) {
-                // Fallback to Flink 1.x style
-                log.info("Flink /stop endpoint not available, falling back to /savepoints endpoint");
-                Map<String, Object> savepointPayload = Map.of(
-                    "targetDirectory", normalizeStorageUri(savepointDir),
-                    "cancelJob", true  // cancel with savepoint (Flink 1.x way)
-                );
-                HttpEntity<Map<String, Object>> savepointReq = new HttpEntity<>(savepointPayload, headers);
-                response = restTemplate.postForEntity(
-                    flinkRestUrl + "/jobs/" + flinkJobId + "/savepoints", savepointReq, String.class);
-            }
-
-            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-                JsonNode json = objectMapper.readTree(response.getBody());
-                String triggerId = json.path("triggerId").asText();
-
-                log.info("Savepoint triggered: jobId={}, triggerId={}", flinkJobId, triggerId);
-                return Map.of(
-                    "triggerId", triggerId,
-                    "jobId", flinkJobId,
-                    "status", "PENDING"
-                );
-            }
-
-            // Some Flink versions return 202 with triggerId in location header
-            if (response.getStatusCode() == HttpStatus.ACCEPTED) {
-                String location = response.getHeaders().getFirst("Location");
-                String triggerId = location != null ?
-                    location.substring(location.lastIndexOf("/") + 1) : "unknown";
-                return Map.of(
-                    "triggerId", triggerId,
-                    "jobId", flinkJobId,
-                    "status", "PENDING"
-                );
-            }
-
-            throw new IllegalStateException("Stop-with-savepoint trigger failed: HTTP " + response.getStatusCode());
-        } catch (Exception e) {
-            log.error("Failed to trigger stop-with-savepoint: {}", e.getMessage());
-            throw new RuntimeException("Savepoint trigger error: " + e.getMessage(), e);
-        }
+            JsonNode body = objectMapper.readTree(response.getBody());
+            String triggerId = firstNonBlankText(body, "request-id", "triggerId");
+            if (triggerId == null || triggerId.isBlank()) throw new IllegalStateException("Flink 未返回保存点请求标识，结果需要核对");
+            return Map.of("triggerId", triggerId, "jobId", jobId, "status", "PENDING");
+        } catch (java.io.IOException invalid) { throw new IllegalStateException("保存点响应无法解析，结果需要核对", invalid); }
     }
 
     /**
@@ -849,35 +807,7 @@ public class FlinkClusterService {
      * POST /jobs/{jobId}/savepoints
      */
     public Map<String, Object> triggerSavepoint(String flinkJobId) {
-        log.info("Triggering savepoint for job: {}", flinkJobId);
-
-        try {
-            Map<String, Object> payload = Map.of(
-                "targetDirectory", normalizeStorageUri(savepointDir),
-                "cancelJob", false
-            );
-
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            HttpEntity<Map<String, Object>> request = new HttpEntity<>(payload, headers);
-
-            ResponseEntity<String> response = restTemplate.postForEntity(
-                flinkRestUrl + "/jobs/" + flinkJobId + "/savepoints", request, String.class);
-
-            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-                JsonNode json = objectMapper.readTree(response.getBody());
-                String triggerId = json.path("triggerId").asText();
-
-                return Map.of(
-                    "triggerId", triggerId,
-                    "jobId", flinkJobId,
-                    "status", "PENDING"
-                );
-            }
-            throw new IllegalStateException("Savepoint trigger failed");
-        } catch (Exception e) {
-            throw new RuntimeException("Savepoint trigger error: " + e.getMessage(), e);
-        }
+        return triggerSavepointRequest(flinkJobId, false);
     }
 
     /**
@@ -896,21 +826,16 @@ public class FlinkClusterService {
                 JsonNode json = objectMapper.readTree(response.getBody());
                 String status = json.path("status").path("id").asText();
 
-                String savepointPath = null;
-                if ("COMPLETED".equals(status)) {
-                    savepointPath = json.path("operation").path("savepointLocation").asText();
-                    if (savepointPath.isEmpty()) {
-                        // Some versions store it differently
-                        savepointPath = json.path("location").asText();
-                    }
-                }
-
-                return Map.of(
-                    "triggerId", triggerId,
-                    "status", status, // PENDING, IN_PROGRESS, COMPLETED, FAILED
-                    "savepointPath", savepointPath != null ? savepointPath : "",
-                    "failureCause", json.path("failureCause").asText("")
-                );
+                JsonNode operation = json.path("operation");
+                String savepointPath = firstNonBlankText(operation, "location", "savepointLocation");
+                if (savepointPath == null) savepointPath = json.path("location").asText("");
+                JsonNode failure = operation.path("failure-cause");
+                if (failure.isMissingNode() || failure.isNull()) failure = json.path("failureCause");
+                boolean failed = !failure.isMissingNode() && !failure.isNull() && (failure.isContainerNode() || !failure.asText().isBlank());
+                if (failed) status = "FAILED";
+                else if ("COMPLETED".equals(status) && savepointPath.isBlank()) status = "UNKNOWN";
+                return Map.of("triggerId", triggerId, "status", status, "savepointPath", savepointPath,
+                        "failureCause", failed ? "Flink 保存点执行失败，请查看引擎诊断" : "");
             }
             return Map.of("triggerId", triggerId, "status", "UNKNOWN");
         } catch (Exception e) {

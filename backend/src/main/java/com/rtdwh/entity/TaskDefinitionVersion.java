@@ -27,6 +27,14 @@ public class TaskDefinitionVersion {
     private String changeSummary;
     @Column(nullable = false, columnDefinition = "LONGTEXT")
     private String snapshotJson;
+    @Column(columnDefinition = "LONGTEXT")
+    private String contractJson;
+    @Column(length = 64)
+    private String contractHash;
+
+    public String getContractProvenance() {
+        return contractJson == null ? "legacy-inferred" : "frozen-v1";
+    }
     @Column(nullable = false)
     private Long createdBy;
     @Column(nullable = false)

@@ -38,6 +38,8 @@ public class SyncTaskService {
     private final ObjectMapper objectMapper;
     private final PostgresCdcService postgresCdcService;
     private final QueryAccessScopeService accessScopeService;
+    private final ContinuousDeploymentService continuousDeployments;
+    private final DeploymentRevisionPersistenceService deploymentPersistence;
 
     @Value("${doris.catalog:rtdwh_paimon}")
     private String platformCatalog;
@@ -156,6 +158,11 @@ public class SyncTaskService {
         getTaskForUser(id, userId);
     }
 
+    @Transactional
+    public com.rtdwh.entity.TaskDefinitionVersion publishContinuous(Long id, Long userId, String summary) {
+        return continuousDeployments.publish(getTaskForUpdate(id), userId, summary);
+    }
+
     public List<SyncTask> listRunningTasks() {
         return syncTaskRepository.findByStatus(TaskStatus.running);
     }
@@ -213,7 +220,10 @@ public class SyncTaskService {
      * 4. On failure: transition to failed with error message
      */
     @Transactional
-    public SyncTask startTask(Long id) {
+    public SyncTask startTask(Long id) { return startTask(id, null); }
+
+    @Transactional
+    public SyncTask startTask(Long id, Long requestedBy) {
         SyncTask task = getTaskForUpdate(id);
         requireContinuous(task, "直接启动");
 
@@ -222,12 +232,15 @@ public class SyncTaskService {
             throw new IllegalStateException("无法启动状态为 " + task.getStatus() + " 的任务");
         }
 
-        if (task.getTaskType() == TaskType.cdc_sync) {
-            DatasourceConfig source = datasourceService.getDatasource(task.getSourceConfigId());
-            if (source.getDbType() == DatasourceConfig.DbType.postgresql) {
-                postgresCdcService.assertReady(source, task);
-            }
+        Long actor = requestedBy == null ? task.getCreatorId() : requestedBy;
+        var prepared = continuousDeployments.prepare(task, actor, false);
+        SyncTask executable = prepared.executable();
+        if (executable.getTaskType() == TaskType.cdc_sync) {
+            DatasourceConfig source = datasourceService.getDatasource(executable.getSourceConfigId());
+            if (source.getDbType() == DatasourceConfig.DbType.postgresql) postgresCdcService.assertReady(source, executable);
         }
+        var revision = deploymentPersistence.begin(executable, prepared.version(), actor, "start", null);
+        task.setActiveDeploymentId(revision.getId());
 
         // Transition to submitting (intermediate state)
         task.setStatus(TaskStatus.submitting);
@@ -236,20 +249,6 @@ public class SyncTaskService {
         syncTaskRepository.save(task);
 
         try {
-            // Generate CDC SQL dynamically before submission
-        if (task.getTaskType() == TaskType.cdc_sync) {
-                try {
-                    DatasourceConfig sourceConfig = datasourceService.getDatasource(task.getSourceConfigId());
-                    String generatedSql = cdcSqlGenerator.generateCdcSql(task, sourceConfig);
-                    task.setFlinkSql(generatedSql);
-                    syncTaskRepository.save(task);
-                    log.info("CDC SQL generated for task [{}]", task.getTaskName());
-                } catch (Exception sqlGenEx) {
-                    log.error("Failed to generate CDC SQL for task [{}]: {}", task.getTaskName(), sqlGenEx.getMessage());
-                    throw new RuntimeException("CDC SQL 生成失败: " + sqlGenEx.getMessage(), sqlGenEx);
-                }
-            }
-
             Map<String, Object> submitResult;
 
             // Choose submission method based on configuration
@@ -257,15 +256,17 @@ public class SyncTaskService {
                 // All task types in this platform are represented as Flink SQL.
                 // CDC must also use SQL Gateway; the generated CDC SQL is not an
                 // executable user JAR and cannot be submitted through /jars/{id}/run.
-                submitResult = flinkClusterService.submitViaSqlGateway(task);
+                submitResult = flinkClusterService.submitViaSqlGateway(executable);
             } else {
                 // Compatibility fallback for deployments that provide their own
                 // executable job runner JAR.
-                submitResult = flinkClusterService.submitJob(task);
+                submitResult = flinkClusterService.submitJob(executable);
             }
 
             String jobId = (String) submitResult.get("jobId");
             String jarId = (String) submitResult.get("jarId");
+            if (jobId == null || jobId.isBlank()) throw new IllegalStateException("执行引擎未返回作业标识");
+            deploymentPersistence.submitted(revision.getId(), jobId);
 
             // Transition to running
             task.setStatus(TaskStatus.running);
@@ -280,9 +281,10 @@ public class SyncTaskService {
             return syncTaskRepository.save(task);
 
         } catch (Exception e) {
+            deploymentPersistence.uncertain(revision.getId());
             // Transition to failed
             task.setStatus(TaskStatus.failed);
-            task.setLastErrorMsg("启动失败: " + e.getMessage());
+            task.setLastErrorMsg("部署结果未确认，请查看部署记录并核对 Flink 作业");
             log.error("Task [{}] start failed: {}", task.getTaskName(), e.getMessage());
             return syncTaskRepository.save(task);
         }
@@ -292,7 +294,10 @@ public class SyncTaskService {
      * Resume a paused task: paused → submitting → running (from savepoint)
      */
     @Transactional
-    public SyncTask resumeTask(Long id) {
+    public SyncTask resumeTask(Long id) { return resumeTask(id, null); }
+
+    @Transactional
+    public SyncTask resumeTask(Long id, Long requestedBy) {
         SyncTask task = getTaskForUpdate(id);
         requireContinuous(task, "恢复");
 
@@ -305,6 +310,11 @@ public class SyncTaskService {
             throw new IllegalStateException("未找到 savepoint 路径，无法恢复。请从 draft 状态重新启动。");
         }
 
+        Long actor = requestedBy == null ? task.getCreatorId() : requestedBy;
+        var prepared = continuousDeployments.prepare(task, actor, true);
+        SyncTask executable = prepared.executable();
+        var revision = deploymentPersistence.begin(executable, prepared.version(), actor, "resume", savepointPath);
+        task.setActiveDeploymentId(revision.getId());
         // Transition to submitting
         task.setStatus(TaskStatus.submitting);
         task.setSubmittedAt(LocalDateTime.now());
@@ -314,12 +324,14 @@ public class SyncTaskService {
             Map<String, Object> submitResult;
 
             if (flinkClusterService.isSqlGatewayEnabled()) {
-                submitResult = flinkClusterService.submitViaSqlGateway(task, savepointPath);
+                submitResult = flinkClusterService.submitViaSqlGateway(executable, savepointPath);
             } else {
-                submitResult = flinkClusterService.submitFromSavepoint(task, savepointPath);
+                submitResult = flinkClusterService.submitFromSavepoint(executable, savepointPath);
             }
 
             String jobId = (String) submitResult.get("jobId");
+            if (jobId == null || jobId.isBlank()) throw new IllegalStateException("执行引擎未返回作业标识");
+            deploymentPersistence.submitted(revision.getId(), jobId);
 
             task.setStatus(TaskStatus.running);
             task.setFlinkJobId(jobId);
@@ -331,8 +343,9 @@ public class SyncTaskService {
             return syncTaskRepository.save(task);
 
         } catch (Exception e) {
+            deploymentPersistence.uncertain(revision.getId());
             task.setStatus(TaskStatus.failed);
-            task.setLastErrorMsg("恢复失败: " + e.getMessage());
+            task.setLastErrorMsg("恢复结果未确认，请查看部署记录并核对 Flink 作业");
             return syncTaskRepository.save(task);
         }
     }
@@ -397,7 +410,10 @@ public class SyncTaskService {
      * Same as startTask but specifically for failed state.
      */
     @Transactional
-    public SyncTask retryTask(Long id) {
+    public SyncTask retryTask(Long id) { return retryTask(id, null); }
+
+    @Transactional
+    public SyncTask retryTask(Long id, Long requestedBy) {
         SyncTask task = getTaskForUpdate(id);
         requireContinuous(task, "重新启动");
 
@@ -421,7 +437,7 @@ public class SyncTaskService {
         task.setSavepointTriggerId(null);
         syncTaskRepository.save(task);
 
-        return startTask(id);
+        return startTask(id, requestedBy);
     }
 
     public Map<String, Object> getPostgresCdcStatus(Long id) {
@@ -635,6 +651,12 @@ public class SyncTaskService {
 
                 syncedCount++;
 
+                // Stop-with-savepoint commonly finishes the Job before the monitor polls it.
+                // Retain the operation handle until its own result is known.
+                if (task.getStatus() == TaskStatus.saving_point && task.getSavepointTriggerId() != null) {
+                    checkSavepointProgress(task, flinkState);
+                    continue;
+                }
                 // Handle Flink state changes
                 switch (flinkState.toUpperCase(java.util.Locale.ROOT)) {
                     case "FAILED":
@@ -664,9 +686,8 @@ public class SyncTaskService {
                         log.debug("Task [{}] Flink state: {}", task.getTaskName(), flinkState);
                 }
 
-                // Check savepoint progress for saving_point tasks
-                if (task.getStatus() == TaskStatus.saving_point && task.getSavepointTriggerId() != null) {
-                    checkSavepointProgress(task);
+                if (task.getStatus() == TaskStatus.running && task.getSavepointTriggerId() != null) {
+                    checkSavepointProgress(task, flinkState);
                 }
 
             } catch (Exception e) {
@@ -775,7 +796,8 @@ public class SyncTaskService {
         syncTaskRepository.save(task);
     }
 
-    private void checkSavepointProgress(SyncTask task) {
+    private void checkSavepointProgress(SyncTask task, String flinkState) {
+        boolean stopping = task.getStatus() == TaskStatus.saving_point;
         Map<String, Object> spStatus = flinkClusterService.pollSavepointStatus(
             task.getFlinkJobId(), task.getSavepointTriggerId());
 
@@ -784,8 +806,9 @@ public class SyncTaskService {
         if ("COMPLETED".equals(spProgress)) {
             String savepointPath = (String) spStatus.get("savepointPath");
 
-            // Transition to paused
-            task.setStatus(TaskStatus.paused);
+            if (savepointPath == null || savepointPath.isBlank()) return;
+            // A manual savepoint retains a running Job; only stop-with-savepoint pauses it.
+            task.setStatus(stopping ? TaskStatus.paused : TaskStatus.running);
             try {
                 task.setCheckpointInfo(objectMapper.writeValueAsString(
                     Map.of("savepointPath", savepointPath)));
@@ -797,8 +820,8 @@ public class SyncTaskService {
 
             log.info("Task [{}] paused successfully, savepoint at: {}", task.getTaskName(), savepointPath);
         } else if ("FAILED".equals(spProgress)) {
-            // Savepoint failed - revert to running
-            task.setStatus(TaskStatus.running);
+            // Restore running only when the engine confirms it is still running.
+            task.setStatus("RUNNING".equals(flinkState) ? TaskStatus.running : TaskStatus.failed);
             task.setSavepointTriggerId(null);
             task.setLastErrorMsg("Savepoint 失败: " + spStatus.get("failureCause"));
             syncTaskRepository.save(task);
@@ -838,8 +861,10 @@ public class SyncTaskService {
     private boolean canAccess(Long userId, SyncTask task) {
         if (accessScopeService.isAdmin(userId)) return true;
         if (task.getTaskType() != TaskType.cdc_sync) {
-            return task.getFlinkSql() != null && accessScopeService.canAccessSql(
-                    userId, task.getFlinkSql(), platformCatalog, "ods");
+            try {
+                return task.getFlinkSql() != null && accessScopeService.canAccessSql(
+                        userId, new TaskParameterService(objectMapper).forAccessCheck(task.getFlinkSql()), platformCatalog, "ods");
+            } catch (IllegalArgumentException invalid) { return false; }
         }
         try {
             var mappings = objectMapper.readTree(task.getTableMappings());

@@ -25,6 +25,41 @@ import java.util.function.Function;
 public class QueryAccessScopeService {
     private final SysUserRepository userRepository;
     private final RoleDataScopeRepository scopeRepository;
+    private final ViewDependencyService viewDependencies;
+
+    @Transactional(readOnly = true)
+    public void validateDorisSystem(String sql, String catalog, String database) {
+        viewDependencies.validateQuery(sql, catalog, database, ignored -> true);
+    }
+
+    @Transactional(readOnly = true)
+    public void validateDoris(Long userId, String sql, String catalog, String database) {
+        validate(userId, sql, catalog, database);
+        var statement = SQLUtils.parseSingleStatement(sql, DbType.mysql);
+        if (statement instanceof com.alibaba.druid.sql.ast.statement.SQLExplainStatement explain) statement = explain.getStatement();
+        if (statement instanceof com.alibaba.druid.sql.ast.statement.SQLSelectStatement) {
+            viewDependencies.validateQuery(SQLUtils.toSQLString(statement, DbType.mysql), catalog, database,
+                    name -> allowed(userId, name.catalog(), name.database(), name.table()));
+        } else {
+            for (String raw : extractTables(sql)) {
+                var name = qualify(raw, catalog, database);
+                viewDependencies.check(new ViewSqlService.Name(name.catalog(), name.database(), name.table()),
+                        ref -> allowed(userId, ref.catalog(), ref.database(), ref.table()), new java.util.HashSet<>());
+            }
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public boolean canAccessDorisSql(Long userId, String sql, String catalog, String database) {
+        try { validateDoris(userId, sql, catalog, database); return true; }
+        catch (IllegalArgumentException invalid) { return false; }
+    }
+
+    @Transactional(readOnly = true)
+    public <T> List<T> filterAllowedDorisSql(Long userId, Collection<T> values, Function<T,String> sql, String catalog, String database) {
+        return values.stream().filter(value -> canAccessDorisSql(userId, sql.apply(value), catalog, database)).toList();
+    }
+
 
     @Transactional(readOnly = true)
     public void validate(Long userId, String sql, String defaultCatalog, String defaultDatabase) {

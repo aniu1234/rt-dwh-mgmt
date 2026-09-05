@@ -177,6 +177,7 @@ alert:
 
 quality:
   schedule:
+    timezone: ${QUALITY_SCHEDULE_TIMEZONE:Asia/Shanghai}
     enabled: ${QUALITY_SCHEDULE_ENABLED:true}
     interval-ms: ${QUALITY_SCHEDULE_INTERVAL_MS:3600000}
     initial-delay-ms: ${QUALITY_SCHEDULE_INITIAL_DELAY_MS:60000}

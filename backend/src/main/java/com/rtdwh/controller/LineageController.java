@@ -16,11 +16,12 @@ import org.springframework.security.access.prepost.PreAuthorize;
 @PreAuthorize("hasAuthority('lineage:view')")
 public class LineageController {
     private final LineageService lineageService;
+    private final com.rtdwh.util.SecurityContextUtil securityContextUtil;
 
     @GetMapping("/graph")
     public ApiResponse<LineageGraphDTO> getGraph(
             @RequestParam(required = false) String layer,
             @RequestParam(required = false) String keyword) {
-        return ApiResponse.success(lineageService.getGraph(layer, keyword));
+        return ApiResponse.success(lineageService.getGraph(layer, keyword, securityContextUtil.getCurrentUserId()));
     }
 }

@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { PageContainer } from '@ant-design/pro-components';
-import { Card, Descriptions, Table, Tag, Tabs, Button, Space, Modal, Input, Skeleton, Typography, message, Form, Select } from 'antd';
+import { Card, Descriptions, Table, Tag, Tabs, Button, Space, Modal, Input, Skeleton, Typography, message, Form, Select, Alert } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
-import { useAccess, useParams, useRequest } from '@umijs/max';
+import { useAccess, useParams, useRequest, useSearchParams } from '@umijs/max';
 import {
   cleanOrphanFiles,
+  getDataAsset,
   getDwhTableColumns,
   getDwhTableDetail,
   getDwhTableSnapshots,
@@ -16,10 +17,14 @@ import {
   updateTableMetadata,
 } from '@/api';
 
+import './asset.less';
+import ViewDetail from './ViewDetail';
+import { AssetContextPanel, AssetSchemaHistory, assetTypeLabel } from './AssetPanels';
+
 const DwhTableDetail: React.FC = () => {
   const access = useAccess();
-  const { id } = useParams<{ id: string }>();
-  const tableId = parseInt(id || '0');
+  const { id, assetId } = useParams<{ id: string; assetId: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [editingDesc, setEditingDesc] = useState(false);
   const [descValue, setDescValue] = useState('');
   const [editingColumn, setEditingColumn] = useState<API.DwhColumnMeta>();
@@ -27,17 +32,21 @@ const DwhTableDetail: React.FC = () => {
   const [metadataOpen, setMetadataOpen] = useState(false);
   const [metadataForm] = Form.useForm();
 
-  const { data: tableData, refresh: refreshTable } = useRequest(() => getDwhTableDetail(tableId));
-  const { data: columnsData, refresh: refreshColumns } = useRequest(() => getDwhTableColumns(tableId));
-  const { data: snapshotsData, refresh: refreshSnapshots } = useRequest(() => getDwhTableSnapshots(tableId));
-  const { data: logsData, refresh: refreshLogs } = useRequest(() => getMaintenanceLogs({ tableMetaId: tableId }));
+  const { data: tableData, error: tableError, refresh: refreshTable } = useRequest(() => assetId ? getDataAsset(assetId) : getDwhTableDetail(Number(id)), {refreshDeps:[assetId,id]});
+  const tableId = tableData?.id || Number(id) || 0;
+  const { data: columnsData, refresh: refreshColumns } = useRequest(() => getDwhTableColumns(tableId), { ready: tableId > 0 && tableData?.assetType !== 'doris_view', refreshDeps: [tableId] });
+  const { data: snapshotsData, refresh: refreshSnapshots } = useRequest(() => getDwhTableSnapshots(tableId), { ready: tableId > 0 && tableData?.assetType !== 'doris_view', refreshDeps: [tableId] });
+  const { data: logsData, refresh: refreshLogs } = useRequest(() => getMaintenanceLogs({ tableMetaId: tableId }), { ready: tableId > 0 && tableData?.assetType !== 'doris_view', refreshDeps: [tableId] });
 
   const table = tableData as API.DwhTableMeta | undefined;
   const columns = (columnsData || []) as API.DwhColumnMeta[];
   const maintenanceLogs = (logsData || []) as API.MaintenanceLog[];
   const snapshots = (snapshotsData || []) as API.DwhSnapshot[];
 
+  if (tableError) return <PageContainer><Alert type="error" message="资产加载失败，请确认资产存在且具有访问权限" action={<Button onClick={refreshTable}>重试</Button>}/></PageContainer>;
   if (!table) return <PageContainer><Card><Skeleton active /></Card></PageContainer>;
+
+  if (table.assetType === 'doris_view') return <ViewDetail asset={table} returnTo={searchParams.get('returnTo')?.startsWith('/dwh/tables') ? searchParams.get('returnTo')! : '/dwh/tables'} />;
 
   const handleCompact = async () => {
     try {
@@ -146,13 +155,19 @@ const DwhTableDetail: React.FC = () => {
   };
 
   return (
-    <PageContainer
+    <PageContainer className="asset-detail-page"
       title={`${table.paimonDb}.${table.paimonTable}`}
-      subTitle="Paimon 表元数据、字段结构、快照与维护记录"
-      extra={access.canManageDwh ? <Button icon={<ReloadOutlined />} onClick={handleRefreshMetadata}>刷新元数据</Button> : null}
+      subTitle="资产身份、字段契约、生产交付和上下游消费"
+      extra={<Space>{access.canQuery && <Button href={`/query/adhoc?assetId=${table.assetId}&assetContext=${encodeURIComponent(searchParams.toString())}`}>查询资产</Button>}<Button href={/^\/dwh\/tables(?:\?|$)/.test(searchParams.get('returnTo') || '') ? searchParams.get('returnTo')! : '/dwh/tables'}>返回资产列表</Button>{access.canAdmin && access.canManageDwh && <Button icon={<ReloadOutlined />} onClick={handleRefreshMetadata}>同步 Catalog 元数据</Button>}</Space>}
     >
+      {table.discoveryStatus === 'missing' && <Alert style={{marginBottom:16}} type="warning" showIcon message="Catalog 当前未发现此资产，已保留原身份、字段及变更记录。当前显示的结构和指标可能已过时。" />}
+      {table.schemaStatus !== 'observed' && <Alert style={{marginBottom:16}} type="info" showIcon message="当前字段结构尚未重新核验，资产声明不代表物理表已存在。" />}
       <Tabs
+        activeKey={searchParams.get('tab') || 'structure'}
+        onChange={key => { const next = new URLSearchParams(searchParams); next.set('tab',key); setSearchParams(next,{replace:true}); }}
         items={[
+          {key:'usage', label:'生产与消费', children:<AssetContextPanel key={table.assetId} table={table}/>},
+          {key:'schema-history', label:'Schema 变更', children:<AssetSchemaHistory key={table.assetId} table={table}/>},
           {
             key: 'structure',
             label: '表结构',
@@ -160,8 +175,13 @@ const DwhTableDetail: React.FC = () => {
               <>
                 <Card title="基本信息" extra={access.canManageDwh ? <Button size="small" onClick={openMetadata}>编辑治理信息</Button> : <Tag>只读</Tag>} style={{ marginBottom: 16 }}>
                   <Descriptions column={2}>
+                    <Descriptions.Item label="资产 ID" span={2}><Typography.Text copyable code>{table.assetId}</Typography.Text></Descriptions.Item>
+                    <Descriptions.Item label="资产类型">{assetTypeLabel(table.assetType)}</Descriptions.Item>
+                    <Descriptions.Item label="发现状态">{{observed:'Catalog 已发现',missing:'本次未发现',unverified:'尚未核验'}[table.discoveryStatus || 'unverified']}</Descriptions.Item>
+                    <Descriptions.Item label="结构核验时间">{formatDateTime(table.schemaObservedAt)}</Descriptions.Item>
+                    <Descriptions.Item label="最近发现时间">{formatDateTime(table.lastSeenAt)}</Descriptions.Item>
                     <Descriptions.Item label="Catalog / 数据库">
-                      <Typography.Text code>rtdwh / {table.paimonDb}</Typography.Text>
+                      <Typography.Text code>{table.catalogName || '待同步'} / {table.paimonDb}</Typography.Text>
                     </Descriptions.Item>
                     <Descriptions.Item label="表名"><Typography.Text strong>{table.paimonTable}</Typography.Text></Descriptions.Item>
                     <Descriptions.Item label="分层">
@@ -192,13 +212,14 @@ const DwhTableDetail: React.FC = () => {
                     <Descriptions.Item label="生命周期"><Tag>{table.lifecycleStatus || 'active'}</Tag></Descriptions.Item>
                     <Descriptions.Item label="快照数">{table.snapshotCount ?? '—'}</Descriptions.Item>
                     <Descriptions.Item label="最新快照">{table.latestSnapshotId ?? '—'}</Descriptions.Item>
-                    <Descriptions.Item label="记录数">{table.recordCount === undefined ? '—' : table.recordCount.toLocaleString()}</Descriptions.Item>
+                    <Descriptions.Item label="记录数">{table.recordCount == null ? '—' : table.recordCount.toLocaleString()}</Descriptions.Item>
                     <Descriptions.Item label="文件数 / 数据大小">{table.fileCount ?? '—'} · {formatSize(table.totalSizeBytes)}</Descriptions.Item>
                     <Descriptions.Item label="最近提交">{formatDateTime(table.latestCommitTime)}</Descriptions.Item>
                     <Descriptions.Item label="元数据更新时间">{formatDateTime(table.updatedAt)}</Descriptions.Item>
                   </Descriptions>
                 </Card>
 
+                <Alert style={{marginBottom:16}} type="info" message={table.assetType === 'paimon_primary_key_table' ? '主键表表示当前状态，快照和 Upsert 不等于永久保存历史变更日志。' : table.assetType === 'paimon_append_table' ? '追加表的实际保留期限取决于生命周期策略，不能由资产类型推断。' : '资产类型尚待核验，暂不能判断主键或追加语义。'} />
                 <Card title="字段列表">
                   <Table<API.DwhColumnMeta>
                     dataSource={columns}
@@ -206,6 +227,7 @@ const DwhTableDetail: React.FC = () => {
                     size="small"
                     columns={[
                       { title: '字段名', dataIndex: 'columnName', key: 'name' },
+                      { title: '引擎字段 ID', dataIndex: 'engineFieldId', width: 105, render: value => value ?? '历史未记录' },
                       { title: '类型', dataIndex: 'columnType', key: 'type', width: 120 },
                       { title: '主键', dataIndex: 'isPk', key: 'pk', width: 70, render: (value) => value ? <Tag color="blue">PK</Tag> : '—' },
                       { title: '可为空', dataIndex: 'isNullable', key: 'nullable', width: 80, render: (value) => value ? '是' : '否' },

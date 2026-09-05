@@ -21,8 +21,15 @@ public class QualityAlert {
     @Column(nullable = false, length = 50)
     private String ruleType;
 
-    @Column(length = 100)
+    @Column(length = 255)
     private String targetTable;
+    @Column(length = 20)
+    private String layer;
+    @Builder.Default
+    @Column(nullable = false, length = 128)
+    private String scopeKey = "full_table";
+    private LocalDateTime windowStart;
+    private LocalDateTime windowEnd;
 
     @Column(length = 100)
     private String targetColumn;

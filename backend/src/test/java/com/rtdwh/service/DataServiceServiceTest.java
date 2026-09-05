@@ -20,7 +20,36 @@ class DataServiceServiceTest {
     private final ReportParameterRenderer renderer = mock(ReportParameterRenderer.class);
     private final QueryService queryService = mock(QueryService.class);
     private final PasswordEncoder encoder = mock(PasswordEncoder.class);
-    private final DataServiceService service = new DataServiceService(definitions, apps, grants, logs, renderer, queryService, encoder);
+    private final QueryAccessScopeService access = mock(QueryAccessScopeService.class);
+    private final DataServiceService service = new DataServiceService(definitions, apps, grants, logs, renderer, queryService, encoder, access);
+
+    @Test
+    void hiddenDefinitionCannotBePublishedUpdatedDeletedOrListed() {
+        DataServiceDefinition definition = DataServiceDefinition.builder().id(2L).serviceCode("private-data")
+                .sqlTemplate("select * from payroll").catalogName("rtdwh_paimon").databaseName("ads").build();
+        when(definitions.findById(2L)).thenReturn(Optional.of(definition));
+        when(definitions.findAll()).thenReturn(java.util.List.of(definition));
+        assertTrue(service.definitions(7L).isEmpty());
+        assertThrows(org.springframework.security.access.AccessDeniedException.class, () -> service.publish(2L, true, 7L));
+        assertThrows(org.springframework.security.access.AccessDeniedException.class, () -> service.updateDefinition(2L, null, 7L));
+        assertThrows(org.springframework.security.access.AccessDeniedException.class, () -> service.deleteDefinition(2L, 7L));
+        verify(definitions, never()).save(any());
+        verify(definitions, never()).delete(any());
+    }
+
+    @Test
+    void otherUsersAppCannotBeRotatedGrantedRevokedOrListed() {
+        DataServiceApp app = DataServiceApp.builder().id(5L).createdBy(8L).build();
+        when(apps.findById(5L)).thenReturn(Optional.of(app));
+        when(apps.findAll()).thenReturn(java.util.List.of(app));
+        assertTrue(service.apps(7L).isEmpty());
+        assertThrows(org.springframework.security.access.AccessDeniedException.class, () -> service.rotateSecret(5L, 7L));
+        assertThrows(org.springframework.security.access.AccessDeniedException.class, () -> service.toggleApp(5L, 7L));
+        assertThrows(org.springframework.security.access.AccessDeniedException.class, () -> service.grant(5L, 2L, 7L));
+        assertThrows(org.springframework.security.access.AccessDeniedException.class, () -> service.revoke(5L, 2L, 7L));
+        verify(apps, never()).save(any());
+        verifyNoInteractions(grants);
+    }
 
     @Test
     void authenticatesGrantedAppAndReturnsBoundedQueryResult() {

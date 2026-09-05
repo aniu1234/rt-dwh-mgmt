@@ -181,6 +181,8 @@ public class UserAdminService {
 
     private void replaceScopes(Long roleId, List<UserAdminDTO.DataScopeRequest> requests) {
         scopeRepository.deleteByRoleId(roleId);
+        // Execute removals before inserting retained patterns with the same unique key.
+        scopeRepository.flush();
         if (requests == null || requests.isEmpty()) return;
         Set<String> unique = new HashSet<>();
         List<RoleDataScope> scopes = requests.stream().map(request -> {

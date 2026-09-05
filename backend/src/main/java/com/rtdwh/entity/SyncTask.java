@@ -49,6 +49,15 @@ public class SyncTask {
 
     private Long publishedVersionId;
 
+    private Long activeDeploymentId;
+
+    @Column(columnDefinition = "JSON")
+    private String parameterSchemaJson;
+
+    /** Stored only within immutable definition JSON, not the mutable task row. */
+    @Transient private String runtimeConfigJson;
+    @Transient private String runtimeConfigHash;
+
     private Long sourceConfigId;
 
     private Long targetConfigId;

@@ -43,12 +43,12 @@ public class FoundationService {
                 .orElseThrow(() -> new IllegalArgumentException("用户不存在: " + userId));
         List<DwhTableMeta> tables = visibleTables(userId, tableRepository.findAll());
         long reports = canViewReports ? reportRepository.findByIsPublished(true).stream()
-                .filter(report -> accessScopeService.canAccessSql(userId, report.getSqlQuery(), DEFAULT_CATALOG, "ods"))
+                .filter(report -> canAccessDoris(userId, report.getSqlQuery(), report.getFilterConfig(), DEFAULT_CATALOG, "ods"))
                 .count() : 0;
         long services = canViewDataServices
                 ? dataServiceRepository.findAll().stream()
                 .filter(service -> service.getStatus() == DataServiceDefinition.ServiceStatus.published)
-                .filter(service -> accessScopeService.canAccessSql(userId, service.getSqlTemplate(),
+                .filter(service -> canAccessDoris(userId, service.getSqlTemplate(), service.getParameterConfig(),
                         service.getCatalogName(), service.getDatabaseName())).count() : 0;
         long unowned = tables.stream().filter(table -> table.getOwner() == null || table.getOwner().isBlank()).count();
         int assetScore = ratioScore(tables.size(), unowned);
@@ -122,11 +122,11 @@ public class FoundationService {
                         task.getTaskType() + optional(task.getDescription()), task.getStatus().name(),
                         "/sync-task/detail/" + task.getId())));
         if (canViewReports) reportRepository.findByReportNameContainingIgnoreCase(query, PageRequest.of(0, limit)).stream()
-                .filter(report -> accessScopeService.canAccessSql(userId, report.getSqlQuery(), DEFAULT_CATALOG, "ods")).forEach(report -> items.add(
+                .filter(report -> canAccessDoris(userId, report.getSqlQuery(), report.getFilterConfig(), DEFAULT_CATALOG, "ods")).forEach(report -> items.add(
                 new FoundationDTO.SearchItem("report", report.getId(), report.getReportName(),
                         report.getReportType() + " 报表", Boolean.TRUE.equals(report.getIsPublished()) ? "published" : "draft", "/query/report")));
         if (canViewDataServices) dataServiceRepository.searchByKeyword(query, PageRequest.of(0, limit)).stream()
-                .filter(service -> accessScopeService.canAccessSql(userId, service.getSqlTemplate(),
+                .filter(service -> canAccessDoris(userId, service.getSqlTemplate(), service.getParameterConfig(),
                         service.getCatalogName(), service.getDatabaseName())).forEach(service -> items.add(
                 new FoundationDTO.SearchItem("data_service", service.getId(), service.getServiceName(),
                         service.getServiceCode() + optional(service.getDescription()), service.getStatus().name(), "/query/data-service")));
@@ -169,8 +169,16 @@ public class FoundationService {
                 output.getOwner(), output.getSlaMinutes(), output.getLastProducedAt(), overdue, severity);
     }
 
+    private boolean canAccessDoris(Long userId, String sql, String parameters, String catalog, String database) {
+        try {
+            return accessScopeService.canAccessDorisSql(userId,
+                    new ReportParameterRenderer(objectMapper).sqlForAccessCheck(sql, parameters), catalog, database);
+        } catch (IllegalArgumentException invalid) { return false; }
+    }
+
     private List<DwhTableMeta> visibleTables(Long userId, List<DwhTableMeta> tables) {
-        return accessScopeService.filterAllowed(userId, DEFAULT_CATALOG, tables,
+        return accessScopeService.filterAllowed(userId, tables,
+                table -> table.getCatalogName() == null ? DEFAULT_CATALOG : table.getCatalogName(),
                 DwhTableMeta::getPaimonDb, DwhTableMeta::getPaimonTable);
     }
 

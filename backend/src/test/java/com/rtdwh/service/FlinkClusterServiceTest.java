@@ -347,4 +347,38 @@ class FlinkClusterServiceTest {
         assertEquals(false, result.get("autoExpansionSupported"));
         server.verify();
     }
+    @Test void parsesFlink22SavepointRequestAndResult() {
+        RestTemplate rest = new RestTemplate();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(rest).build();
+        FlinkClusterService service = new FlinkClusterService(rest, objectMapper);
+        ReflectionTestUtils.setField(service, "flinkRestUrl", "http://flink");
+        ReflectionTestUtils.setField(service, "savepointDir", "file:///state");
+        server.expect(requestTo("http://flink/jobs/job/stop")).andExpect(method(HttpMethod.POST))
+                .andRespond(withSuccess("{\"request-id\":\"request1\"}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("http://flink/jobs/job/savepoints/request1"))
+                .andRespond(withSuccess("{\"status\":{\"id\":\"COMPLETED\"},\"operation\":{\"location\":\"file:///state/savepoint-1\"}}", MediaType.APPLICATION_JSON));
+        assertEquals("request1", service.triggerStopWithSavepoint("job").get("triggerId"));
+        assertEquals("file:///state/savepoint-1", service.pollSavepointStatus("job", "request1").get("savepointPath"));
+        server.verify();
+    }
+
+    @Test void completedSavepointQueueWithFailureIsNotSuccess() {
+        RestTemplate rest = new RestTemplate();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(rest).build();
+        FlinkClusterService service = new FlinkClusterService(rest, objectMapper);
+        ReflectionTestUtils.setField(service, "flinkRestUrl", "http://flink");
+        server.expect(requestTo("http://flink/jobs/job/savepoints/request1"))
+                .andRespond(withSuccess("{\"status\":{\"id\":\"COMPLETED\"},\"operation\":{\"failure-cause\":{\"class\":\"IOException\"}}}", MediaType.APPLICATION_JSON));
+        assertEquals("FAILED", service.pollSavepointStatus("job", "request1").get("status")); server.verify();
+    }
+
+    @Test void ambiguousStopResponseDoesNotSubmitFallbackSavepoint() {
+        RestTemplate rest = new RestTemplate();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(rest).build();
+        FlinkClusterService service = new FlinkClusterService(rest, objectMapper);
+        ReflectionTestUtils.setField(service, "flinkRestUrl", "http://flink");
+        ReflectionTestUtils.setField(service, "savepointDir", "file:///state");
+        server.expect(requestTo("http://flink/jobs/job/stop")).andRespond(withStatus(HttpStatus.GATEWAY_TIMEOUT));
+        assertThrows(RuntimeException.class, () -> service.triggerStopWithSavepoint("job")); server.verify();
+    }
 }

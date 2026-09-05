@@ -1,6 +1,5 @@
 package com.rtdwh.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rtdwh.entity.SyncTask;
 import com.rtdwh.entity.TaskRunInstance;
@@ -12,15 +11,11 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class WorkflowSqlRunnerService {
-    private static final Pattern PARAMETER_PATTERN = Pattern.compile("\\$\\{([A-Za-z0-9_.-]+)}");
-
     private final WorkflowService workflowService;
     private final FlinkClusterService flinkClusterService;
     private final ObjectMapper objectMapper;
@@ -30,6 +25,14 @@ public class WorkflowSqlRunnerService {
 
     @Value("${workflow.runner.max-concurrent:2}")
     private int maxConcurrent = 2;
+
+    @Value("${doris.catalog:rtdwh_paimon}") private String platformCatalog = "rtdwh_paimon";
+    @Value("${paimon.catalog-key:rtdwh}") private String catalogKey = "rtdwh";
+    @Value("${paimon.metastore:jdbc}") private String metastore = "jdbc";
+    @Value("${paimon.jdbc-uri}") private String jdbcUri;
+    @Value("${paimon.jdbc-user}") private String jdbcUser;
+    @Value("${paimon.jdbc-password}") private String jdbcPassword;
+    @Value("${paimon.warehouse-path}") private String warehouse;
 
     /**
      * Reconcile existing jobs before reclaiming leases. This avoids resubmitting a
@@ -66,47 +69,50 @@ public class WorkflowSqlRunnerService {
     }
 
     private boolean submit(TaskRunInstance instance) {
+        boolean submitting = false;
         try {
             SyncTask definition = workflowService.taskForInstance(instance);
             if (definition.getExecutionMode() != SyncTask.ExecutionMode.scheduled) {
-                workflowService.complete(instance.getId(), false, "持续任务不能作为周期运行实例执行");
+                workflowService.complete(instance.getId(), false, "持续任务不能作为周期运行实例执行", instance.getActiveAttemptId(), executorId);
                 return false;
             }
-            String sql = renderSql(definition.getFlinkSql(), instance, objectMapper);
+            String sql = new TaskParameterService(objectMapper).render(definition.getFlinkSql(), definition.getParameterSchemaJson(), instance.getParametersJson(), instance.getBusinessDate());
             SyncTask executable = SyncTask.builder()
                     .id(definition.getId())
                     .taskName(definition.getTaskName() + "@" + instance.getBusinessDate())
                     .taskType(definition.getTaskType())
                     .sourceConfigId(definition.getSourceConfigId())
                     .targetConfigId(definition.getTargetConfigId())
-                    .flinkSql(sql)
+                    .flinkSql(withPlatformCatalog(sql))
                     .parallelism(definition.getParallelism())
                     .checkpointIntervalMs(definition.getCheckpointIntervalMs())
                     .build();
+            workflowService.beginSubmission(instance.getId(), instance.getActiveAttemptId(), executorId);
+            submitting = true;
             Map<String, Object> result = flinkClusterService.submitViaSqlGateway(executable);
             Object jobId = result.get("jobId");
             if (jobId == null || jobId.toString().isBlank()) {
                 throw new IllegalStateException("SQL Gateway 未返回 Flink Job ID");
             }
-            workflowService.attachExternalJob(instance.getId(), executorId, jobId.toString());
+            workflowService.attachExternalJob(instance.getId(), executorId, jobId.toString(), instance.getActiveAttemptId());
             log.info("Workflow instance {} submitted as Flink job {}", instance.getId(), jobId);
             return true;
-        } catch (IllegalArgumentException configurationError) {
-            workflowService.complete(instance.getId(), false, configurationError.getMessage());
-            log.warn("Workflow instance {} has invalid SQL configuration: {}",
-                    instance.getId(), configurationError.getMessage());
-            return false;
-        } catch (Exception submissionError) {
-            workflowService.failOrRetry(instance.getId(), submissionError.getMessage());
-            log.warn("Workflow instance {} submission failed: {}",
-                    instance.getId(), submissionError.getMessage());
+        } catch (Exception error) {
+            if (submitting) workflowService.submissionUnknown(instance.getId(), instance.getActiveAttemptId(), executorId);
+            else workflowService.complete(instance.getId(), false, "提交前校验失败，请核对发布版本、参数和当前权限", instance.getActiveAttemptId(), executorId);
+            log.warn("Workflow instance {} could not be submitted; phase={}", instance.getId(), submitting ? "engine" : "validation");
             return false;
         }
     }
 
     private ReconcileResult reconcile(TaskRunInstance instance) {
         if (instance.getExternalJobId() == null || instance.getExternalJobId().isBlank()) {
-            workflowService.failOrRetry(instance.getId(), "运行实例缺少 Flink Job ID");
+            if (instance.getActiveAttemptId() != null && workflowService.attempts(instance.getId()).stream()
+                    .anyMatch(attempt -> instance.getActiveAttemptId().equals(attempt.getId()) && "claimed".equals(attempt.getStatus()))) {
+                // Do not reclaim another still-live submitter's claim before its lease expires.
+                return new ReconcileResult(0, 0);
+            }
+            workflowService.submissionUnknown(instance.getId(), instance.getActiveAttemptId(), executorId);
             return new ReconcileResult(0, 1);
         }
         try {
@@ -116,22 +122,26 @@ public class WorkflowSqlRunnerService {
             String mappedStatus = String.valueOf(status.getOrDefault("status", ""))
                     .toUpperCase(Locale.ROOT);
             if ("FINISHED".equals(flinkState)) {
-                workflowService.complete(instance.getId(), true, null);
+                workflowService.complete(instance.getId(), true, null, instance.getActiveAttemptId(), executorId);
                 return new ReconcileResult(1, 0);
             }
+            if ("NOT_FOUND".equals(mappedStatus)) {
+                workflowService.submissionUnknown(instance.getId(), instance.getActiveAttemptId(), executorId);
+                return new ReconcileResult(0, 0);
+            }
             if ("FAILED".equals(flinkState) || "CANCELED".equals(flinkState)
-                    || "FAILED".equals(mappedStatus) || "NOT_FOUND".equals(mappedStatus)) {
+                    || "FAILED".equals(mappedStatus)) {
                 workflowService.failOrRetry(instance.getId(),
-                        "Flink Job 已终止，状态: " + (flinkState.isBlank() ? mappedStatus : flinkState));
+                        "Flink Job 已终止，状态: " + (flinkState.isBlank() ? mappedStatus : flinkState), instance.getActiveAttemptId(), executorId);
                 return new ReconcileResult(0, 1);
             }
 
             // RUNNING/CREATED/RESTARTING and temporary UNREACHABLE all retain
             // ownership. Retrying on a network partition could create duplicate writes.
-            workflowService.heartbeat(instance.getId(), executorId);
+            workflowService.heartbeat(instance.getId(), executorId, instance.getActiveAttemptId());
             return new ReconcileResult(0, 0);
         } catch (Exception exception) {
-            workflowService.heartbeat(instance.getId(), executorId);
+            workflowService.heartbeat(instance.getId(), executorId, instance.getActiveAttemptId());
             log.warn("Unable to reconcile workflow instance {}: {}",
                     instance.getId(), exception.getMessage());
             return new ReconcileResult(0, 0);
@@ -139,35 +149,23 @@ public class WorkflowSqlRunnerService {
     }
 
     static String renderSql(String sql, TaskRunInstance instance, ObjectMapper objectMapper) {
-        if (sql == null || sql.isBlank()) {
-            throw new IllegalArgumentException("任务未配置 Flink SQL");
-        }
-        String rendered = sql.replace("${bizdate}", instance.getBusinessDate().toString());
-        try {
-            JsonNode parameters = objectMapper.readTree(
-                    instance.getParametersJson() == null ? "{}" : instance.getParametersJson());
-            if (!parameters.isObject()) {
-                throw new IllegalArgumentException("运行参数必须是 JSON 对象");
-            }
-            var fields = parameters.fields();
-            while (fields.hasNext()) {
-                var field = fields.next();
-                if (!field.getValue().isValueNode()) {
-                    throw new IllegalArgumentException("运行参数只支持字符串、数字和布尔值: " + field.getKey());
-                }
-                rendered = rendered.replace("${" + field.getKey() + "}", field.getValue().asText());
-            }
-        } catch (IllegalArgumentException exception) {
-            throw exception;
-        } catch (Exception exception) {
-            throw new IllegalArgumentException("运行参数 JSON 格式不正确");
-        }
+        return new TaskParameterService(objectMapper).render(sql, null, instance.getParametersJson(), instance.getBusinessDate());
+    }
 
-        Matcher unresolved = PARAMETER_PATTERN.matcher(rendered);
-        if (unresolved.find()) {
-            throw new IllegalArgumentException("Flink SQL 存在未赋值参数: " + unresolved.group(1));
-        }
-        return rendered;
+    // Session bootstrap is resolved only after the frozen runtime and current access checks.
+    // Credentials live in this transient submission object, never in the task/version snapshot.
+    String withPlatformCatalog(String sql) {
+        if (!"jdbc".equals(metastore) || !platformCatalog.matches("[A-Za-z_][A-Za-z0-9_]*"))
+            throw new IllegalArgumentException("周期执行暂仅支持受控 JDBC Paimon Catalog");
+        return "SET 'execution.runtime-mode' = 'batch'; CREATE CATALOG IF NOT EXISTS `" + platformCatalog
+                + "` WITH ('type'='paimon','metastore'='jdbc','uri'=" + literal(jdbcUri)
+                + ",'jdbc.user'=" + literal(jdbcUser) + ",'jdbc.password'=" + literal(jdbcPassword)
+                + ",'catalog-key'=" + literal(catalogKey) + ",'warehouse'=" + literal(warehouse)
+                + "); USE CATALOG `" + platformCatalog + "`; USE ods; " + sql;
+    }
+    private String literal(String value) {
+        if (value == null) throw new IllegalArgumentException("平台 Catalog 配置缺失");
+        return "'" + value.replace("'", "''") + "'";
     }
 
     private record ReconcileResult(int completed, int retried) {}

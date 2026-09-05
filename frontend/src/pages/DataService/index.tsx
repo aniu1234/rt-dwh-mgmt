@@ -70,7 +70,7 @@ const DataService: React.FC = () => {
   const curlExample = exampleService ? `curl -X POST '${window.location.origin}/api/v1/open/data/${exampleService.serviceCode}' \\\n+  -H 'Content-Type: application/json' \\\n+  -H 'X-App-Key: <YOUR_APP_KEY>' \\\n+  -H 'X-App-Secret: <YOUR_APP_SECRET>' \\\n+  -d '${JSON.stringify(exampleBody)}'` : '';
   const curlCommand = curlExample.replace(/\n\+/g, '\n');
 
-  return <PageContainer className="data-service-page" title="数据服务" subTitle="将 Doris 查询安全发布为外部系统可调用的数据接口" extra={<Button icon={<ReloadOutlined/>} onClick={refresh}>刷新</Button>}>
+  return <PageContainer className="data-service-page" title="数据 API" subTitle="将 Doris 查询安全发布为外部系统可调用的数据接口" extra={<Button icon={<ReloadOutlined/>} onClick={refresh}>刷新</Button>}>
     <Alert
       className="data-service-guide"
       type="info"

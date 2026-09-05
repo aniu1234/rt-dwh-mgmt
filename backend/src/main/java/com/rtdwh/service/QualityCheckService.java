@@ -1,6 +1,7 @@
 package com.rtdwh.service;
 
 import com.rtdwh.dto.QualityCheckSummary;
+import com.rtdwh.dto.QualityWindow;
 import com.rtdwh.dto.QualityOverviewSummary;
 import com.rtdwh.entity.QualityCheckRun;
 import com.rtdwh.entity.QualityRule;
@@ -38,6 +39,9 @@ public class QualityCheckService {
             "^(?!.*(?:;|--|/\\*|\\*/|\\b(?:select|union|insert|update|delete|drop|alter|create|grant|revoke|sleep|benchmark|load_file|outfile)\\b)).+$",
             Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
 
+    @org.springframework.beans.factory.annotation.Value("${quality.schedule.timezone:Asia/Shanghai}")
+    private String scheduleTimezone = "Asia/Shanghai";
+
     private final QualityRuleRepository ruleRepository;
     private final QualityCheckRunRepository runRepository;
     private final QualityCheckPersistenceService persistenceService;
@@ -57,11 +61,31 @@ public class QualityCheckService {
     }
 
     public QualityCheckSummary runAllChecksWithSummary(String triggerType) {
-        return runRules(ruleRepository.findByEnabled(true), normalizeTrigger(triggerType));
+        return runRules(ruleRepository.findByEnabled(true), normalizeTrigger(triggerType),
+                "scheduled".equalsIgnoreCase(triggerType) ? scheduledWindow(java.time.Instant.now()) : null, null);
+    }
+
+    QualityWindow scheduledWindow(java.time.Instant now) {
+        return QualityWindow.forDate(now.atZone(java.time.ZoneId.of(scheduleTimezone)).toLocalDate().minusDays(1));
     }
 
     public QualityCheckSummary runAllChecksWithSummary(Long userId) {
-        return runRules(qualityService.filterAllowed(userId, ruleRepository.findByEnabled(true)), "manual");
+        return runAllChecksWithSummary(userId, null);
+    }
+
+    public QualityCheckSummary runAllChecksWithSummary(Long userId, LocalDate businessDate) {
+        return runRules(qualityService.filterAllowed(userId, ruleRepository.findByEnabled(true)),
+                "manual", QualityWindow.forDate(businessDate), userId);
+    }
+
+    public record Preview(String checkSql, String scopeKey, QualityWindow window, String emptyPolicy) {}
+
+    public Preview preview(QualityRule rule, LocalDate businessDate, Long userId) {
+        qualityService.validateForPreview(rule, userId);
+        QualityWindow window = effectiveWindow(rule, QualityWindow.forDate(businessDate));
+        String sql = generateCheckSql(rule, window);
+        qualityService.validateCheckSql(userId, sql);
+        return new Preview(sql, window == null ? "full_table" : window.key(), window, rule.getEmptyPolicy());
     }
 
     public int runChecksByLayer(String layer) {
@@ -85,13 +109,17 @@ public class QualityCheckService {
     }
 
     public QualityCheckSummary runCheckWithSummary(Long ruleId, Long userId) {
+        return runCheckWithSummary(ruleId, userId, null);
+    }
+
+    public QualityCheckSummary runCheckWithSummary(Long ruleId, Long userId, LocalDate businessDate) {
         QualityRule rule = ruleRepository.findById(ruleId)
                 .orElseThrow(() -> new IllegalArgumentException("质量规则不存在: " + ruleId));
         qualityService.assertAccess(userId, rule);
         if (!Boolean.TRUE.equals(rule.getEnabled())) {
             throw new IllegalStateException("质量规则未启用: " + ruleId);
         }
-        return runRules(List.of(rule), "manual");
+        return runRules(List.of(rule), "manual", QualityWindow.forDate(businessDate), userId);
     }
 
     public int runChecksForTable(String catalog, String database, String table) {
@@ -99,10 +127,22 @@ public class QualityCheckService {
     }
 
     public QualityCheckSummary runChecksForTableWithSummary(String catalog, String database, String table) {
-        List<QualityRule> rules = ruleRepository.findByEnabled(true).stream()
-                .filter(rule -> matchesTable(rule, catalog, database, table))
-                .toList();
+        return runRules(snapshotRulesForTable(catalog, database, table), "production");
+    }
+
+    public List<QualityRule> snapshotRulesForTable(String catalog, String database, String table) {
+        return ruleRepository.findByEnabled(true).stream()
+                .filter(rule -> matchesTable(rule, catalog, database, table)).toList();
+    }
+
+    public QualityCheckSummary runFrozenProductionRules(List<QualityRule> rules) {
         return runRules(rules, "production");
+    }
+
+    public QualityCheckSummary runFrozenProductionRules(List<QualityRule> rules,
+                                                        LocalDate start, LocalDate end) {
+        return runRules(rules, "production", start == null && end == null ? null
+                : new QualityWindow(start == null ? null : start.atStartOfDay(), end == null ? null : end.atStartOfDay()), null);
     }
 
     @Transactional(readOnly = true)
@@ -114,16 +154,10 @@ public class QualityCheckService {
 
     @Transactional(readOnly = true)
     public List<QualityCheckRun> listRuns(Long ruleId, Long userId) {
-        if (ruleId != null) {
-            QualityRule rule = ruleRepository.findById(ruleId)
-                    .orElseThrow(() -> new IllegalArgumentException("质量规则不存在: " + ruleId));
-            qualityService.assertAccess(userId, rule);
-            return runRepository.findTop100ByRuleIdOrderByStartedAtDesc(ruleId);
-        }
-        Set<Long> visibleRuleIds = qualityService.filterAllowed(userId, ruleRepository.findAll()).stream()
-                .map(QualityRule::getId).collect(Collectors.toSet());
-        return runRepository.findTop100ByOrderByStartedAtDesc().stream()
-                .filter(run -> visibleRuleIds.contains(run.getRuleId())).toList();
+        return runRepository.findAll().stream()
+                .filter(run -> ruleId == null || ruleId.equals(run.getRuleId()))
+                .filter(run -> qualityService.canAccessSnapshot(userId, run.getTargetTable(), run.getLayer()))
+                .sorted(Comparator.comparing(QualityCheckRun::getId).reversed()).limit(100).toList();
     }
 
     @Transactional(readOnly = true)
@@ -144,14 +178,14 @@ public class QualityCheckService {
     }
 
     @Transactional(readOnly = true)
-    public QualityOverviewSummary getOverview(Long userId) {
-        Set<Long> visibleRuleIds = qualityService.filterAllowed(userId, ruleRepository.findAll()).stream()
-                .map(QualityRule::getId).collect(Collectors.toSet());
-        if (visibleRuleIds.isEmpty()) return new QualityOverviewSummary(List.of(), List.of(), 0, 0);
+    public QualityOverviewSummary getOverview(Long userId) { return getOverview(userId, null); }
 
+    public QualityOverviewSummary getOverview(Long userId, LocalDate businessDate) {
         List<QualityCheckRun> runs = runRepository.findAll().stream()
-                .filter(run -> visibleRuleIds.contains(run.getRuleId())).toList();
+                .filter(run -> qualityService.canAccessSnapshot(userId, run.getTargetTable(), run.getLayer())).toList();
         List<QualityCheckRun> latestRuns = runs.stream()
+                .filter(run -> businessDate == null || "full_table".equals(run.getScopeKey())
+                        || QualityWindow.forDate(businessDate).key().equals(run.getScopeKey()))
                 .collect(Collectors.toMap(QualityCheckRun::getRuleId, Function.identity(),
                         (left, right) -> left.getId() > right.getId() ? left : right,
                         LinkedHashMap::new))
@@ -181,6 +215,10 @@ public class QualityCheckService {
     }
 
     private QualityCheckSummary runRules(List<QualityRule> rules, String triggerType) {
+        return runRules(rules, triggerType, null, null);
+    }
+
+    private QualityCheckSummary runRules(List<QualityRule> rules, String triggerType, QualityWindow window, Long userId) {
         String batchId = UUID.randomUUID().toString();
         LocalDateTime startedAt = LocalDateTime.now();
         long started = System.currentTimeMillis();
@@ -195,7 +233,7 @@ public class QualityCheckService {
             log.warn("Could not recover stale quality check runs: {}", conciseError(recoveryError));
         }
         for (QualityRule rule : rules) {
-            CheckOutcome outcome = checkRule(rule, batchId, triggerType);
+            CheckOutcome outcome = checkRule(rule, batchId, triggerType, window, userId);
             abnormalCount += outcome.abnormalCount();
             switch (outcome.status()) {
                 case "passed" -> passed++;
@@ -211,7 +249,8 @@ public class QualityCheckService {
                 startedAt, finishedAt, durationMs);
     }
 
-    private CheckOutcome checkRule(QualityRule rule, String batchId, String triggerType) {
+    private CheckOutcome checkRule(QualityRule rule, String batchId, String triggerType, QualityWindow requestedWindow, Long userId) {
+        QualityWindow window = "business_window".equals(rule.getCheckScope()) ? requestedWindow : null;
         QualityCheckRun run;
         try {
             run = persistenceService.startRun(QualityCheckRun.builder()
@@ -219,7 +258,11 @@ public class QualityCheckService {
                 .ruleId(rule.getId())
                 .ruleName(rule.getRuleName())
                 .ruleType(rule.getRuleType())
-                .targetTable(rule.getTargetTable())
+                .targetTable(snapshotTarget(rule))
+                .layer(rule.getLayer())
+                .scopeKey(window == null ? ("business_window".equals(rule.getCheckScope()) ? "missing_window" : "full_table") : window.key())
+                .windowStart(window == null ? null : window.start()).windowEnd(window == null ? null : window.end())
+                .timeColumn(rule.getTimeColumn()).emptyPolicy(rule.getEmptyPolicy() == null ? "fail" : rule.getEmptyPolicy())
                 .targetColumn(rule.getTargetColumn())
                 .ruleVersion(rule.getVersion())
                 .triggerType(triggerType)
@@ -239,16 +282,22 @@ public class QualityCheckService {
         String alertLevel = null;
         String alertMessage = null;
         try {
-            String sql = generateCheckSql(rule);
+            String sql = generateCheckSql(rule, requestedWindow);
             run.setCheckSql(sql);
-            double actualValue = executeViaDoris(sql);
+            qualityService.validateCheckSql(userId, sql);
+            Measurement measurement = executeViaDoris(sql);
+            double actualValue = measurement.actual();
+            run.setCheckedRows(measurement.rows());
+            run.setViolationRows(measurement.violations());
             double threshold = rule.getThreshold() == null ? 0.0 : rule.getThreshold();
-            boolean exceeded = isThresholdExceeded(rule.getRuleType(), actualValue, threshold);
+            boolean noData = measurement.rows() == 0 && !"allow".equals(rule.getEmptyPolicy());
+            boolean exceeded = noData || isThresholdExceeded(rule.getRuleType(), actualValue, threshold);
             run.setActualValue(actualValue);
             run.setStatus(exceeded ? "failed" : "passed");
             if (exceeded) {
-                alertMessage = buildAlertMessage(rule, actualValue, threshold);
-                alertLevel = determineAlertLevel(rule.getRuleType(), actualValue, threshold);
+                alertMessage = noData ? "检测范围内没有数据，空数据策略要求不通过" : buildAlertMessage(rule, actualValue, threshold);
+                alertLevel = noData ? "error" : determineAlertLevel(rule.getRuleType(), actualValue, threshold);
+                if (noData) run.setErrorMessage(alertMessage);
                 outcome = new CheckOutcome("failed", 1);
             } else {
                 outcome = new CheckOutcome("passed", 0);
@@ -276,33 +325,61 @@ public class QualityCheckService {
         }
     }
 
-    String generateCheckSql(QualityRule rule) {
+    private QualityWindow effectiveWindow(QualityRule rule, QualityWindow requested) {
+        if (!"business_window".equals(rule.getCheckScope())) return null;
+        if (requested == null) throw new IllegalArgumentException("业务窗口规则必须指定业务日期或产出窗口");
+        if (rule.getTimeColumn() == null || rule.getTimeColumn().isBlank())
+            throw new IllegalArgumentException("业务时间字段不能为空");
+        return requested;
+    }
+
+    private String snapshotTarget(QualityRule rule) {
+        try { return qualifiedTable(rule).replace("`", ""); }
+        catch (IllegalArgumentException invalid) { return rule.getTargetTable(); }
+    }
+
+    String generateCheckSql(QualityRule rule) { return generateCheckSql(rule, null); }
+
+    String generateCheckSql(QualityRule rule, QualityWindow requested) {
+        QualityWindow window = effectiveWindow(rule, requested);
         String table = qualifiedTable(rule);
         String column = rule.getTargetColumn() == null || rule.getTargetColumn().isBlank()
                 ? null : DorisConnectionService.quoteIdentifier(stripQuotes(rule.getTargetColumn()));
-        return switch (rule.getRuleType()) {
+        String numerator;
+        String metric;
+        switch (rule.getRuleType()) {
             case "null_rate" -> {
                 requireColumn(column, rule.getRuleType());
-                yield "SELECT COALESCE(CAST(SUM(CASE WHEN " + column
-                        + " IS NULL THEN 1 ELSE 0 END) AS DOUBLE) / NULLIF(COUNT(*), 0), 0.0) FROM " + table;
+                numerator = "SUM(CASE WHEN " + column + " IS NULL THEN 1 ELSE 0 END)";
+                metric = "COALESCE(CAST(" + numerator + " AS DOUBLE) / NULLIF(COUNT(*), 0), 0.0)";
             }
             case "uniqueness" -> {
                 requireColumn(column, rule.getRuleType());
-                yield "SELECT COALESCE(CAST(COUNT(DISTINCT " + column
-                        + ") AS DOUBLE) / NULLIF(COUNT(*), 0), 1.0) FROM " + table;
+                numerator = "COUNT(*) - COUNT(DISTINCT " + column + ")";
+                metric = "COALESCE(CAST(COUNT(DISTINCT " + column + ") AS DOUBLE) / NULLIF(COUNT(*), 0), 1.0)";
             }
-            case "volume_compare" -> "SELECT CAST(COUNT(*) AS DOUBLE) FROM " + table;
+            case "volume_compare" -> {
+                numerator = "NULL"; // A volume threshold has no row-level violation count.
+                metric = "CAST(COUNT(*) AS DOUBLE)";
+            }
             case "range_check" -> {
                 requireColumn(column, rule.getRuleType());
                 String expression = validateExpression(rule.getExpression());
-                yield "SELECT COALESCE(CAST(SUM(CASE WHEN NOT (" + expression
-                        + ") THEN 1 ELSE 0 END) AS DOUBLE) / NULLIF(COUNT(*), 0), 0.0) FROM " + table;
+                // SQL UNKNOWN (including NULL) is not evidence of a valid value.
+                numerator = "SUM(CASE WHEN (" + expression + ") THEN 0 ELSE 1 END)";
+                metric = "COALESCE(CAST(" + numerator + " AS DOUBLE) / NULLIF(COUNT(*), 0), 0.0)";
             }
             default -> throw new IllegalArgumentException("不支持的质量规则类型: " + rule.getRuleType());
-        };
+        }
+        return "SELECT " + metric + " AS actual_value, COUNT(*) AS checked_rows, "
+                + ("NULL".equals(numerator) ? numerator : "COALESCE(" + numerator + ", 0)")
+                + " AS violation_rows FROM " + table
+                + (window == null ? "" : " WHERE " + window.predicate(DorisConnectionService.quoteIdentifier(rule.getTimeColumn())));
     }
 
-    private double executeViaDoris(String sql) throws Exception {
+    private record Measurement(double actual, long rows, Long violations) {}
+
+    private Measurement executeViaDoris(String sql) throws Exception {
         try (Connection connection = dorisConnectionService.getConnection();
              Statement statement = connection.createStatement()) {
             statement.setQueryTimeout(120);
@@ -310,8 +387,12 @@ public class QualityCheckService {
             statement.execute("SET query_timeout = 120");
             try (ResultSet resultSet = statement.executeQuery(sql)) {
                 if (!resultSet.next()) throw new IllegalStateException("Doris 未返回质量指标");
-                double value = resultSet.getDouble(1);
-                return resultSet.wasNull() ? 0.0 : value;
+                double actual = resultSet.getDouble(1);
+                if (resultSet.wasNull() || !Double.isFinite(actual)) throw new IllegalStateException("Doris 返回无效质量指标");
+                long rows = resultSet.getLong(2);
+                if (resultSet.wasNull() || rows < 0) throw new IllegalStateException("Doris 未返回有效检测行数");
+                long violations = resultSet.getLong(3);
+                return new Measurement(actual, rows, resultSet.wasNull() ? null : violations);
             }
         }
     }

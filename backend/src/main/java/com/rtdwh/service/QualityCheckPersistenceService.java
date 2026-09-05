@@ -19,13 +19,21 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class QualityCheckPersistenceService {
+    @jakarta.persistence.PersistenceContext
+    private jakarta.persistence.EntityManager entityManager;
+
     private final QualityRuleRepository ruleRepository;
     private final QualityAlertRepository alertRepository;
     private final QualityCheckRunRepository runRepository;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public QualityCheckRun startRun(QualityCheckRun run) {
-        return runRepository.saveAndFlush(run);
+        QualityCheckRun persisted = runRepository.saveAndFlush(run);
+        // HTTP OpenEntityManagerInView can retain this object after commit. The executor
+        // must mutate a detached snapshot, or auto-flush changes status before the
+        // compare-and-set finalizer's WHERE status = 'running'.
+        entityManager.detach(persisted);
+        return persisted;
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -35,10 +43,10 @@ public class QualityCheckPersistenceService {
         QualityRule currentRule = ruleRepository.findByIdForUpdate(ruleSnapshot.getId()).orElse(null);
         if (currentRule == null || isSupersededOrChanged(currentRule, run)) return false;
         if ("passed".equals(run.getStatus())) {
-            resolveOutstandingAlertsInternal(currentRule.getId(), "recovered");
+            resolveOutstandingAlertsInternal(currentRule.getId(), run.getScopeKey(), "recovered");
             return false;
         }
-        return saveOrRefreshAlertInternal(currentRule, run.getActualValue(), run.getThresholdValue(), level, message);
+        return saveOrRefreshAlertInternal(currentRule, run, run.getActualValue(), run.getThresholdValue(), level, message);
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -54,21 +62,26 @@ public class QualityCheckPersistenceService {
                 .forEach(run -> ruleRepository.findByIdForUpdate(run.getRuleId())
                         .filter(rule -> !isSupersededOrChanged(rule, run))
                         .ifPresent(rule -> saveOrRefreshAlertInternal(
-                                rule, null, run.getThresholdValue(), "error",
+                                rule, run, null, run.getThresholdValue(), "error",
                                 "质量检查执行失败: 执行进程中断或超时，状态已自动收敛")));
         return recoveredRuns.size();
     }
 
-    private boolean saveOrRefreshAlertInternal(QualityRule rule, Double actualValue, Double thresholdValue,
+    private boolean saveOrRefreshAlertInternal(QualityRule rule, QualityCheckRun run, Double actualValue, Double thresholdValue,
                                                String level, String message) {
         List<QualityAlert> openAlerts = alertRepository
-                .findByRuleIdAndResolvedFalseOrderByTriggeredAtDesc(rule.getId());
+                .findByRuleIdAndResolvedFalseOrderByTriggeredAtDesc(rule.getId()).stream()
+                .filter(alert -> java.util.Objects.equals(alert.getScopeKey(), run.getScopeKey())).toList();
         boolean isNew = openAlerts.isEmpty();
         QualityAlert alert = isNew
                 ? QualityAlert.builder().ruleId(rule.getId()).resolved(false).build()
                 : openAlerts.get(0);
         alert.setRuleType(rule.getRuleType());
-        alert.setTargetTable(rule.getTargetTable());
+        alert.setTargetTable(run.getTargetTable());
+        alert.setLayer(run.getLayer());
+        alert.setScopeKey(run.getScopeKey());
+        alert.setWindowStart(run.getWindowStart());
+        alert.setWindowEnd(run.getWindowEnd());
         alert.setTargetColumn(rule.getTargetColumn());
         alert.setActualValue(actualValue);
         alert.setThresholdValue(thresholdValue);
@@ -93,9 +106,10 @@ public class QualityCheckPersistenceService {
         return isNew;
     }
 
-    private void resolveOutstandingAlertsInternal(Long ruleId, String reason) {
+    private void resolveOutstandingAlertsInternal(Long ruleId, String scopeKey, String reason) {
         List<QualityAlert> openAlerts = alertRepository
-                .findByRuleIdAndResolvedFalseOrderByTriggeredAtDesc(ruleId);
+                .findByRuleIdAndResolvedFalseOrderByTriggeredAtDesc(ruleId).stream()
+                .filter(alert -> java.util.Objects.equals(alert.getScopeKey(), scopeKey)).toList();
         if (openAlerts.isEmpty()) return;
         LocalDateTime resolvedAt = LocalDateTime.now();
         openAlerts.forEach(alert -> {
@@ -122,14 +136,14 @@ public class QualityCheckPersistenceService {
         if (run == null || run.getId() == null) throw new IllegalArgumentException("质量检查运行 ID 不能为空");
         if (run.getRuleVersion() == null || currentRule.getVersion() == null
                 || !run.getRuleVersion().equals(currentRule.getVersion())) return true;
-        return runRepository.existsByRuleIdAndIdGreaterThanAndStatusNot(
-                currentRule.getId(), run.getId(), "running");
+        return runRepository.existsByRuleIdAndScopeKeyAndIdGreaterThanAndStatusNot(
+                currentRule.getId(), run.getScopeKey(), run.getId(), "running");
     }
 
     private void finalizeRun(QualityCheckRun run) {
         if (run == null || run.getId() == null) throw new IllegalArgumentException("质量检查运行 ID 不能为空");
         int updated = runRepository.finalizeRunningRun(
-                run.getId(), run.getStatus(), run.getCheckSql(), run.getActualValue(),
+                run.getId(), run.getStatus(), run.getCheckSql(), run.getActualValue(), run.getCheckedRows(), run.getViolationRows(),
                 run.getDurationMs(), run.getErrorMessage(), run.getFinishedAt());
         if (updated != 1) {
             throw new IllegalStateException("质量检查运行记录已被其他执行器收敛: " + run.getId());

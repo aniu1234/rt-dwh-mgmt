@@ -119,7 +119,7 @@ public class QueryService {
         int timeout = Math.max(1, Math.min(dto.getTimeoutSeconds() == null ? defaultTimeout : dto.getTimeoutSeconds(), 1800));
         String catalog = defaultIfBlank(dto.getCatalog(), dorisConnectionService.getCatalog());
         String database = defaultIfBlank(dto.getDatabase(), dorisConnectionService.getDatabase());
-        accessScopeService.validate(userId, sql, catalog, database);
+        accessScopeService.validateDoris(userId, sql, catalog, database);
         String requestId = dto.getRequestId() == null || dto.getRequestId().isBlank()
                 ? UUID.randomUUID().toString()
                 : dto.getRequestId();

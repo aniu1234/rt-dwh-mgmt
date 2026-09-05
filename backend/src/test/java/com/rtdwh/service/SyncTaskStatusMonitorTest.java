@@ -72,6 +72,29 @@ class SyncTaskStatusMonitorTest {
         assertEquals(SyncTask.TaskStatus.running, task.getStatus());
     }
 
+    @Test void completedJobWithPendingSavepointRetainsRequestHandle() {
+        SyncTask task = activeTask(); task.setStatus(SyncTask.TaskStatus.saving_point); task.setSavepointTriggerId("request1");
+        when(syncTaskRepository.findByStatusIn(any())).thenReturn(List.of(task));
+        when(flinkClusterService.getJobStatus(task.getFlinkJobId())).thenReturn(Map.of("flinkState", "FINISHED"));
+        when(flinkClusterService.pollSavepointStatus(task.getFlinkJobId(), "request1")).thenReturn(Map.of("status", "IN_PROGRESS"));
+        syncTaskService.syncTaskStatusFromFlink();
+        assertEquals(SyncTask.TaskStatus.saving_point, task.getStatus()); assertEquals("request1", task.getSavepointTriggerId());
+    }
+
+    @Test void finishedStopBecomesPausedWithSavepointWhileManualSavepointStaysRunning() throws Exception {
+        for (boolean stopping : List.of(true, false)) {
+            SyncTask task = activeTask(); task.setStatus(stopping ? SyncTask.TaskStatus.saving_point : SyncTask.TaskStatus.running);
+            task.setSavepointTriggerId("request1");
+            when(syncTaskRepository.findByStatusIn(any())).thenReturn(List.of(task));
+            when(flinkClusterService.getJobStatus(task.getFlinkJobId())).thenReturn(Map.of("flinkState", stopping ? "FINISHED" : "RUNNING"));
+            when(flinkClusterService.pollSavepointStatus(task.getFlinkJobId(), "request1")).thenReturn(Map.of("status", "COMPLETED", "savepointPath", "file:///state/sp"));
+            when(objectMapper.writeValueAsString(any())).thenReturn("{\"savepointPath\":\"file:///state/sp\"}");
+            syncTaskService.syncTaskStatusFromFlink();
+            assertEquals(stopping ? SyncTask.TaskStatus.paused : SyncTask.TaskStatus.running, task.getStatus());
+            assertEquals("{\"savepointPath\":\"file:///state/sp\"}", task.getCheckpointInfo());
+        }
+    }
+
     private SyncTask activeTask() {
         return SyncTask.builder()
                 .id(2L)

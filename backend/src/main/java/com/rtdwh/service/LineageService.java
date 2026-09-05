@@ -32,31 +32,44 @@ public class LineageService {
     private final DwhTableMetaRepository tableRepository;
     private final DwhDataLineageRepository lineageRepository;
     private final ObjectMapper objectMapper;
+    private final QueryAccessScopeService accessScopeService;
+    private final SyncTaskService syncTaskService;
+
+    @org.springframework.beans.factory.annotation.Value("${doris.catalog:rtdwh_paimon}")
+    private String platformCatalog = "rtdwh_paimon";
 
     @Transactional(readOnly = true)
-    public LineageGraphDTO getGraph(String layer, String keyword) {
+    public LineageGraphDTO getGraph(String layer, String keyword, Long userId) {
         Map<String, LineageGraphDTO.Node> nodes = new LinkedHashMap<>();
         Map<String, LineageGraphDTO.Edge> edges = new LinkedHashMap<>();
         Map<Long, DatasourceConfig> datasources = new HashMap<>();
         datasourceRepository.findAll().forEach(item -> datasources.put(item.getId(), item));
         Map<String, DwhTableMeta> tables = new HashMap<>();
-        tableRepository.findAll().forEach(item -> {
+        tableRepository.findAll().stream().filter(this::isPlatformTable).filter(item -> accessScopeService.allowed(userId, platformCatalog,
+                item.getPaimonDb(), item.getPaimonTable())).forEach(item -> {
             tables.put(tableKey(item.getPaimonDb(), item.getPaimonTable()), item);
             addDwhNode(nodes, item);
         });
 
-        for (SyncTask task : taskRepository.findAll()) {
+        List<SyncTask> visibleTasks = syncTaskService.listTasksForUser(userId, null, null, null);
+        Set<Long> visibleTaskIds = new HashSet<>();
+        for (SyncTask task : visibleTasks) {
+            visibleTaskIds.add(task.getId());
             String taskNodeId = "task:" + task.getId();
             nodes.put(taskNodeId, new LineageGraphDTO.Node(taskNodeId, task.getTaskName(), task.getTaskName(),
                     "task", null, task.getStatus().name(), Map.of("taskId", task.getId(), "taskType", task.getTaskType().name())));
             List<TableMapping> mappings = parseMappings(task.getTableMappings());
-            if (mappings.isEmpty()) addSqlLineage(task, nodes, edges, taskNodeId, tables);
+            if (mappings.isEmpty()) addSqlLineage(task, nodes, edges, taskNodeId, tables, userId);
             else addMappedLineage(task, mappings, datasources, nodes, edges, taskNodeId, tables);
         }
 
         for (DwhDataLineage lineage : lineageRepository.findAll()) {
             DwhTableMeta source = lineage.getSourceTable();
             DwhTableMeta target = lineage.getTargetTable();
+            if (!isPlatformTable(source) || !isPlatformTable(target)) continue;
+            if (!accessScopeService.allowed(userId, platformCatalog, source.getPaimonDb(), source.getPaimonTable())
+                    || !accessScopeService.allowed(userId, platformCatalog, target.getPaimonDb(), target.getPaimonTable())) continue;
+            if (lineage.getSyncTask() != null && !visibleTaskIds.contains(lineage.getSyncTask().getId())) continue;
             addDwhNode(nodes, source);
             addDwhNode(nodes, target);
             String sourceId = dwhNodeId(source.getPaimonDb(), source.getPaimonTable());
@@ -66,6 +79,12 @@ public class LineageService {
         }
 
         return filteredGraph(nodes, edges, layer, keyword);
+    }
+
+    // The legacy graph has two-part Paimon keys. View evidence lives in the asset context.
+    private boolean isPlatformTable(DwhTableMeta table) {
+        return (table.getAssetType() == null || table.getAssetType().startsWith("paimon"))
+                && (table.getCatalogName() == null || platformCatalog.equalsIgnoreCase(table.getCatalogName()));
     }
 
     private void addMappedLineage(SyncTask task, List<TableMapping> mappings,
@@ -101,18 +120,19 @@ public class LineageService {
 
     private void addSqlLineage(SyncTask task, Map<String, LineageGraphDTO.Node> nodes,
                                Map<String, LineageGraphDTO.Edge> edges, String taskNodeId,
-                               Map<String, DwhTableMeta> tables) {
+                               Map<String, DwhTableMeta> tables, Long userId) {
         String sql = task.getFlinkSql();
         if (blank(sql)) return;
         Matcher sources = SOURCE_TABLE.matcher(sql);
         while (sources.find()) {
+            if (!accessScopeService.allowedReference(userId, sources.group(1), platformCatalog, "ods")) continue;
             TableRef ref = tableRef(sources.group(1));
             String id = dwhNodeId(ref.database(), ref.table());
             addTableRef(nodes, tables, ref, id);
             addEdge(edges, id, taskNodeId, "sql_input", "SQL 输入", task.getId());
         }
         Matcher target = TARGET_TABLE.matcher(sql);
-        if (target.find()) {
+        if (target.find() && accessScopeService.allowedReference(userId, target.group(1), platformCatalog, "ods")) {
             TableRef ref = tableRef(target.group(1));
             String id = dwhNodeId(ref.database(), ref.table());
             addTableRef(nodes, tables, ref, id);

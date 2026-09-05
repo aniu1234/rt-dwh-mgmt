@@ -124,7 +124,7 @@ export async function getWorkflowGraph() {
   return request<API.WorkflowGraph>(`${API_PREFIX}/workflow/graph`);
 }
 
-export async function addTaskDependency(data: { upstreamTaskId: number; downstreamTaskId: number }) {
+export async function addTaskDependency(data: { upstreamTaskId: number; downstreamTaskId: number; conditionType?: string; outputDatasetId?: number }) {
   return request<API.TaskDependency>(`${API_PREFIX}/workflow/dependencies`, { method: 'POST', data });
 }
 
@@ -149,7 +149,7 @@ export async function rollbackTaskVersion(taskId: number, versionNo: number) {
 }
 
 export async function createTaskBackfill(taskId: number, data: {
-  startDate: string; endDate: string; parametersJson?: string;
+  startDate: string; endDate: string; parametersJson?: string; bindingPolicy?: string; taskParametersJson?: Record<number, string>;
 }) {
   return request<API.TaskRunInstance[]>(`${API_PREFIX}/workflow/tasks/${taskId}/backfill`, { method: 'POST', data });
 }
@@ -285,6 +285,16 @@ export async function getDwhTables(params?: { layer?: string; database?: string;
 
 export async function getDwhTableDetail(id: number) {
   return request<API.DwhTableMeta>(`${API_PREFIX}/dwh/tables/${id}`);
+}
+
+export async function getDataAsset(assetId: string) {
+  return request<API.DwhTableMeta>(`${API_PREFIX}/dwh/assets/${assetId}`);
+}
+export async function getAssetContext(assetId: string) {
+  return request<API.AssetContext>(`${API_PREFIX}/dwh/assets/${assetId}/context`);
+}
+export async function getAssetSchemaRevisions(assetId: string) {
+  return request<API.AssetSchemaRevision[]>(`${API_PREFIX}/dwh/assets/${assetId}/schema-revisions`);
 }
 
 export async function getDwhTableColumns(id: number) {
@@ -501,8 +511,8 @@ export async function getQualityRules(params?: { layer?: string; ruleType?: stri
   return request<API.QualityRule[]>(`${API_PREFIX}/quality/rules`, { params });
 }
 
-export async function getQualityOverview() {
-  return request<API.QualityOverviewSummary>(`${API_PREFIX}/quality/overview`);
+export async function getQualityOverview(params?: { businessDate?: string }) {
+  return request<API.QualityOverviewSummary>(`${API_PREFIX}/quality/overview`, { params });
 }
 
 export async function createQualityRule(data: API.QualityRuleInput) {
@@ -524,9 +534,9 @@ export async function deleteQualityRule(id: number) {
   return request<void>(`${API_PREFIX}/quality/rules/${id}`, { method: 'DELETE' });
 }
 
-export async function runQualityCheck(ruleId?: number) {
+export async function runQualityCheck(ruleId?: number, businessDate?: string) {
   const path = ruleId == null ? '/quality/run-check/all' : `/quality/rules/${ruleId}/run`;
-  return request<API.QualityCheckSummary>(`${API_PREFIX}${path}`, { method: 'POST' });
+  return request<API.QualityCheckSummary>(`${API_PREFIX}${path}`, { method: 'POST', params: { businessDate } });
 }
 
 export async function getQualityAlerts(params?: { level?: string; resolved?: boolean }) {
@@ -552,13 +562,50 @@ export async function getMaintenanceLogs(params?: { tableMetaId?: number; operat
 }
 
 export async function batchCompact(data: { layer?: string; fileCountThreshold?: number }) {
-  return request<{ triggered: number }>(`${API_PREFIX}/dwh/maintenance/batch-compact`, { method: 'POST', data });
+  return request<{ triggered: number; failed: number; failures: { tableId: number; table: string; message: string }[] }>(`${API_PREFIX}/dwh/maintenance/batch-compact`, { method: 'POST', data });
 }
 
 export async function batchExpireSnapshots(data: { layer?: string; retainLast?: number }) {
-  return request<{ triggered: number }>(`${API_PREFIX}/dwh/maintenance/batch-expire`, { method: 'POST', data });
+  return request<{ triggered: number; failed: number; failures: { tableId: number; table: string; message: string }[] }>(`${API_PREFIX}/dwh/maintenance/batch-expire`, { method: 'POST', data });
 }
 
 export async function cleanOrphanFiles(tableId?: number) {
   return request(`${API_PREFIX}/dwh/maintenance/clean-orphan`, { method: 'POST', data: { tableId } });
+}
+
+export async function publishContinuousTask(id: number, changeSummary: string) {
+  return request<API.TaskDefinitionVersion>(`${API_PREFIX}/sync-tasks/${id}/publish`, { method: 'POST', data: { changeSummary } });
+}
+export async function getContinuousVersions(id: number) {
+  return request<API.TaskDefinitionVersion[]>(`${API_PREFIX}/sync-tasks/${id}/versions`);
+}
+export async function getTaskDeployments(id: number) {
+  return request<API.TaskDeploymentRevision[]>(`${API_PREFIX}/sync-tasks/${id}/deployments`);
+}
+
+export async function configureTaskParameters(taskId: number, parameterSchemaJson: string) {
+  return request<API.SyncTask>(`${API_PREFIX}/workflow/tasks/${taskId}/parameters`, { method: 'PUT', data: { parameterSchemaJson } });
+}
+export async function getTaskScheduleRevisions(taskId: number) {
+  return request<API.TaskScheduleRevision[]>(`${API_PREFIX}/workflow/tasks/${taskId}/schedule/revisions`);
+}
+export async function getTaskAccessChecks(taskId: number) {
+  return request<API.TaskAccessCheck[]>(`${API_PREFIX}/workflow/tasks/${taskId}/access-checks`);
+}
+
+export async function getWorkflowAttempts(instanceId: number) { return request<API.TaskRunAttempt[]>(`${API_PREFIX}/workflow/instances/${instanceId}/attempts`); }
+export async function getWorkflowBindings(instanceId: number) { return request<API.TaskRunBinding[]>(`${API_PREFIX}/workflow/instances/${instanceId}/bindings`); }
+export async function recheckWorkflowDelivery(instanceId: number) { return request<API.TaskRunInstance>(`${API_PREFIX}/workflow/instances/${instanceId}/recheck-delivery`, { method: 'POST' }); }
+export async function getProductionChecks(productionId: number) { return request<API.ProductionCheck[]>(`${API_PREFIX}/workflow/productions/${productionId}/checks`); }
+
+// Managed ordinary Doris Views: publication uses the dedicated DDL channel.
+export const createManagedView = (data: {name:string;sql:string;description?:string}) => request<any>(`${API_PREFIX}/dwh/views`, {method:'POST',data});
+export const getManagedView = (assetId:string) => request<any>(`${API_PREFIX}/dwh/views/${assetId}`);
+export const saveManagedView = (assetId:string,data:{sql:string;description?:string;expectedVersion:number}) => request<any>(`${API_PREFIX}/dwh/views/${assetId}`, {method:'PUT',data});
+export const previewManagedView = (assetId:string) => request<any>(`${API_PREFIX}/dwh/views/${assetId}/preview`, {method:'POST'});
+export const publishManagedView = (assetId:string,expectedVersion:number) => request<any>(`${API_PREFIX}/dwh/views/${assetId}/publish`, {method:'POST',data:{expectedVersion}});
+export const checkManagedView = (assetId:string) => request<any>(`${API_PREFIX}/dwh/views/${assetId}/health`);
+
+export async function previewQualityRule(data: API.QualityRuleInput, businessDate?: string) {
+  return request<API.QualityPreview>(`${API_PREFIX}/quality/preview`, { method: 'POST', data, params: { businessDate } });
 }

@@ -101,6 +101,6 @@ class QueryServiceDorisTest {
         assertTrue(result.get("rows").toString().contains("Alice"));
         verify(session).execute("SWITCH `rtdwh_paimon`");
         verify(session).execute("USE `ods`");
-        verify(accessScopeService).validate(7L, "SELECT id, name FROM users", "rtdwh_paimon", "ods");
+        verify(accessScopeService).validateDoris(7L, "SELECT id, name FROM users", "rtdwh_paimon", "ods");
     }
 }

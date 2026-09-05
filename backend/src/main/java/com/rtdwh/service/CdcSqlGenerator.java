@@ -53,6 +53,20 @@ public class CdcSqlGenerator {
     /**
      * Generate CDC SQL for a sync task based on its table mappings.
      */
+    public String generateReleaseSql(SyncTask task, DatasourceConfig source) {
+        String sql = generateCdcSql(task, source);
+        sql = sql.replaceAll("(?i)('jdbc\\.password'\\s*=\\s*)'(?:''|[^'])*'", "$1'__RTDWH_PAIMON_CREDENTIAL__'");
+        return sql.replaceAll("(?i)('password'\\s*=\\s*)'(?:''|[^'])*'", "$1'__RTDWH_SOURCE_CREDENTIAL__'");
+    }
+
+    public String bindReleaseCredentials(String template, DatasourceConfig source) {
+        if (template == null || !template.contains("'__RTDWH_SOURCE_CREDENTIAL__'")) {
+            throw new IllegalArgumentException("CDC 发布版本缺少受控凭证引用，请重新发布");
+        }
+        return template.replace("'__RTDWH_SOURCE_CREDENTIAL__'", "'" + escape(encryptionUtil.decrypt(source.getPasswordEncrypted())) + "'")
+                .replace("'__RTDWH_PAIMON_CREDENTIAL__'", "'" + escape(paimonJdbcPassword) + "'");
+    }
+
     public String generateCdcSql(SyncTask task, DatasourceConfig sourceConfig) {
         List<Map<String, String>> mappings = parseTableMappings(task.getTableMappings());
         if (mappings.isEmpty()) {

@@ -26,7 +26,76 @@ class DatasetProductionServiceTest {
     private final DwhTableMetaRepository tables = mock(DwhTableMetaRepository.class);
     private final QualityCheckService quality = mock(QualityCheckService.class);
     private final QueryAccessScopeService access = mock(QueryAccessScopeService.class);
-    private final DatasetProductionService service = new DatasetProductionService(outputs, productions, tables, quality, access);
+    private final TaskReleaseContractService contracts = mock(TaskReleaseContractService.class);
+    @org.junit.jupiter.api.BeforeEach void assignProductionIds() {
+        when(tables.saveAndFlush(any())).thenAnswer(call -> { DwhTableMeta t = call.getArgument(0); t.setAssetId("test-asset"); return t; });
+        when(productions.saveAndFlush(any())).thenAnswer(call -> { DatasetProduction p = call.getArgument(0); p.setId(100L); return p; });
+    }
+    private final com.rtdwh.repository.DatasetProductionCheckRepository checks = mock(com.rtdwh.repository.DatasetProductionCheckRepository.class);
+    private final DatasetProductionService service = new DatasetProductionService(outputs, productions, tables, quality, access, contracts, checks);
+
+    @Test
+    void repeatedRegistrationSkipsExistingDeliveryAndRecheckAppendsEvidence() {
+        TaskRunInstance run = instance();
+        TaskOutputDataset output = output(9L, true);
+        var rule = com.rtdwh.entity.QualityRule.builder().id(2L).version(1L).build();
+        when(contracts.forInstance(run)).thenReturn(new TaskReleaseContractService.Contract(1, List.of(),
+                List.of(new TaskReleaseContractService.Output(output, List.of(rule)))));
+        DatasetProduction existing = DatasetProduction.builder().id(100L).instanceId(21L).outputDatasetId(9L).status("blocked").build();
+        when(productions.findByDeliveryKey("21:9")).thenReturn(Optional.of(existing));
+        service.recordSuccess(run);
+        verifyNoInteractions(quality, checks);
+        when(quality.runFrozenProductionRules(List.of(rule), run.getWindowStart(), run.getWindowEnd())).thenReturn(summary(1, 1, 0, 0));
+        service.recordSuccess(run, true);
+        assertEquals("available", existing.getStatus());
+        verify(checks).save(argThat(check -> check.getProductionId().equals(100L) && "available".equals(check.getStatus())));
+        verify(productions, never()).saveAndFlush(any());
+        verify(quality, never()).runChecksForTableWithSummary(any(), any(), any());
+    }
+
+    @Test
+    void recheckingOlderOutputDoesNotRenewFreshnessOrReplaceLatestInstance() {
+        TaskRunInstance run = instance();
+        TaskOutputDataset output = output(9L, false);
+        LocalDateTime newer = LocalDateTime.of(2026, 9, 5, 0, 0);
+        output.setLastProducedAt(newer); output.setLastInstanceId(99L);
+        when(outputs.findById(9L)).thenReturn(Optional.of(output));
+        when(outputs.findByTaskIdAndEnabledTrueOrderById(3L)).thenReturn(List.of(output));
+        when(productions.findByDeliveryKey("21:9")).thenReturn(Optional.of(DatasetProduction.builder().id(100L)
+                .producedAt(newer.minusDays(1)).build()));
+        service.recordSuccess(run, true);
+        assertEquals(newer, output.getLastProducedAt()); assertEquals(99L, output.getLastInstanceId());
+        verify(outputs, never()).save(any());
+    }
+
+    @Test
+    void dependencyRequiresAllDeclaredOutputsAndRetainsHistoricalBlocks() {
+        TaskRunInstance instance = instance();
+        when(outputs.findByTaskIdAndEnabledTrueOrderById(3L)).thenReturn(List.of(output(9L, true)));
+        assertFalse(service.isDeliveryAvailable(instance));
+        DatasetProduction production = DatasetProduction.builder().outputDatasetId(9L).status("blocked").build();
+        when(productions.findByInstanceId(instance.getId())).thenReturn(List.of(production));
+        assertFalse(service.isDeliveryAvailable(instance));
+        when(outputs.findByTaskIdAndEnabledTrueOrderById(3L)).thenReturn(List.of());
+        assertFalse(service.isDeliveryAvailable(instance));
+        production.setStatus("available");
+        assertTrue(service.isDeliveryAvailable(instance));
+    }
+
+    @Test
+    void frozenGateStillBlocksWhenDraftOutputDisablesQuality() {
+        TaskRunInstance run = instance();
+        TaskOutputDataset frozen = output(9L, true);
+        var rule = com.rtdwh.entity.QualityRule.builder().id(2L).version(1L).build();
+        when(contracts.forInstance(run)).thenReturn(new TaskReleaseContractService.Contract(1, List.of(),
+                List.of(new TaskReleaseContractService.Output(frozen, List.of(rule)))));
+        when(quality.runFrozenProductionRules(List.of(rule), run.getWindowStart(), run.getWindowEnd())).thenReturn(summary(1, 0, 0, 1));
+        service.recordSuccess(run);
+        verify(productions).save(argThat(value -> "blocked".equals(value.getStatus()) && value.getInstanceId().equals(run.getId())));
+        verify(quality, never()).runChecksForTableWithSummary(anyString(), anyString(), anyString());
+        verify(outputs, never()).findByTaskIdAndEnabledTrueOrderById(anyLong());
+        verify(outputs, never()).save(any());
+    }
 
     @Test
     void preservesProductionHistoryWhenOutputConfigurationIsRemovedAndRestored() {
@@ -65,6 +134,7 @@ class DatasetProductionServiceTest {
     @Test
     void registersAvailableDatasetAsDataAsset() {
         TaskOutputDataset output = output(9L, true);
+        when(outputs.findById(9L)).thenReturn(Optional.of(output));
         when(outputs.findByTaskIdAndEnabledTrueOrderById(3L)).thenReturn(List.of(output));
         when(quality.runChecksForTableWithSummary("rtdwh_paimon", "ads", "daily_sales"))
                 .thenReturn(summary(1, 1, 0, 0));

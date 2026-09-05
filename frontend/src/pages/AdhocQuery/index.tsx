@@ -8,15 +8,16 @@ import {
   CloudOutlined, DatabaseOutlined, DeleteOutlined, DownloadOutlined, FolderOpenOutlined,
   LaptopOutlined, PlayCircleOutlined, SaveOutlined,
 } from '@ant-design/icons';
-import { useRequest } from '@umijs/max';
+import { useRequest, useSearchParams } from '@umijs/max';
 import type { editor } from 'monaco-editor';
 import {
   cancelQuery, cancelQueryByRequestId, createSavedQuery, deleteSavedQuery, executeQuery,
   exportQuery, getQueryCatalog, getQueryGovernanceStats, getQueryHistory, getQueryProfile,
-  getSavedQueries, updateSavedQuery,
+  getSavedQueries, updateSavedQuery, getDataAsset,
 } from '@/api';
 import SqlEditor from './SqlEditor';
 import './index.less';
+import '../DwhTable/asset.less';
 
 const LOCAL_SQL_KEY = 'rtdwh.saved-sql.v1';
 const CURRENT_DRAFT_KEY = 'rtdwh.sql-current-draft.v1';
@@ -61,6 +62,9 @@ const formatBytes = (value?: number) => {
 };
 
 const AdhocQuery: React.FC = () => {
+  const [assetParams] = useSearchParams();
+  const assetId = assetParams.get('assetId') || '';
+  const {data: sourceAsset} = useRequest(() => getDataAsset(assetId), {ready:!!assetId, refreshDeps:[assetId]});
   const [sql, setSql] = useState(() => localStorage.getItem(CURRENT_DRAFT_KEY) || '');
   const [maxRows, setMaxRows] = useState(1000);
   const [result, setResult] = useState<API.QueryResult | null>(null);
@@ -260,7 +264,15 @@ const AdhocQuery: React.FC = () => {
   ];
 
   return (
-    <PageContainer className="adhoc-query-page" title="即席查询" subTitle="Doris 加速 Paimon 查询、Catalog 智能提示与 SQL 资产管理">
+    <PageContainer className="adhoc-query-page" title="SQL 查询" subTitle="Doris 加速 Paimon 查询、Catalog 智能提示与 SQL 资产管理">
+      {sourceAsset && <Alert className="asset-query-context" style={{marginBottom:16}} type={sourceAsset.discoveryStatus === 'missing' ? 'warning' : 'info'} showIcon
+        message={`来源资产：${sourceAsset.paimonDb}.${sourceAsset.paimonTable}${sourceAsset.discoveryStatus === 'missing' ? '（Catalog 当前未发现）' : ''}`}
+        action={<Space><Button disabled={!sourceAsset.catalogName || sourceAsset.discoveryStatus !== 'observed'} onClick={() => {
+          const quote = (value:string) => '`' + value.replace(/`/g,'``') + '`';
+          setSql(`SELECT * FROM ${[sourceAsset.catalogName!,sourceAsset.paimonDb,sourceAsset.paimonTable].map(quote).join('.')} LIMIT 100`);
+          if (sourceAsset.catalogName === catalog?.catalogName) setSelectedDatabase(sourceAsset.paimonDb); setActiveQuery(undefined);
+        }}>载入资产查询</Button><Button href={`/dwh/assets/${sourceAsset.assetId}?${assetParams.get('assetContext') || ''}`}>返回资产</Button></Space>} />}
+
       <Card className="adhoc-query-editor-card" title={activeQuery ? `SQL 编辑器 · ${activeQuery.name}` : 'SQL 编辑器'}
         extra={<Space wrap size={8}>
           <Tag color={catalog ? 'green' : 'orange'}>{catalog ? `Catalog: ${catalog.catalogName}` : 'Catalog 加载中'}</Tag>

@@ -50,6 +50,15 @@ public class TableMaintenanceLog {
     @Column(length = 64)
     private String operationId;
 
+    @Column(length = 64)
+    private String sessionId;
+
+    @Column(length = 64)
+    private String flinkJobId;
+
+    @Column(length = 20)
+    private String executionPhase;
+
     @Column(columnDefinition = "TEXT", name = "sql_content")
     private String sqlContent;
 
@@ -68,6 +77,6 @@ public class TableMaintenanceLog {
     }
 
     public enum Status {
-        running, success, failed, pending
+        running, success, failed, pending, unknown, timed_out
     }
 }

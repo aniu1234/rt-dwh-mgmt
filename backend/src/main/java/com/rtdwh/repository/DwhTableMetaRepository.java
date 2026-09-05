@@ -14,7 +14,11 @@ import java.util.Optional;
 public interface DwhTableMetaRepository extends JpaRepository<DwhTableMeta, Long> {
 
     List<DwhTableMeta> findByLayer(TableLayer layer);
+    Optional<DwhTableMeta> findByAssetId(String assetId);
 
+    Optional<DwhTableMeta> findByCatalogNameAndPaimonDbAndPaimonTable(String catalogName, String paimonDb, String paimonTable);
+
+    @Query("select t from DwhTableMeta t where t.paimonDb=:paimonDb and t.paimonTable=:paimonTable and t.assetType like 'paimon%'")
     Optional<DwhTableMeta> findByPaimonDbAndPaimonTable(String paimonDb, String paimonTable);
 
     @Query("SELECT t FROM DwhTableMeta t WHERE " +

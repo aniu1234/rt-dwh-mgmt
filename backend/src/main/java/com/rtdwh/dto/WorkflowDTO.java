@@ -14,6 +14,8 @@ public final class WorkflowDTO {
     public static class DependencyRequest {
         @NotNull private Long upstreamTaskId;
         @NotNull private Long downstreamTaskId;
+        private String conditionType = "data_available";
+        private Long outputDatasetId;
     }
 
     @Data
@@ -26,11 +28,15 @@ public final class WorkflowDTO {
         @NotNull private LocalDate startDate;
         @NotNull private LocalDate endDate;
         private String parametersJson;
+        private String bindingPolicy = "batch_only";
+        private java.util.Map<Long, String> taskParametersJson;
     }
 
     @Data
     public static class CompleteRequest {
         @NotNull private Boolean success;
+        private Long attemptId;
+        private String executorId;
         private String errorMessage;
     }
 
@@ -38,7 +44,11 @@ public final class WorkflowDTO {
     public static class AttachJobRequest {
         @NotBlank private String executorId;
         @NotBlank private String externalJobId;
+        private Long attemptId;
     }
+
+    @Data
+    public static class ParameterContractRequest { private String parameterSchemaJson; }
 
     @Data
     public static class ScheduleRequest {

@@ -220,7 +220,7 @@ const SyncTaskList: React.FC = () => {
 
   return (
     <PageContainer
-      title="任务管理"
+      title="开发任务"
       subTitle="创建、启动并持续管理 Flink 数据任务"
       className="task-list-page"
       extra={access.canCreateTask && (

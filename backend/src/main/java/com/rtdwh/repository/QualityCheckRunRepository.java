@@ -36,17 +36,21 @@ public interface QualityCheckRunRepository extends JpaRepository<QualityCheckRun
 
     List<QualityCheckRun> findByStatusAndStartedAtBefore(String status, LocalDateTime startedAt);
 
+    boolean existsByRuleIdAndScopeKeyAndIdGreaterThanAndStatusNot(Long ruleId, String scopeKey, Long id, String status);
+
     boolean existsByRuleIdAndIdGreaterThanAndStatusNot(Long ruleId, Long id, String status);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE QualityCheckRun r SET r.status = :status, r.checkSql = :checkSql, "
-            + "r.actualValue = :actualValue, r.durationMs = :durationMs, "
+            + "r.actualValue = :actualValue, r.checkedRows = :checkedRows, r.violationRows = :violationRows, r.durationMs = :durationMs, "
             + "r.errorMessage = :errorMessage, r.finishedAt = :finishedAt "
             + "WHERE r.id = :id AND r.status = 'running'")
     int finalizeRunningRun(@Param("id") Long id,
                            @Param("status") String status,
                            @Param("checkSql") String checkSql,
                            @Param("actualValue") Double actualValue,
+                           @Param("checkedRows") Long checkedRows,
+                           @Param("violationRows") Long violationRows,
                            @Param("durationMs") Long durationMs,
                            @Param("errorMessage") String errorMessage,
                            @Param("finishedAt") LocalDateTime finishedAt);

@@ -58,7 +58,7 @@ const Foundation: React.FC = () => {
 
   return (
     <PageContainer
-      title="公共能力治理中心"
+      title="资产检索与治理"
       subTitle="统一检索、权限、质量 SLA、可观测与审计"
       className="foundation-page"
       extra={(
@@ -91,7 +91,7 @@ const Foundation: React.FC = () => {
               strokeColor={scoreTone === 'healthy' ? '#52c41a' : scoreTone === 'attention' ? '#faad14' : '#ff4d4f'}
             />
             <div className="foundation-score-copy">
-              <Typography.Text strong>公共能力健康分</Typography.Text>
+              <Typography.Text strong>资产治理参考分</Typography.Text>
               <small>{scoreTone === 'healthy' ? '整体运行健康' : scoreTone === 'attention' ? '存在待改进项' : '建议优先处理风险'}</small>
               <div className="foundation-score-tags">
                 <span>{capabilities.length || 5} 项能力</span>

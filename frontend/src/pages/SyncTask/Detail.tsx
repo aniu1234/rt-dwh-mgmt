@@ -20,6 +20,7 @@ import {
 } from '@/api';
 import { getTaskScenarioColor, getTaskScenarioLabel, taskTypeLabel } from './scenarios';
 import FlinkJobScalingCard from './FlinkJobScalingCard';
+import ContinuousReleaseCard from './ContinuousReleaseCard';
 
 const statusConfig: Record<string, { color: string; label: string; badge: string }> = {
   draft: { color: 'default', label: '未启动', badge: 'default' },
@@ -340,7 +341,7 @@ const SyncTaskDetail: React.FC = () => {
           showIcon
           icon={<PlayCircleOutlined />}
           message={isScheduled ? '周期任务草稿已保存' : '任务配置已保存，尚未启动'}
-          description={isScheduled ? '请进入任务编排发布不可变版本，再配置周期调度、依赖或补数。' : '点击“启动”后，系统会生成最新 CDC SQL（实时同步任务）并提交到 Flink。'}
+          description={isScheduled ? '请进入任务编排发布不可变版本，再配置周期调度、依赖或补数。' : '启动使用已发布配置；首次启动自动发布版本。修改草稿后请重新发布，新版本不会影响在运行作业。'}
           action={access.canManageTask && !isScheduled ? (
             <Button type="primary" icon={<PlayCircleOutlined />} loading={actionLoading === 'start'} onClick={() => handleAction('start')}>
               立即启动
@@ -458,6 +459,8 @@ const SyncTaskDetail: React.FC = () => {
           <Descriptions.Item label="更新时间">{task.updatedAt ? new Date(task.updatedAt).toLocaleString() : '—'}</Descriptions.Item>
         </Descriptions>
       </Card>
+
+      {!isScheduled && <ContinuousReleaseCard taskId={taskId} onPublished={fetchTask} />}
 
       {/* Real-time Metrics */}
       {statusInfo?.sourceDbType === 'postgresql' && (

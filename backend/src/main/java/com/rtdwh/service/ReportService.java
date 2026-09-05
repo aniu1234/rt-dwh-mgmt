@@ -33,8 +33,8 @@ public class ReportService {
 
     @Transactional(readOnly = true)
     public List<ReportTemplate> listReports(Long userId) {
-        return accessScopeService.filterAllowedSql(userId, reportTemplateRepository.findAll(),
-                ReportTemplate::getSqlQuery, dorisConnectionService.getCatalog(), dorisConnectionService.getDatabase());
+        return accessScopeService.filterAllowedDorisSql(userId, reportTemplateRepository.findAll(),
+                report -> parameterRenderer.sqlForAccessCheck(report.getSqlQuery(), report.getFilterConfig()), dorisConnectionService.getCatalog(), dorisConnectionService.getDatabase());
     }
 
     @Transactional(readOnly = true)
@@ -116,7 +116,7 @@ public class ReportService {
     }
 
     private void assertAccess(ReportTemplate report, Long userId) {
-        if (report.getSqlQuery() == null || !accessScopeService.canAccessSql(userId, report.getSqlQuery(),
+        if (report.getSqlQuery() == null || !accessScopeService.canAccessDorisSql(userId, parameterRenderer.sqlForAccessCheck(report.getSqlQuery(), report.getFilterConfig()),
                 dorisConnectionService.getCatalog(), dorisConnectionService.getDatabase())) {
             throw new IllegalArgumentException("无权访问报表涉及的数据表");
         }

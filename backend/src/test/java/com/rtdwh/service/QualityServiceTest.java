@@ -34,6 +34,7 @@ class QualityServiceTest {
         when(dorisConnectionService.getCatalog()).thenReturn("rtdwh_paimon");
         when(dorisConnectionService.getDatabase()).thenReturn("ods");
         when(accessScopeService.allowedReference(any(), any(), any(), any())).thenReturn(true);
+        when(accessScopeService.canAccessDorisSql(any(), any(), any(), any())).thenReturn(true);
     }
 
     @Test
@@ -111,6 +112,23 @@ class QualityServiceTest {
         assertTrue(open.getResolved());
         assertEquals("suppressed", open.getResolutionReason());
         verify(alertRepository).saveAll(List.of(open));
+    }
+
+    @Test
+    void rejectsInvalidWindowConfigurationAndEmptyPolicy() {
+        QualityRule rule = baseRule("null_rate"); rule.setCheckScope("business_window");
+        assertThrows(IllegalArgumentException.class, () -> service.createRule(rule, 7L));
+        rule.setTimeColumn("dt;drop");
+        assertThrows(IllegalArgumentException.class, () -> service.createRule(rule, 7L));
+        rule.setTimeColumn("business_date"); rule.setEmptyPolicy("skip");
+        assertThrows(IllegalArgumentException.class, () -> service.createRule(rule, 7L));
+    }
+
+    @Test
+    void ambiguousLegacyHistoryDoesNotInheritNewRuleScope() {
+        assertFalse(service.canAccessSnapshot(7L, "orders", null));
+        assertFalse(service.canAccessSnapshot(7L, "orders", "ods"));
+        assertTrue(service.canAccessSnapshot(7L, "ods.orders", "ods"));
     }
 
     private QualityRule baseRule(String ruleType) {

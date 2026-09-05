@@ -59,6 +59,11 @@ public class ReportParameterRenderer {
         return rendered.toString();
     }
 
+    public String sqlForAccessCheck(String sql, String filterConfig) {
+        validateTemplate(sql, filterConfig);
+        return PLACEHOLDER.matcher(sql).replaceAll("NULL");
+    }
+
     public void validateTemplate(String sql, String filterConfig) {
         Map<String, Definition> definitions = definitions(filterConfig);
         validateContract(definitions, placeholders(sql));

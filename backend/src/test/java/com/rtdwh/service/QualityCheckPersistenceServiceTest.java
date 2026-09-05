@@ -35,8 +35,8 @@ class QualityCheckPersistenceServiceTest {
         QualityRule rule = rule(1L);
         when(ruleRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(rule));
         QualityCheckRun run = run(10L, rule, "failed");
-        when(runRepository.finalizeRunningRun(any(), any(), any(), any(), any(), any(), any())).thenReturn(1);
-        when(runRepository.existsByRuleIdAndIdGreaterThanAndStatusNot(1L, 10L, "running")).thenReturn(true);
+        when(runRepository.finalizeRunningRun(any(), any(), any(), any(), any(), any(), any(), any(), any())).thenReturn(1);
+        when(runRepository.existsByRuleIdAndScopeKeyAndIdGreaterThanAndStatusNot(1L, "full_table", 10L, "running")).thenReturn(true);
 
         boolean opened = service.completeRun(rule, run, "error", "failed");
 
@@ -50,7 +50,7 @@ class QualityCheckPersistenceServiceTest {
         QualityAlert current = QualityAlert.builder().id(20L).ruleId(2L).resolved(false).build();
         QualityAlert duplicate = QualityAlert.builder().id(19L).ruleId(2L).resolved(false).build();
         when(ruleRepository.findByIdForUpdate(2L)).thenReturn(Optional.of(rule));
-        when(runRepository.finalizeRunningRun(any(), any(), any(), any(), any(), any(), any())).thenReturn(1);
+        when(runRepository.finalizeRunningRun(any(), any(), any(), any(), any(), any(), any(), any(), any())).thenReturn(1);
         when(alertRepository.findByRuleIdAndResolvedFalseOrderByTriggeredAtDesc(2L))
                 .thenReturn(List.of(current, duplicate));
 
@@ -85,7 +85,7 @@ class QualityCheckPersistenceServiceTest {
     @Test
     void rejectsASecondFinalizerAfterTheRunWasAlreadyConverged() {
         QualityRule rule = rule(5L);
-        when(runRepository.finalizeRunningRun(any(), any(), any(), any(), any(), any(), any())).thenReturn(0);
+        when(runRepository.finalizeRunningRun(any(), any(), any(), any(), any(), any(), any(), any(), any())).thenReturn(0);
 
         assertThrows(IllegalStateException.class,
                 () -> service.completeRun(rule, run(50L, rule, "passed"), null, null));
@@ -97,7 +97,7 @@ class QualityCheckPersistenceServiceTest {
     void passingRunAtomicallyRecoversOpenAlerts() {
         QualityRule rule = rule(6L);
         QualityAlert open = QualityAlert.builder().id(60L).ruleId(6L).resolved(false).build();
-        when(runRepository.finalizeRunningRun(any(), any(), any(), any(), any(), any(), any())).thenReturn(1);
+        when(runRepository.finalizeRunningRun(any(), any(), any(), any(), any(), any(), any(), any(), any())).thenReturn(1);
         when(ruleRepository.findByIdForUpdate(6L)).thenReturn(Optional.of(rule));
         when(alertRepository.findByRuleIdAndResolvedFalseOrderByTriggeredAtDesc(6L))
                 .thenReturn(List.of(open));
@@ -115,7 +115,7 @@ class QualityCheckPersistenceServiceTest {
         current.setVersion(2L);
         QualityRule snapshot = rule(7L);
         snapshot.setVersion(1L);
-        when(runRepository.finalizeRunningRun(any(), any(), any(), any(), any(), any(), any())).thenReturn(1);
+        when(runRepository.finalizeRunningRun(any(), any(), any(), any(), any(), any(), any(), any(), any())).thenReturn(1);
         when(ruleRepository.findByIdForUpdate(7L)).thenReturn(Optional.of(current));
 
         assertFalse(service.completeRun(snapshot, run(70L, snapshot, "failed"), "error", "failed"));
@@ -156,6 +156,20 @@ class QualityCheckPersistenceServiceTest {
         assertTrue(resolved.getResolved());
         assertNotNull(resolved.getResolvedAt());
         assertEquals("acknowledged", resolved.getResolutionReason());
+    }
+
+    @Test
+    void passingWindowOnlyRecoversAlertsFromTheSameWindow() {
+        QualityRule rule = rule(9L);
+        QualityAlert yesterday = QualityAlert.builder().id(90L).ruleId(9L).scopeKey("yesterday").resolved(false).build();
+        QualityAlert today = QualityAlert.builder().id(91L).ruleId(9L).scopeKey("today").resolved(false).build();
+        when(runRepository.finalizeRunningRun(any(), any(), any(), any(), any(), any(), any(), any(), any())).thenReturn(1);
+        when(ruleRepository.findByIdForUpdate(9L)).thenReturn(Optional.of(rule));
+        when(alertRepository.findByRuleIdAndResolvedFalseOrderByTriggeredAtDesc(9L)).thenReturn(List.of(today, yesterday));
+        QualityCheckRun run = run(92L, rule, "passed"); run.setScopeKey("today");
+        service.completeRun(rule, run, null, null);
+        assertTrue(today.getResolved()); assertFalse(yesterday.getResolved());
+        verify(runRepository).existsByRuleIdAndScopeKeyAndIdGreaterThanAndStatusNot(9L, "today", 92L, "running");
     }
 
     private QualityRule rule(Long id) {

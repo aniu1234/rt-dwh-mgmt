@@ -34,6 +34,7 @@ public class SyncTaskController {
     private final DatasourceService datasourceService;
     private final SecurityContextUtil securityContextUtil;
     private final ObjectMapper objectMapper;
+    private final com.rtdwh.service.ContinuousDeploymentService continuousDeployments;
 
     // ========================================================================
     // CRUD
@@ -81,6 +82,27 @@ public class SyncTaskController {
         return ApiResponse.success("任务已删除", null);
     }
 
+    @PostMapping("/{id}/publish")
+    @PreAuthorize("hasAuthority('task:manage')")
+    public ApiResponse<com.rtdwh.entity.TaskDefinitionVersion> publish(@PathVariable Long id,
+            @Valid @RequestBody com.rtdwh.dto.WorkflowDTO.PublishRequest request) {
+        authorize(id);
+        return ApiResponse.success("持续任务版本已发布", syncTaskService.publishContinuous(id,
+                securityContextUtil.getCurrentUserId(), request.getChangeSummary()));
+    }
+
+    @GetMapping("/{id}/versions")
+    public ApiResponse<List<com.rtdwh.entity.TaskDefinitionVersion>> versions(@PathVariable Long id) {
+        authorize(id);
+        return ApiResponse.success(continuousDeployments.versions(id, securityContextUtil.getCurrentUserId()));
+    }
+
+    @GetMapping("/{id}/deployments")
+    public ApiResponse<List<com.rtdwh.entity.TaskDeploymentRevision>> deployments(@PathVariable Long id) {
+        authorize(id);
+        return ApiResponse.success(continuousDeployments.deployments(id, securityContextUtil.getCurrentUserId()));
+    }
+
     // ========================================================================
     // Task Lifecycle Actions
     // ========================================================================
@@ -92,7 +114,7 @@ public class SyncTaskController {
     @PreAuthorize("hasAuthority('task:manage')")
     public ApiResponse<SyncTask> startTask(@PathVariable Long id) {
         authorize(id);
-        SyncTask task = syncTaskService.startTask(id);
+        SyncTask task = syncTaskService.startTask(id, securityContextUtil.getCurrentUserId());
         String msg = task.getStatus() == TaskStatus.running ? "任务已启动" : "任务启动失败";
         return ApiResponse.success(msg, task);
     }
@@ -118,7 +140,7 @@ public class SyncTaskController {
     @PreAuthorize("hasAuthority('task:manage')")
     public ApiResponse<SyncTask> resumeTask(@PathVariable Long id) {
         authorize(id);
-        SyncTask task = syncTaskService.resumeTask(id);
+        SyncTask task = syncTaskService.resumeTask(id, securityContextUtil.getCurrentUserId());
         String msg = task.getStatus() == TaskStatus.running ? "任务已从 Savepoint 恢复" : "任务恢复失败";
         return ApiResponse.success(msg, task);
     }
@@ -141,7 +163,7 @@ public class SyncTaskController {
     @PreAuthorize("hasAuthority('task:manage')")
     public ApiResponse<SyncTask> retryTask(@PathVariable Long id) {
         authorize(id);
-        SyncTask task = syncTaskService.retryTask(id);
+        SyncTask task = syncTaskService.retryTask(id, securityContextUtil.getCurrentUserId());
         String msg = task.getStatus() == TaskStatus.running ? "任务重试成功" : "任务重试失败";
         return ApiResponse.success(msg, task);
     }

@@ -9,7 +9,7 @@ services:
       MYSQL_USER: ${MYSQL_USER:-rtdwh_admin}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-root123123}
     ports:
-      - "127.0.0.1:3306:3306"
+      - "127.0.0.1:${MYSQL_PORT:-3306}:3306"
     volumes:
       - mysql_data:/var/lib/mysql
       - ../scripts/init-mysql.sql:/docker-entrypoint-initdb.d/init.sql
@@ -294,6 +294,7 @@ services:
     networks:
       - rtdwh-backend
       - rtdwh-frontend
+      - doris-network
 
   # Nginx Reverse Proxy (Frontend + Backend)
   rtdwh-nginx:

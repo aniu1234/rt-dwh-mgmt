@@ -21,7 +21,7 @@ import static org.mockito.Mockito.when;
 class QueryAccessScopeServiceTest {
     private final SysUserRepository userRepository = mock(SysUserRepository.class);
     private final RoleDataScopeRepository scopeRepository = mock(RoleDataScopeRepository.class);
-    private final QueryAccessScopeService service = new QueryAccessScopeService(userRepository, scopeRepository);
+    private final QueryAccessScopeService service = new QueryAccessScopeService(userRepository, scopeRepository, mock(ViewDependencyService.class));
 
     @BeforeEach
     void setUp() {

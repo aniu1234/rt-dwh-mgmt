@@ -240,14 +240,15 @@ CDC 是常驻流任务，不参与按日期补数；除内置 Flink SQL Runner �
 
 ## 未完成能力
 
-核心交付闭环和首批 P1 能力已经落地，后续工作集中在兼容性回归和生产部署验收：
+主要模块和首批 P1 能力已有实现，但代码入口不等于生产交付完成。下一大版本建议以“可信湖仓交付”为主线，优先补齐发布、门禁、依赖与运行事实的一致性：
 
 | 优先级 | 近期重点 |
 |---|---|
-| P1 | PostgreSQL Slot 生命周期、Doris 指标/Profile/排队/成本预算、参数化报表与计划分发、角色数据范围和 Helm Chart 已完成首版；继续补充 PostgreSQL 类型兼容回归和最小集群安装验收 |
-| P2 | 建设列级血缘与脱敏、统一指标口径、SLA／成本运营看板和变更审批流程 |
+| P0 | 补齐质量门禁与下游依赖、完整发布契约、Paimon 维护执行终态及跨模块数据范围 |
+| P1 | 统一资产与普通 View、Flink／Paimon 运维闭环、质量／SLA 和 API 发布契约；补齐 PostgreSQL 兼容、升级恢复与真实部署验收 |
+| P2 | 列级血缘与脱敏、统一指标口径、跨团队成本运营和通用变更审批；原生物化等实验能力按专项验收逐步开放 |
 
-各项现状、缺口和验收标准见 [`docs/product-roadmap.md`](docs/product-roadmap.md)。
+各项现状、缺口见 [产品路线图](docs/product-roadmap.md)；下一大版本的产品模型、View／物化边界、UI 流程、工作包与排期见 [2.0 产品逻辑与迭代规划](docs/v2.0-product-iteration-plan.md)。实际落地与验证证据见 [2.0 实施进度](docs/v2.0-implementation-progress.md)，资产身份与结构演进见 [资产契约](docs/asset-contract.md)。
 
 ## 技术栈
 
@@ -686,6 +687,8 @@ rt-dwh-mgmt/
 
 ## 文档与图示
 
+- [菜单调整与数据质量能力规划](docs/data-quality-capability-plan.md)
+
 | 内容 | 文件 |
 |---|---|
 | 产品设计与技术方案 | [`docs/product-design-and-technical-solution.md`](docs/product-design-and-technical-solution.md) |
@@ -734,3 +737,5 @@ rt-dwh-mgmt/
 ## License
 
 MIT
+
+- [普通 Doris View 发布契约与本地验收](docs/managed-view-contract.md)

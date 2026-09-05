@@ -53,13 +53,13 @@ const Dashboard: React.FC = () => {
   );
 
   const quickActions = [
-    access.canCreateTask && { title: '创建同步任务', description: '接入 CDC 或构建 ETL', icon: <PlusOutlined />, path: '/sync-task/create' },
+    access.canCreateTask && { title: '创建开发任务', description: '接入 CDC 或构建 ETL', icon: <PlusOutlined />, path: '/sync-task/create' },
     access.canQuery && { title: '查询并下载', description: '使用 Doris 查询 Paimon', icon: <CodeOutlined />, path: '/query/adhoc' },
     access.canViewReport && { title: '查看报表', description: '进入业务数据看板', icon: <BarChartOutlined />, path: '/query/report' },
     access.canViewDataService && { title: '发布数据接口', description: '管理外部系统调用', icon: <ApiOutlined />, path: '/query/data-service' },
   ].filter(Boolean) as Array<{ title: string; description: string; icon: React.ReactNode; path: string }>;
 
-  return <PageContainer title="数据开发工作台" subTitle="集中查看任务运行、湖仓资产、告警和公共能力风险"
+  return <PageContainer title="工作台" subTitle="集中查看任务运行、湖仓资产、告警和资产治理风险"
     extra={<Tooltip title="刷新任务、资产、告警和治理指标"><Button icon={<ReloadOutlined />} onClick={refreshAll}>刷新数据</Button></Tooltip>}>
     {(foundation?.slaRisks.length || 0) > 0 && <Alert showIcon type="warning" style={{ marginBottom: 16 }}
       message={`发现 ${foundation?.slaRisks.length} 个数据资源存在 SLA 风险`}
@@ -106,7 +106,7 @@ const Dashboard: React.FC = () => {
       </Col>
     </Row>
 
-    <Card title={<Space><SafetyCertificateOutlined />公共能力健康度</Space>}
+    <Card title={<Space><SafetyCertificateOutlined />资产治理概况</Space>}
       extra={<Button type="link" onClick={() => history.push('/foundation')}>进入治理中心</Button>}>
       <Row gutter={[24, 16]} align="middle">
         <Col xs={24} md={5} className="rtdwh-foundation-score">

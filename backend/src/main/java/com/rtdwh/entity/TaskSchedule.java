@@ -20,6 +20,8 @@ public class TaskSchedule {
     @Builder.Default @Column(nullable = false) private Boolean enabled = true;
     private Instant nextRunAt;
     private Instant lastRunAt;
+    private Long activeRevisionId;
+    @Column(length=256) private String lastError;
     @Column(nullable = false) private Long createdBy;
     @CreationTimestamp @Column(updatable = false) private LocalDateTime createdAt;
     @UpdateTimestamp private LocalDateTime updatedAt;

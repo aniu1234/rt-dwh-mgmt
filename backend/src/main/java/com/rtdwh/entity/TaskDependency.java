@@ -25,6 +25,7 @@ public class TaskDependency {
     private Long downstreamTaskId;
     @Column(nullable = false, length = 20)
     private String conditionType;
+    private Long outputDatasetId;
     @Column(nullable = false)
     private LocalDateTime createdAt;
     @Column(nullable = false)

@@ -37,8 +37,8 @@ public class QualityController {
     }
 
     @GetMapping("/overview")
-    public ApiResponse<QualityOverviewSummary> overview() {
-        return ApiResponse.success(qualityCheckService.getOverview(securityContextUtil.getCurrentUserId()));
+    public ApiResponse<QualityOverviewSummary> overview(@RequestParam(required = false) java.time.LocalDate businessDate) {
+        return ApiResponse.success(qualityCheckService.getOverview(securityContextUtil.getCurrentUserId(), businessDate));
     }
 
     @PostMapping("/rules")
@@ -46,6 +46,13 @@ public class QualityController {
     public ApiResponse<QualityRule> createRule(@RequestBody QualityRule rule) {
         return ApiResponse.success("规则创建成功", qualityService.createRule(
                 rule, securityContextUtil.getCurrentUserId()));
+    }
+
+    @PostMapping("/preview")
+    @PreAuthorize("hasAuthority('quality:manage')")
+    public ApiResponse<QualityCheckService.Preview> preview(@RequestBody QualityRule rule,
+            @RequestParam(required = false) java.time.LocalDate businessDate) {
+        return ApiResponse.success(qualityCheckService.preview(rule, businessDate, securityContextUtil.getCurrentUserId()));
     }
 
     @PutMapping("/rules/{id}")
@@ -76,16 +83,16 @@ public class QualityController {
 
     @PostMapping("/run-check/all")
     @PreAuthorize("hasAuthority('quality:manage')")
-    public ApiResponse<QualityCheckSummary> runAllChecks() {
-        QualityCheckSummary summary = qualityCheckService.runAllChecksWithSummary(securityContextUtil.getCurrentUserId());
+    public ApiResponse<QualityCheckSummary> runAllChecks(@RequestParam(required = false) java.time.LocalDate businessDate) {
+        QualityCheckSummary summary = qualityCheckService.runAllChecksWithSummary(securityContextUtil.getCurrentUserId(), businessDate);
         return checkResponse(summary);
     }
 
     @PostMapping("/rules/{id}/run")
     @PreAuthorize("hasAuthority('quality:manage')")
-    public ApiResponse<QualityCheckSummary> runRule(@PathVariable Long id) {
+    public ApiResponse<QualityCheckSummary> runRule(@PathVariable Long id, @RequestParam(required = false) java.time.LocalDate businessDate) {
         return checkResponse(qualityCheckService.runCheckWithSummary(
-                id, securityContextUtil.getCurrentUserId()));
+                id, securityContextUtil.getCurrentUserId(), businessDate));
     }
 
     private ApiResponse<QualityCheckSummary> checkResponse(QualityCheckSummary summary) {

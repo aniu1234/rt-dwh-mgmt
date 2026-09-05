@@ -22,6 +22,15 @@ const formatSize = (bytes?: number) => {
   return `${size.toFixed(1)} ${units[i]}`;
 };
 
+const showOperationResult = (result: any) => {
+  const value = result?.data ?? result;
+  const text = value?.message || '维护请求已记录，请查看执行日志';
+  if (value?.status === 'success') message.success(text);
+  else if (value?.status === 'failed') message.error(text);
+  else if (['unknown', 'timed_out', 'pending'].includes(value?.status)) message.warning(text);
+  else message.info(text);
+};
+
 const Maintenance: React.FC = () => {
   const [layerFilter, setLayerFilter] = useState<string | undefined>();
   const [keyword, setKeyword] = useState('');
@@ -38,15 +47,15 @@ const Maintenance: React.FC = () => {
     getDwhTables({ layer: layerFilter, keyword }),
     { refreshDeps: [layerFilter, keyword] },
   );
-  const { data: logsData, loading: logsLoading, refresh: refreshLogs } = useRequest(getMaintenanceLogs);
+  const { data: logsData, loading: logsLoading, refresh: refreshLogs } = useRequest(getMaintenanceLogs, { pollingInterval: 5000 });
 
   const tables = (tablesData || []) as API.DwhTableMeta[];
   const logs = (logsData || []) as any[];
 
   const handleCompact = async (tableId: number, strategy: string) => {
     try {
-      await triggerCompact(tableId, strategy);
-      message.success('Compact 操作已触发');
+      const result = await triggerCompact(tableId, strategy);
+      showOperationResult(result);
       setCompactModal({ visible: false });
       setCompactStrategy('minor');
       refreshTables();
@@ -58,8 +67,8 @@ const Maintenance: React.FC = () => {
 
   const handleExpire = async (tableId: number, retainLast: number) => {
     try {
-      await triggerExpireSnapshots(tableId, retainLast);
-      message.success(`快照过期清理已触发（保留 ${retainLast} 个）`);
+      const result = await triggerExpireSnapshots(tableId, retainLast);
+      showOperationResult(result);
       setExpireModal({ visible: false, retainLast: 10 });
       refreshTables();
       refreshLogs();
@@ -70,8 +79,8 @@ const Maintenance: React.FC = () => {
 
   const handleCleanOrphan = async (tableId?: number) => {
     try {
-      await cleanOrphanFiles(tableId);
-      message.success('孤立文件清理已触发');
+      const result = await cleanOrphanFiles(tableId);
+      message.info(`清理请求已记录：已受理 ${result?.triggered || 0}，未受理或待协调 ${result?.failed || 0}，请查看执行日志`);
       refreshLogs();
     } catch (e: any) {
       message.error(e?.message || '操作失败');
@@ -81,7 +90,7 @@ const Maintenance: React.FC = () => {
   const handleBatchCompact = async (layer: string, threshold: number) => {
     try {
       const res = await batchCompact({ layer: layer === 'all' ? undefined : layer, fileCountThreshold: threshold });
-      message.success(`批量 Compact 已触发，共 ${res?.triggered || 0} 张表`);
+      message.info(`批量 Compact：已受理 ${res?.triggered || 0}，未受理或待协调 ${res?.failed || 0}，请查看执行日志`);
       refreshTables();
     } catch (e: any) {
       message.error(e?.message || '批量操作失败');
@@ -91,7 +100,7 @@ const Maintenance: React.FC = () => {
   const handleBatchExpire = async (layer: string, retainLast: number) => {
     try {
       const res = await batchExpireSnapshots({ layer: layer === 'all' ? undefined : layer, retainLast });
-      message.success(`批量过期清理已触发，共 ${res?.triggered || 0} 张表`);
+      message.info(`批量过期清理：已受理 ${res?.triggered || 0}，未受理或待协调 ${res?.failed || 0}，请查看执行日志`);
       refreshTables();
     } catch (e: any) {
       message.error(e?.message || '批量操作失败');
@@ -311,7 +320,7 @@ const Maintenance: React.FC = () => {
                       dataIndex: 'status',
                       key: 'status',
                       width: 100,
-                      render: (v: string) => <Badge status={statusBadgeMap[v]} text={v === 'success' ? '成功' : v === 'running' ? '运行中' : '失败'} />,
+                      render: (v: string) => <Badge status={v === 'success' ? 'success' : v === 'failed' ? 'error' : v === 'running' ? 'processing' : 'warning'} text={({ success: '成功', running: '运行中', failed: '失败', pending: '待人工执行', unknown: '待协调', timed_out: '超时，仍在协调' } as Record<string, string>)[v] || '未知'} />,
                     },
                     { title: '开始时间', dataIndex: 'createdAt', key: 'start', width: 160, render: (v: string) => v ? new Date(v).toLocaleString('zh-CN') : '—' },
                     { title: '耗时', dataIndex: 'durationMs', key: 'duration', width: 100, render: (v: number) => v ? `${(v / 1000).toFixed(1)}s` : '—' },

@@ -19,11 +19,15 @@ import java.util.Map;
 @Service
 @RequiredArgsConstructor
 public class DatasetProductionService {
+    @org.springframework.beans.factory.annotation.Value("${doris.catalog:rtdwh_paimon}")
+    private String platformCatalog = "rtdwh_paimon";
     private final TaskOutputDatasetRepository outputRepository;
     private final DatasetProductionRepository productionRepository;
     private final DwhTableMetaRepository tableMetaRepository;
     private final QualityCheckService qualityCheckService;
     private final QueryAccessScopeService accessScopeService;
+    private final TaskReleaseContractService releaseContracts;
+    private final DatasetProductionCheckRepository checks;
 
     public List<TaskOutputDataset> outputs(Long taskId) {
         return outputRepository.findByTaskIdAndEnabledTrueOrderById(taskId);
@@ -54,6 +58,12 @@ public class DatasetProductionService {
                 TaskOutputDataset output = byName.getOrDefault(key, TaskOutputDataset.builder()
                         .taskId(taskId).catalogName(catalog).databaseName(database).tableName(table).build());
                 output.setLayer(parseLayer(request.getLayer()));
+                if (platformCatalog.equals(catalog)) {
+                    DwhTableMeta asset = tableMetaRepository.findByPaimonDbAndPaimonTable(database, table)
+                            .orElseGet(() -> DwhTableMeta.builder().paimonDb(database).paimonTable(table)
+                                    .catalogName(platformCatalog).layer(output.getLayer()).build());
+                    output.setAssetId(tableMetaRepository.saveAndFlush(asset).getAssetId());
+                }
                 output.setOwner(trim(request.getOwner()));
                 output.setBusinessDesc(trim(request.getBusinessDesc()));
                 output.setSlaMinutes(Math.max(1, Math.min(request.getSlaMinutes() == null ? 1440 : request.getSlaMinutes(), 525600)));
@@ -98,22 +108,50 @@ public class DatasetProductionService {
     }
 
     @Transactional
-    public void recordSuccess(TaskRunInstance instance) {
+    public void recordSuccess(TaskRunInstance instance) { recordSuccess(instance, false); }
+
+    public void recordSuccess(TaskRunInstance instance, boolean recheck) {
         LocalDateTime now = LocalDateTime.now();
-        for (TaskOutputDataset output : outputRepository.findByTaskIdAndEnabledTrueOrderById(instance.getTaskId())) {
+        TaskReleaseContractService.Contract contract = releaseContracts.forInstance(instance);
+        List<TaskReleaseContractService.Output> frozenOutputs = contract == null
+                ? outputs(instance.getTaskId()).stream().map(value -> new TaskReleaseContractService.Output(value, null)).toList()
+                : contract.outputs();
+        for (TaskReleaseContractService.Output frozen : frozenOutputs) {
+            TaskOutputDataset output = frozen.definition();
+            String deliveryKey = instance.getId() + ":" + output.getId();
+            DatasetProduction production = productionRepository.findByDeliveryKey(deliveryKey).orElse(null);
+            if (production != null && !recheck) continue;
+            if (production == null) production = productionRepository.saveAndFlush(DatasetProduction.builder()
+                    .deliveryKey(deliveryKey).assetId(output.getAssetId()).outputDatasetId(output.getId()).taskId(instance.getTaskId()).instanceId(instance.getId())
+                    .definitionVersionId(instance.getDefinitionVersionId()).attemptId(instance.getActiveAttemptId())
+                    .businessDate(instance.getBusinessDate()).windowStart(instance.getWindowStart()).windowEnd(instance.getWindowEnd())
+                    .status("checking").producedAt(now).build());
             boolean available = true;
+            QualityCheckSummary summary = null;
             if (Boolean.TRUE.equals(output.getQualityGateEnabled())) {
-                QualityCheckSummary summary = qualityCheckService.runChecksForTableWithSummary(
-                        output.getCatalogName(), output.getDatabaseName(), output.getTableName());
+                summary = contract == null ? qualityCheckService.runChecksForTableWithSummary(
+                        output.getCatalogName(), output.getDatabaseName(), output.getTableName())
+                        : qualityCheckService.runFrozenProductionRules(frozen.rules(), instance.getWindowStart(), instance.getWindowEnd());
                 available = summary.total() > 0 && summary.abnormalCount() == 0;
             }
-            productionRepository.save(DatasetProduction.builder()
-                    .outputDatasetId(output.getId()).taskId(instance.getTaskId()).instanceId(instance.getId())
-                    .businessDate(instance.getBusinessDate()).status(available ? "available" : "blocked").producedAt(now).build());
+            String reason = summary == null ? "未启用质量门禁" : summary.total() == 0 ? "未配置门禁规则"
+                    : summary.errorCount() > 0 ? "质量检测执行异常" : summary.failed() > 0 ? "质量规则未通过" : "质量规则通过";
+            production.setStatus(available ? "available" : "blocked"); production.setReason(reason);
+            production.setQualityBatchId(summary == null ? null : summary.batchId()); production.setCheckedAt(now);
+            productionRepository.save(production);
+            checks.save(DatasetProductionCheck.builder().productionId(production.getId()).qualityBatchId(production.getQualityBatchId())
+                    .status(production.getStatus()).reason(reason).checkedAt(now).build());
             if (!available) continue;
-            output.setLastProducedAt(now);
-            output.setLastInstanceId(instance.getId());
-            outputRepository.save(output);
+            // Update operational metadata only; never merge a frozen definition over the current draft.
+            LocalDateTime producedAt = production.getProducedAt();
+            outputRepository.findById(output.getId()).ifPresent(current -> {
+                // A quality recheck does not produce new data or renew freshness.
+                if (producedAt != null && (current.getLastProducedAt() == null || !producedAt.isBefore(current.getLastProducedAt()))) {
+                    current.setLastProducedAt(producedAt);
+                    current.setLastInstanceId(instance.getId());
+                    outputRepository.save(current);
+                }
+            });
             DwhTableMeta table = tableMetaRepository.findByPaimonDbAndPaimonTable(output.getDatabaseName(), output.getTableName())
                     .orElseGet(() -> DwhTableMeta.builder().paimonDb(output.getDatabaseName()).paimonTable(output.getTableName())
                             .sensitivityLevel("internal").lifecycleStatus("active").tags("[\"scheduled-output\"]").build());
@@ -122,6 +160,25 @@ public class DatasetProductionService {
             if (output.getBusinessDesc() != null) table.setBusinessDesc(output.getBusinessDesc());
             tableMetaRepository.save(table);
         }
+    }
+
+    /** Legacy dependencies require every declared output of this execution to be available. */
+    public boolean isDeliveryAvailable(TaskRunInstance instance) {
+        List<DatasetProduction> productions = productionRepository.findByInstanceId(instance.getId());
+        if (productions.stream().anyMatch(item -> !"available".equals(item.getStatus()))) return false;
+        TaskReleaseContractService.Contract contract = releaseContracts.forInstance(instance);
+        List<TaskOutputDataset> expected = contract == null ? outputs(instance.getTaskId())
+                : contract.outputs().stream().map(TaskReleaseContractService.Output::definition).toList();
+        return expected.stream().allMatch(output -> productions.stream()
+                .anyMatch(item -> output.getId().equals(item.getOutputDatasetId())
+                        && "available".equals(item.getStatus())));
+    }
+
+    public List<DatasetProductionCheck> checks(Long productionId, Long actor) {
+        DatasetProduction production = productionRepository.findById(productionId).orElseThrow();
+        // Reuse the output-level access guard before returning any quality evidence.
+        productions(production.getOutputDatasetId(), 1, actor);
+        return checks.findByProductionIdOrderByIdDesc(productionId);
     }
 
     private DwhTableMeta.TableLayer parseLayer(String value) {

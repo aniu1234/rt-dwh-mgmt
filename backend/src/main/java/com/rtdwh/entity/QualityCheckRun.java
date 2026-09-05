@@ -28,8 +28,15 @@ public class QualityCheckRun {
     private String ruleName;
     @Column(name = "rule_type", length = 50)
     private String ruleType;
-    @Column(name = "target_table", length = 100)
+    @Column(name = "target_table", length = 255)
     private String targetTable;
+    @Column(length = 20)
+    private String layer;
+    @Builder.Default
+    @Column(nullable = false, length = 128)
+    private String scopeKey = "full_table";
+    private LocalDateTime windowStart;
+    private LocalDateTime windowEnd;
     @Column(name = "target_column", length = 100)
     private String targetColumn;
     @Column(name = "rule_version")
@@ -45,6 +52,12 @@ public class QualityCheckRun {
     private Double actualValue;
     private Double thresholdValue;
     private Long durationMs;
+    private Long checkedRows;
+    private Long violationRows;
+    @Column(length = 100)
+    private String timeColumn;
+    @Column(length = 20)
+    private String emptyPolicy;
     @Column(columnDefinition = "TEXT")
     private String errorMessage;
     @Column(nullable = false)

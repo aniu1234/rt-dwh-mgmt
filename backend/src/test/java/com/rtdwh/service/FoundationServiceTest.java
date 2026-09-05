@@ -42,7 +42,7 @@ class FoundationServiceTest {
                 DwhTableMeta.builder().id(1L).paimonDb("ads").paimonTable("sales").layer(DwhTableMeta.TableLayer.ads).owner("data").build(),
                 DwhTableMeta.builder().id(2L).paimonDb("dws").paimonTable("customer").layer(DwhTableMeta.TableLayer.dws).build());
         when(tables.findAll()).thenReturn(visible);
-        when(access.filterAllowed(eq(7L), eq("rtdwh_paimon"), anyCollection(), any(), any())).thenAnswer(invocation -> List.copyOf(invocation.getArgument(2)));
+        when(access.filterAllowed(eq(7L), anyCollection(), any(), any(), any())).thenAnswer(invocation -> List.copyOf(invocation.getArgument(1)));
         when(reports.countByIsPublishedTrue()).thenReturn(2L);
         when(dataServices.countByStatus(DataServiceDefinition.ServiceStatus.published)).thenReturn(1L);
         when(qualityRules.countByEnabledTrue()).thenReturn(3L);
@@ -92,4 +92,17 @@ class FoundationServiceTest {
 
         assertTrue(service.slaRisks(7L).isEmpty());
     }
+    @Test
+    void searchesEachAssetUsingItsStoredCatalog() {
+        var paimon = DwhTableMeta.builder().id(1L).catalogName("rtdwh_paimon").paimonDb("rtdwh_views").paimonTable("same_name").layer(DwhTableMeta.TableLayer.ads).build();
+        var view = DwhTableMeta.builder().id(2L).catalogName("internal").paimonDb("rtdwh_views").paimonTable("same_name").assetType("doris_view").layer(DwhTableMeta.TableLayer.ads).build();
+        when(tables.searchTables(null,null,"same")).thenReturn(List.of(paimon,view));
+        when(access.filterAllowed(eq(7L), anyCollection(), any(), any(), any())).thenAnswer(invocation -> {
+            java.util.function.Function<DwhTableMeta,String> catalog = invocation.getArgument(2);
+            return ((List<DwhTableMeta>)invocation.getArgument(1)).stream().filter(t -> "rtdwh_paimon".equals(catalog.apply(t))).toList();
+        });
+        var result=service.search(7L,"same",10,false,false);
+        assertEquals(1,result.size());assertEquals(1L,result.get(0).id());
+    }
+
 }

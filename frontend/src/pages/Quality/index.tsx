@@ -1,17 +1,17 @@
 import React, { useMemo, useState } from 'react';
 import { PageContainer } from '@ant-design/pro-components';
 import {
-  Alert, Badge, Button, Card, Col, Descriptions, Empty, Form, Input, InputNumber, message, Modal,
+  Alert, Badge, Button, Card, Col, DatePicker, Descriptions, Empty, Form, Input, InputNumber, message, Modal,
   Popconfirm, Progress, Row, Select, Space, Statistic, Switch, Table, Tabs, Tag, Tooltip, Typography,
 } from 'antd';
 import {
   CheckCircleOutlined, ClockCircleOutlined, DatabaseOutlined,
   InfoCircleOutlined, PlusOutlined, ReloadOutlined, SafetyCertificateOutlined, WarningOutlined,
 } from '@ant-design/icons';
-import { useAccess, useRequest } from '@umijs/max';
+import { history, useLocation, useAccess, useRequest } from '@umijs/max';
 import dayjs from 'dayjs';
 import {
-  createQualityRule, deleteQualityRule, getQualityAlerts, getQualityRules,
+  previewQualityRule, createQualityRule, deleteQualityRule, getQualityAlerts, getQualityRules,
   getQualityOverview, getQualityRuns, resolveQualityAlert, runQualityCheck, toggleQualityRule, updateQualityRule,
 } from '@/api';
 import './index.less';
@@ -31,9 +31,9 @@ const ruleTypeLabel: Record<string, string> = {
 
 const ruleLogicConfig: Record<string, { thresholdLabel: string; hint: string; comparator: string }> = {
   null_rate: { thresholdLabel: '允许空值率上限', hint: '空值行数 ÷ 总行数，实际值不高于阈值时通过。', comparator: '≤' },
-  uniqueness: { thresholdLabel: '唯一率下限', hint: '去重值数 ÷ 总行数，实际值不低于阈值时通过。', comparator: '≥' },
-  volume_compare: { thresholdLabel: '最小数据行数', hint: '统计当前表总行数，实际行数不低于阈值时通过。', comparator: '≥' },
-  range_check: { thresholdLabel: '允许越界率上限', hint: '不满足检查表达式的行数 ÷ 总行数，实际值不高于阈值时通过。', comparator: '≤' },
+  uniqueness: { thresholdLabel: '唯一率下限', hint: '非空去重值数 ÷ 总行数（NULL 与重复的额外行均降低唯一率），实际值不低于阈值时通过。', comparator: '≥' },
+  volume_compare: { thresholdLabel: '最小数据行数', hint: '统计所选检测范围内的总行数，实际行数不低于阈值时通过。', comparator: '≥' },
+  range_check: { thresholdLabel: '允许越界率上限', hint: '表达式不成立或结果为 NULL 的行数 ÷ 总行数，实际值不高于阈值时通过。', comparator: '≤' },
 };
 
 const levelConfig: Record<string, { color: string; label: string; weight: number }> = {
@@ -58,7 +58,10 @@ const triggerTypeLabel: Record<string, string> = {
 
 const toPercent = (value: number, total: number) => total ? Math.round((value / total) * 100) : 0;
 
-const formatDateTime = (value?: string) => value ? dayjs(value).format('YYYY-MM-DD HH:mm:ss') : '—';
+const qualityDate = (value: any) => Array.isArray(value)
+  ? dayjs(new Date(value[0], value[1] - 1, value[2], value[3] || 0, value[4] || 0, value[5] || 0)) : dayjs(value);
+
+const formatDateTime = (value?: string) => value ? qualityDate(value).format('YYYY-MM-DD HH:mm:ss') : '—';
 
 const formatNumber = (value?: number) => {
   if (value == null) return '—';
@@ -78,7 +81,22 @@ const formatQualityValue = (value?: number, ruleType?: string) => {
 
 const Quality: React.FC = () => {
   const access = useAccess();
-  const [activeTab, setActiveTab] = useState('overview');
+  const location = useLocation();
+  const url = new URLSearchParams(location.search);
+  const activeTab = ['overview', 'rules', 'alerts', 'runs'].includes(url.get('tab') || '') ? url.get('tab')! : 'overview';
+  const setUrlValue = (key: string, value: string) => {
+    const params = new URLSearchParams(location.search);
+    value ? params.set(key, value) : params.delete(key);
+    history.replace({ pathname: location.pathname, search: params.toString() });
+  };
+  const setActiveTab = (value: string) => setUrlValue('tab', value);
+  const businessDate = /^\d{4}-\d{2}-\d{2}$/.test(url.get('businessDate') || '') && dayjs(url.get('businessDate')).isValid()
+    ? url.get('businessDate')! : dayjs().subtract(1, 'day').format('YYYY-MM-DD');
+  const targetTable = url.get('targetTable') || '';
+  const matchesTarget = (table?: string, layer?: string) => !targetTable || table === targetTable
+    || targetTable.endsWith(`.${table?.includes('.') ? table : `${layer}.${table}`}`);
+  const [preview, setPreview] = useState<API.QualityPreview>();
+  const [previewing, setPreviewing] = useState(false);
   const [layerFilter, setLayerFilter] = useState<string>();
   const [ruleTypeFilter, setRuleTypeFilter] = useState<string>();
   const [ruleSearch, setRuleSearch] = useState('');
@@ -95,6 +113,7 @@ const Quality: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [checkingId, setCheckingId] = useState<number>();
   const [form] = Form.useForm<API.QualityRuleInput>();
+  const selectedScope = Form.useWatch('checkScope', form) || 'full_table';
   const selectedRuleType = Form.useWatch('ruleType', form) || 'null_rate';
   const isChecking = checkingId !== undefined;
 
@@ -109,7 +128,7 @@ const Quality: React.FC = () => {
     refresh: refreshAlerts,
   } = useRequest(() => getQualityAlerts());
   const { data: runsData, loading: runsLoading, refresh: refreshRuns } = useRequest(getQualityRuns);
-  const { data: overviewData, refresh: refreshOverview } = useRequest(getQualityOverview);
+  const { data: overviewData, refresh: refreshOverview } = useRequest(() => getQualityOverview({ businessDate }), { refreshDeps: [businessDate] });
 
   const rules = (rulesData || []) as API.QualityRule[];
   const alerts = (alertsData || []) as API.QualityAlert[];
@@ -120,7 +139,7 @@ const Quality: React.FC = () => {
     const map = new Map<number, API.QualityCheckRun>();
     (overview?.latestRuns || []).forEach((run) => {
       const current = map.get(run.ruleId);
-      if (!current || dayjs(run.startedAt).valueOf() > dayjs(current.startedAt).valueOf()) {
+      if (!current || qualityDate(run.startedAt).valueOf() > qualityDate(current.startedAt).valueOf()) {
         map.set(run.ruleId, run);
       }
     });
@@ -131,7 +150,7 @@ const Quality: React.FC = () => {
     const map = new Map<number, API.QualityCheckRun>();
     rules.forEach((rule) => {
       const latest = latestRunByRule.get(rule.id);
-      if (latest && !dayjs(latest.startedAt).isBefore(dayjs(rule.updatedAt))) map.set(rule.id, latest);
+      if (latest && latest.ruleVersion === rule.version && latest.status !== 'running') map.set(rule.id, latest);
     });
     return map;
   }, [latestRunByRule, rules]);
@@ -142,14 +161,9 @@ const Quality: React.FC = () => {
     const passedRules = checkedRules.filter((rule) => currentRunByRule.get(rule.id)?.status === 'passed');
     const unresolvedAlerts = alerts.filter((alert) => !alert.resolved);
     const severeAlerts = unresolvedAlerts.filter((alert) => (levelConfig[alert.level]?.weight || 1) >= 3);
-    const resolvedAlerts = alerts.filter((alert) => alert.resolved);
     const enabledRate = toPercent(enabledRules.length, rules.length);
     const checkCoverage = toPercent(checkedRules.length, enabledRules.length);
     const passRate = toPercent(passedRules.length, checkedRules.length);
-    const alertResolutionRate = alerts.length ? toPercent(resolvedAlerts.length, alerts.length) : 100;
-    const healthScore = enabledRules.length
-      ? Math.round(passRate * 0.5 + checkCoverage * 0.3 + alertResolutionRate * 0.2)
-      : 0;
     return {
       enabledRules,
       checkedRules,
@@ -158,7 +172,6 @@ const Quality: React.FC = () => {
       enabledRate,
       checkCoverage,
       passRate,
-      healthScore,
       avgDuration: overview?.averageDurationMs || 0,
       last24hRuns: overview?.last24hRuns || 0,
       coveredTables: new Set(enabledRules.map((rule) => `${rule.layer}.${rule.targetTable}`)).size,
@@ -185,7 +198,7 @@ const Quality: React.FC = () => {
   }), [alerts, currentRunByRule, rules]);
 
   const trendData = useMemo(() => {
-    const dailyRuns = new Map((overview?.dailyRuns || []).map((item) => [item.date, item]));
+    const dailyRuns = new Map((overview?.dailyRuns || []).map((item) => [qualityDate(item.date).format('YYYY-MM-DD'), item]));
     return Array.from({ length: 7 }, (_, index) => {
     const date = dayjs().subtract(6 - index, 'day');
     const summary = dailyRuns.get(date.format('YYYY-MM-DD'));
@@ -206,21 +219,24 @@ const Quality: React.FC = () => {
   const visibleRules = useMemo(() => {
     const keyword = ruleSearch.trim().toLowerCase();
     return rules.filter((rule) => {
-      if (layerFilter && rule.layer !== layerFilter) return false;
+      if (!matchesTarget(rule.targetTable, rule.layer)) return false;
+    if (layerFilter && rule.layer !== layerFilter) return false;
       if (ruleTypeFilter && rule.ruleType !== ruleTypeFilter) return false;
       if (!keyword) return true;
       return [rule.ruleName, rule.targetTable, rule.targetColumn]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(keyword));
     });
-  }, [layerFilter, ruleSearch, ruleTypeFilter, rules]);
+  }, [layerFilter, ruleSearch, ruleTypeFilter, rules, targetTable]);
 
   const visibleAlerts = useMemo(() => alerts.filter((alert) => {
+    if (!matchesTarget(alert.targetTable, alert.layer)) return false;
     if (alertLevel && alert.level !== alertLevel) return false;
     return alertResolved == null || alert.resolved === alertResolved;
-  }), [alertLevel, alertResolved, alerts]);
+  }), [alertLevel, alertResolved, alerts, targetTable]);
 
   const visibleRuns = useMemo(() => runs.filter((run) => {
+    if (!matchesTarget(run.targetTable, run.layer)) return false;
     if (runStatus && run.status !== runStatus) return false;
     if (runTrigger && run.triggerType !== runTrigger) return false;
     const keyword = runSearch.trim().toLowerCase();
@@ -228,12 +244,12 @@ const Quality: React.FC = () => {
     return [run.ruleName, run.batchId, run.targetTable, run.targetColumn, run.errorMessage]
       .filter(Boolean)
       .some((value) => String(value).toLowerCase().includes(keyword));
-  }), [runSearch, runStatus, runTrigger, runs]);
+  }), [runSearch, runStatus, runTrigger, runs, targetTable]);
 
   const priorityRisks = useMemo(() => [...metrics.unresolvedAlerts]
     .sort((left, right) => {
       const levelDiff = (levelConfig[right.level]?.weight || 1) - (levelConfig[left.level]?.weight || 1);
-      return levelDiff || dayjs(right.triggeredAt).valueOf() - dayjs(left.triggeredAt).valueOf();
+      return levelDiff || qualityDate(right.triggeredAt).valueOf() - qualityDate(left.triggeredAt).valueOf();
     })
     .slice(0, 5), [metrics.unresolvedAlerts]);
 
@@ -253,11 +269,13 @@ const Quality: React.FC = () => {
       targetColumn: rule.targetColumn,
       expression: rule.expression,
       threshold: rule.threshold,
+      checkScope: rule.checkScope || 'full_table', timeColumn: rule.timeColumn, emptyPolicy: rule.emptyPolicy || 'fail',
       enabled: rule.enabled,
     } : {
-      ruleName: '', layer: 'ods', ruleType: 'null_rate', targetTable: '',
-      targetColumn: '', threshold: 0.05, enabled: true,
+      ruleName: '', layer: (targetTable.split('.').at(-2) || 'ods'), ruleType: 'null_rate', targetTable,
+      targetColumn: '', threshold: 0.05, enabled: true, checkScope: 'full_table', emptyPolicy: 'fail',
     };
+    setPreview(undefined);
     setEditingRule(rule);
     setRuleFormInitialValues(initialValues);
     setModalOpen(true);
@@ -282,7 +300,7 @@ const Quality: React.FC = () => {
         message.success('质量规则已创建');
       }
       setModalOpen(false);
-      refreshRules();
+      refreshAll();
     } catch (error: any) {
       message.error(error?.message || '保存质量规则失败');
     } finally {
@@ -296,7 +314,7 @@ const Quality: React.FC = () => {
     try {
       let result: API.QualityCheckSummary;
       try {
-        result = await runQualityCheck(ruleId);
+        result = await runQualityCheck(ruleId, businessDate);
       } catch (error: any) {
         message.error(error?.message || '质量检查失败');
         return;
@@ -323,7 +341,7 @@ const Quality: React.FC = () => {
   const handleResolveAlert = async (id: number) => {
     try {
       await resolveQualityAlert(id);
-      message.success('告警已标记为解决');
+      message.success('告警已人工确认；检测结果和产出门禁不会因此改为通过');
       refreshAlerts();
     } catch (error: any) {
       message.error(error?.message || '处理告警失败');
@@ -334,7 +352,7 @@ const Quality: React.FC = () => {
     try {
       await toggleQualityRule(rule.id, enabled);
       message.success(enabled ? '规则已启用' : '规则已停用');
-      refreshRules();
+      refreshAll();
     } catch (error: any) {
       message.error(error?.message || '更新规则状态失败');
     }
@@ -344,7 +362,7 @@ const Quality: React.FC = () => {
     try {
       await deleteQualityRule(id);
       message.success('质量规则已删除');
-      refreshRules();
+      refreshAll();
     } catch (error: any) {
       message.error(error?.message || '删除质量规则失败');
     }
@@ -400,12 +418,17 @@ const Quality: React.FC = () => {
         </div>
       ),
     },
+    { title: '检测范围', width: 170, render: (_: unknown, rule: API.QualityRule) => <div>
+      <Tag>{rule.checkScope === 'business_window' ? '业务窗口' : '全表'}</Tag>
+      <small>{rule.timeColumn || '全部数据'} · 空数据{rule.emptyPolicy === 'allow' ? '按指标判断' : '不通过'}</small>
+    </div> },
     {
       title: '最近结果', key: 'status', width: 150,
       render: (_: unknown, record: API.QualityRule) => {
         const latestRun = currentRunByRule.get(record.id);
         const historicalRun = latestRunByRule.get(record.id);
         if (!record.enabled) return <Badge status="default" text="未启用" />;
+        if (historicalRun?.status === 'running' && historicalRun.ruleVersion === record.version) return <Badge status="processing" text="检测中" />;
         if (!latestRun && historicalRun) return <Badge status="warning" text="规则已变更，待检测" />;
         if (!latestRun) return <Badge status="default" text="尚未检测" />;
         const config = runStatusConfig[latestRun.status];
@@ -459,10 +482,10 @@ const Quality: React.FC = () => {
       title={(
         <span className="quality-page-title">
           <SafetyCertificateOutlined />
-          数据质量治理
+          质量工作台
         </span>
       )}
-      subTitle="覆盖规则、检测、告警与处置的质量闭环"
+      subTitle="配置规则、按业务窗口检测、追溯异常与产出门禁"
       className="quality-page"
       extra={(
         <Space wrap size={8} className="quality-header-actions">
@@ -475,24 +498,30 @@ const Quality: React.FC = () => {
               disabled={isChecking && checkingId !== -1}
               onClick={() => handleRunCheck()}
             >
-              检查全部启用规则
+              检查全部可访问启用规则
             </Button>
           )}
         </Space>
       )}
     >
+      <Space wrap style={{ marginBottom: 16 }}>
+        <span>业务日期</span>
+        <DatePicker value={dayjs(businessDate)} allowClear={false} onChange={(date) => date && setUrlValue('businessDate', date.format('YYYY-MM-DD'))} />
+        <Typography.Text type="secondary">窗口规则按该日期检测；全表规则检查全部数据。定时检测使用前一日。</Typography.Text>
+        {targetTable && <Tag closable onClose={() => setUrlValue('targetTable', '')}>目标：{targetTable}</Tag>}
+      </Space>
       <Row gutter={[12, 12]} className="quality-metrics">
         <Col xs={24} sm={12} xl={6}>
           <Card className="rtdwh-metric-card quality-health-metric">
             <span className="rtdwh-metric-icon quality-icon-blue"><SafetyCertificateOutlined /></span>
-            <Statistic title="质量健康分" value={metrics.healthScore} suffix="分" />
-            <div className="quality-metric-foot">通过率、检测覆盖和告警处置综合评估</div>
+            <Statistic title="当前版本检测覆盖率" value={metrics.enabledRules.length ? metrics.checkCoverage : '—'} suffix={metrics.enabledRules.length ? '%' : undefined} />
+            <div className="quality-metric-foot">按所选业务日期与当前规则版本统计</div>
           </Card>
         </Col>
         <Col xs={24} sm={12} xl={6}>
           <Card className="rtdwh-metric-card">
             <span className="rtdwh-metric-icon quality-icon-green"><CheckCircleOutlined /></span>
-            <Statistic title="最新检测通过率" value={metrics.passRate} suffix="%" />
+            <Statistic title="最新检测通过率" value={metrics.checkedRules.length ? metrics.passRate : '—'} suffix={metrics.checkedRules.length ? '%' : undefined} />
             <div className="quality-metric-foot">已检测 {metrics.checkedRules.length} 条，待检测 {metrics.neverChecked} 条</div>
           </Card>
         </Col>
@@ -524,17 +553,8 @@ const Quality: React.FC = () => {
               <>
                 <Row gutter={[12, 12]}>
                   <Col xs={24} xl={9}>
-                    <Card title="治理健康度" className="quality-panel-card">
+                    <Card title="检测覆盖与通过情况" className="quality-panel-card">
                       <div className="quality-health-layout">
-                        <Tooltip title="最新通过率 50% + 检测覆盖率 30% + 告警处置率 20%">
-                          <Progress
-                            type="dashboard"
-                            percent={metrics.healthScore}
-                            size={124}
-                            strokeColor={metrics.healthScore >= 80 ? '#52c41a' : metrics.healthScore >= 60 ? '#faad14' : '#ff4d4f'}
-                            format={(value) => <><strong>{value}</strong><small>质量分</small></>}
-                          />
-                        </Tooltip>
                         <div className="quality-progress-list">
                           <div>
                             <span>规则启用率</span><b>{metrics.enabledRate}%</b>
@@ -569,11 +589,11 @@ const Quality: React.FC = () => {
                           >
                             <div className="quality-layer-head">
                               <Tag color={layerColorMap[item.layer]}>{item.layer.toUpperCase()}</Tag>
-                              <b className={item.unresolvedCount ? 'quality-danger' : 'quality-success'}>
-                                {item.unresolvedCount ? `${item.unresolvedCount} 个异常` : '运行正常'}
+                              <b className={item.unresolvedCount ? 'quality-danger' : 'quality-muted'}>
+                                {item.unresolvedCount ? `${item.unresolvedCount} 个异常` : item.checkedCount ? '无待处理告警' : '尚未检测'}
                               </b>
                             </div>
-                            <strong>{item.passRate}%</strong>
+                            <strong>{item.checkedCount ? `${item.passRate}%` : '—'}</strong>
                             <span>最新通过率</span>
                             <Progress percent={item.passRate} showInfo={false} size="small" />
                             <div className="quality-layer-meta">
@@ -630,7 +650,7 @@ const Quality: React.FC = () => {
                                 <b>{alert.targetTable}</b>
                                 <small>{alert.message}</small>
                               </span>
-                              <time>{dayjs(alert.triggeredAt).format('MM-DD HH:mm')}</time>
+                              <time>{qualityDate(alert.triggeredAt).format('MM-DD HH:mm')}</time>
                             </button>
                           ))}
                         </div>
@@ -649,6 +669,10 @@ const Quality: React.FC = () => {
                   />
                 )}
 
+              </>
+            ),
+          },
+          { key: 'rules', label: '质量规则', children: (
                 <Card
                   title="规则管理"
                   className="quality-rule-card"
@@ -670,9 +694,7 @@ const Quality: React.FC = () => {
                     scroll={{ x: 1050 }}
                   />
                 </Card>
-              </>
-            ),
-          },
+          ) },
           {
             key: 'alerts',
             label: <Badge count={metrics.unresolvedAlerts.length} size="small" offset={[8, -2]}>异常告警</Badge>,
@@ -707,6 +729,7 @@ const Quality: React.FC = () => {
                   columns={[
                     { title: '发生时间', dataIndex: 'triggeredAt', width: 170, render: formatDateTime },
                     { title: '目标表', dataIndex: 'targetTable', width: 180 },
+                    { title: '检测窗口', width: 160, render: (_, record) => record.windowStart ? `${formatDateTime(record.windowStart)} 起` : '全表' },
                     { title: '告警内容', dataIndex: 'message', ellipsis: true },
                     {
                       title: '实际值 / 阈值', width: 140,
@@ -718,12 +741,12 @@ const Quality: React.FC = () => {
                     },
                     {
                       title: '处置状态', width: 100,
-                      render: (_, record) => <Badge status={record.resolved ? 'success' : 'error'} text={record.resolved ? '已解决' : '待处理'} />,
+                      render: (_, record) => <Badge status={record.resolved ? 'success' : 'error'} text={!record.resolved ? '待处理' : record.resolutionReason === 'recovered' ? '检测恢复' : record.resolutionReason === 'acknowledged' ? '人工确认' : '规则变更关闭'} />,
                     },
                     {
                       title: '操作', width: 120, fixed: 'right',
                       render: (_, record) => access.canManageQuality && !record.resolved ? (
-                        <Button size="small" type="primary" onClick={() => handleResolveAlert(record.id)}>标记已解决</Button>
+                        <Button size="small" type="primary" onClick={() => handleResolveAlert(record.id)}>确认告警</Button>
                       ) : <span className="quality-muted">—</span>,
                     },
                   ]}
@@ -813,7 +836,8 @@ const Quality: React.FC = () => {
                         <Tag color={runStatusConfig[value]?.color || 'default'}>{runStatusConfig[value]?.label || value}</Tag>
                       ),
                     },
-                    { title: '完成时间', dataIndex: 'finishedAt', width: 165, render: formatDateTime },
+                    { title: '检测行数 / 异常行数', width: 155, render: (_, record) => `${record.checkedRows ?? '—'} / ${record.violationRows ?? '不适用'}` },
+                    { title: '检测范围', width: 170, render: (_, record) => record.windowStart ? `${qualityDate(record.windowStart).format('YYYY-MM-DD')} 窗口` : record.scopeKey === 'missing_window' ? '缺少业务窗口' : '全表' },
                   ]}
                   expandable={{
                     expandRowByClick: false,
@@ -825,6 +849,9 @@ const Quality: React.FC = () => {
                           items={[
                             { key: 'batch', label: '完整批次 ID', children: <Typography.Text copyable>{record.batchId}</Typography.Text> },
                             { key: 'engine', label: '执行引擎', children: record.engine || '—' },
+                            { key: 'version', label: '冻结规则版本', children: record.ruleVersion ?? '—' },
+                            { key: 'window', label: '检测范围 [开始, 结束)', children: record.windowStart ? `${formatDateTime(record.windowStart)} 至 ${formatDateTime(record.windowEnd)}` : record.scopeKey === 'missing_window' ? '缺少业务窗口' : '全表' },
+                            { key: 'empty', label: '空数据策略', children: record.emptyPolicy ? (record.emptyPolicy === 'allow' ? '按指标判断' : '不通过') : '历史记录未保存' },
                             { key: 'start', label: '开始时间', children: formatDateTime(record.startedAt) },
                             { key: 'finish', label: '完成时间', children: formatDateTime(record.finishedAt) },
                           ]}
@@ -832,7 +859,7 @@ const Quality: React.FC = () => {
                         <div className="quality-run-sql-title">检查 SQL</div>
                         <pre className="quality-sql-preview">{record.checkSql}</pre>
                         {record.errorMessage && (
-                          <Alert type="error" showIcon message="执行错误" description={record.errorMessage} />
+                          <Alert type="error" showIcon message="未通过原因" description={record.errorMessage} />
                         )}
                       </div>
                     ),
@@ -850,7 +877,7 @@ const Quality: React.FC = () => {
       <Modal
         title={editingRule ? '编辑质量规则' : '新建质量规则'}
         open={modalOpen}
-        width={560}
+        width={680}
         rootClassName="quality-rule-modal"
         centered
         okText={editingRule ? '保存修改' : '创建规则'}
@@ -859,12 +886,21 @@ const Quality: React.FC = () => {
         onOk={() => form.submit()}
         confirmLoading={submitting}
         destroyOnHidden
+        footer={(_, { OkBtn, CancelBtn }) => <Space><Button loading={previewing} onClick={async () => {
+          try {
+            const values = await form.validateFields();
+            setPreviewing(true);
+            setPreview(await previewQualityRule(values, businessDate));
+          } catch (error: any) { if (!error.errorFields) message.error(error.message || '预览失败'); }
+          finally { setPreviewing(false); }
+        }}>预览检查 SQL</Button><CancelBtn /><OkBtn /></Space>}
       >
         <Form
           form={form}
           layout="vertical"
           initialValues={ruleFormInitialValues}
           clearOnDestroy
+          onValuesChange={() => setPreview(undefined)}
           onFinish={saveRule}
         >
           <Form.Item
@@ -952,7 +988,7 @@ const Quality: React.FC = () => {
             <Form.Item
               name="expression"
               label="有效数据表达式"
-              extra="表达式成立的数据视为有效；不成立的数据计入越界率。"
+              extra="表达式成立的数据视为有效；不成立或结果为 NULL 的数据计入越界率。"
               rules={[
                 { required: true, whitespace: true, message: '请输入范围检查表达式' },
                 { max: 500, message: '检查表达式不能超过 500 个字符' },
@@ -961,10 +997,23 @@ const Quality: React.FC = () => {
               <Input.TextArea rows={3} maxLength={500} showCount placeholder="例如：amount >= 0 AND amount <= 100000" />
             </Form.Item>
           )}
+          <Row gutter={12}>
+            <Col xs={24} sm={12}><Form.Item name="checkScope" label="检测范围" rules={[{ required: true }]}>
+              <Select options={[{ value: 'full_table', label: '全表检测' }, { value: 'business_window', label: '按业务日期窗口检测' }]} />
+            </Form.Item></Col>
+            <Col xs={24} sm={12}><Form.Item name="emptyPolicy" label="范围内无数据时" rules={[{ required: true }]}>
+              <Select options={[{ value: 'fail', label: '不通过（默认）' }, { value: 'allow', label: '允许空数据，仍按指标阈值判断' }]} />
+            </Form.Item></Col>
+          </Row>
+          {selectedScope === 'business_window' && <Form.Item name="timeColumn" label="业务时间字段" extra={`使用 DATE / DATETIME 字段，预览与手动检测窗口为 ${businessDate}，不做时区转换。产出检测使用任务实例窗口。`}
+            rules={[{ required: true, message: '请输入业务时间字段' }, { pattern: /^[A-Za-z_][A-Za-z0-9_]*$/, message: '字段名格式不正确' }]}>
+            <Input placeholder="例如：business_date 或 event_time" maxLength={100} />
+          </Form.Item>}
           <Form.Item name="enabled" label="立即启用" valuePropName="checked">
             <Switch />
           </Form.Item>
         </Form>
+        {preview && <Alert type="info" message="检查 SQL 预览（未执行检测、未保存规则）" description={<pre className="quality-sql-preview">{preview.checkSql}</pre>} />}
       </Modal>
     </PageContainer>
   );

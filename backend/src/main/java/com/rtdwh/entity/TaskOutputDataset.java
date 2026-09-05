@@ -13,6 +13,7 @@ import java.time.LocalDateTime;
 public class TaskOutputDataset {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;
     @Column(nullable = false) private Long taskId;
+    @Column(length = 36) private String assetId;
     @Column(nullable = false, length = 128) private String catalogName;
     @Column(nullable = false, length = 64) private String databaseName;
     @Column(nullable = false, length = 128) private String tableName;

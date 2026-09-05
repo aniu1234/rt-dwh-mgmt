@@ -28,43 +28,62 @@ public class DataServiceService {
     private final ReportParameterRenderer parameterRenderer;
     private final QueryService queryService;
     private final PasswordEncoder passwordEncoder;
+    private final QueryAccessScopeService accessScopeService;
     private final SecureRandom secureRandom = new SecureRandom();
     private final ConcurrentHashMap<String, RateWindow> rateWindows = new ConcurrentHashMap<>();
 
-    public List<DataServiceDefinition> definitions() { return definitionRepository.findAll(); }
-    public List<DataServiceApp> apps() { return appRepository.findAll(); }
-    public List<DataServiceGrant> grants(Long appId) { return grantRepository.findByAppId(appId); }
-    public List<DataServiceInvocationLog> logs(int limit) {
-        return logRepository.findAllByOrderByCreatedAtDesc(PageRequest.of(0, Math.max(1, Math.min(limit, 500))));
+    public List<DataServiceDefinition> definitions(Long userId) {
+        return definitionRepository.findAll().stream().filter(value -> canAccess(value, userId)).toList();
+    }
+    public List<DataServiceApp> apps(Long userId) {
+        return appRepository.findAll().stream().filter(app -> accessScopeService.isAdmin(userId)
+                || Objects.equals(app.getCreatedBy(), userId)).toList();
+    }
+    public List<DataServiceGrant> grants(Long appId, Long userId) {
+        assertAppAccess(appId, userId);
+        Set<Long> allowed = new HashSet<>();
+        definitions(userId).forEach(value -> allowed.add(value.getId()));
+        return grantRepository.findByAppId(appId).stream().filter(value -> allowed.contains(value.getServiceId())).toList();
+    }
+    public List<DataServiceInvocationLog> logs(int limit, Long userId) {
+        Set<Long> allowed = new HashSet<>();
+        definitions(userId).forEach(value -> allowed.add(value.getId()));
+        return logRepository.findAllByOrderByCreatedAtDesc(PageRequest.of(0, Math.max(1, Math.min(limit, 500))))
+                .stream().filter(value -> allowed.contains(value.getServiceId())).toList();
     }
 
     @Transactional
     public DataServiceDefinition createDefinition(DataServiceDTO.DefinitionRequest request, Long userId) {
         if (definitionRepository.existsByServiceCode(request.getServiceCode())) throw new IllegalStateException("服务编码已存在");
         validate(request);
+        assertSqlAccess(request, userId);
         return definitionRepository.save(apply(new DataServiceDefinition(), request, userId));
     }
 
     @Transactional
-    public DataServiceDefinition updateDefinition(Long id, DataServiceDTO.DefinitionRequest request) {
+    public DataServiceDefinition updateDefinition(Long id, DataServiceDTO.DefinitionRequest request, Long userId) {
         DataServiceDefinition definition = requireDefinition(id);
+        assertDefinitionAccess(definition, userId);
         if (!definition.getServiceCode().equals(request.getServiceCode())) throw new IllegalArgumentException("服务编码发布后不可修改");
         validate(request);
+        assertSqlAccess(request, userId);
         definition.setApiVersion(definition.getApiVersion() + 1);
         return definitionRepository.save(apply(definition, request, definition.getCreatorId()));
     }
 
     @Transactional
-    public DataServiceDefinition publish(Long id, boolean published) {
+    public DataServiceDefinition publish(Long id, boolean published, Long userId) {
         DataServiceDefinition definition = requireDefinition(id);
+        assertDefinitionAccess(definition, userId);
         definition.setStatus(published ? DataServiceDefinition.ServiceStatus.published : DataServiceDefinition.ServiceStatus.offline);
         definition.setPublishedAt(published ? LocalDateTime.now() : definition.getPublishedAt());
         return definitionRepository.save(definition);
     }
 
     @Transactional
-    public void deleteDefinition(Long id) {
+    public void deleteDefinition(Long id, Long userId) {
         DataServiceDefinition definition = requireDefinition(id);
+        assertDefinitionAccess(definition, userId);
         if (definition.getStatus() == DataServiceDefinition.ServiceStatus.published) throw new IllegalStateException("请先下线数据服务");
         definitionRepository.delete(definition);
     }
@@ -79,8 +98,8 @@ public class DataServiceService {
     }
 
     @Transactional
-    public DataServiceDTO.AppCredential rotateSecret(Long appId) {
-        DataServiceApp app = requireApp(appId);
+    public DataServiceDTO.AppCredential rotateSecret(Long appId, Long userId) {
+        DataServiceApp app = assertAppAccess(appId, userId);
         String secret = token(32);
         app.setSecretHash(passwordEncoder.encode(secret));
         appRepository.save(app);
@@ -88,21 +107,25 @@ public class DataServiceService {
     }
 
     @Transactional
-    public DataServiceApp toggleApp(Long appId) {
-        DataServiceApp app = requireApp(appId);
+    public DataServiceApp toggleApp(Long appId, Long userId) {
+        DataServiceApp app = assertAppAccess(appId, userId);
         app.setEnabled(!Boolean.TRUE.equals(app.getEnabled()));
         return appRepository.save(app);
     }
 
     @Transactional
     public DataServiceGrant grant(Long appId, Long serviceId, Long userId) {
-        requireApp(appId); requireDefinition(serviceId);
+        assertAppAccess(appId, userId); assertDefinitionAccess(requireDefinition(serviceId), userId);
         if (grantRepository.existsByAppIdAndServiceId(appId, serviceId)) throw new IllegalStateException("应用已获得该服务授权");
         return grantRepository.save(DataServiceGrant.builder().appId(appId).serviceId(serviceId).createdBy(userId).build());
     }
 
     @Transactional
-    public void revoke(Long appId, Long serviceId) { grantRepository.deleteByAppIdAndServiceId(appId, serviceId); }
+    public void revoke(Long appId, Long serviceId, Long userId) {
+        assertAppAccess(appId, userId);
+        assertDefinitionAccess(requireDefinition(serviceId), userId);
+        grantRepository.deleteByAppIdAndServiceId(appId, serviceId);
+    }
 
     public Map<String, Object> invoke(String code, String appKey, String appSecret,
                                       Map<String, Object> parameters, String clientIp) {
@@ -139,6 +162,31 @@ public class DataServiceService {
             }
             throw exception;
         }
+    }
+
+    private boolean canAccess(DataServiceDefinition definition, Long userId) {
+        try {
+            return accessScopeService.canAccessDorisSql(userId,
+                    parameterRenderer.sqlForAccessCheck(definition.getSqlTemplate(), definition.getParameterConfig()),
+                    definition.getCatalogName(), definition.getDatabaseName());
+        } catch (IllegalArgumentException invalid) { return false; }
+    }
+
+    private void assertDefinitionAccess(DataServiceDefinition definition, Long userId) {
+        if (!canAccess(definition, userId)) throw new org.springframework.security.access.AccessDeniedException("无权访问该数据服务");
+    }
+
+    private void assertSqlAccess(DataServiceDTO.DefinitionRequest request, Long userId) {
+        accessScopeService.validateDoris(userId, parameterRenderer.sqlForAccessCheck(request.getSqlTemplate(), request.getParameterConfig()),
+                request.getCatalogName(), request.getDatabaseName());
+    }
+
+    private DataServiceApp assertAppAccess(Long appId, Long userId) {
+        DataServiceApp app = requireApp(appId);
+        if (!accessScopeService.isAdmin(userId) && !Objects.equals(app.getCreatedBy(), userId)) {
+            throw new org.springframework.security.access.AccessDeniedException("无权管理该调用应用");
+        }
+        return app;
     }
 
     private DataServiceDefinition apply(DataServiceDefinition value, DataServiceDTO.DefinitionRequest request, Long creatorId) {

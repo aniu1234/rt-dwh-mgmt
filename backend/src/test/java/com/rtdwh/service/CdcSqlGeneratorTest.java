@@ -60,6 +60,14 @@ class CdcSqlGeneratorTest {
                         """)
                 .build();
 
+        String template = generator.generateReleaseSql(task, source);
+        assertTrue(!template.contains("source-secret"));
+        assertTrue(!template.contains("'secret'"));
+        assertTrue(template.contains("__RTDWH_SOURCE_CREDENTIAL__"));
+        when(encryptionUtil.decrypt(anyString())).thenReturn("rotated'password");
+        String resolved = generator.bindReleaseCredentials(template, source);
+        assertTrue(resolved.contains("rotated''password"));
+        assertTrue(!resolved.contains("__RTDWH_SOURCE_CREDENTIAL__"));
         String sql = generator.generateCdcSql(task, source);
         List<String> statements = FlinkClusterService.splitSqlStatements(sql);
 

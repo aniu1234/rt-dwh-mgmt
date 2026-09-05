@@ -30,8 +30,16 @@ class WorkflowServiceTest {
     private final TaskDefinitionVersionRepository versionRepository = mock(TaskDefinitionVersionRepository.class);
     private final TaskRunInstanceRepository instanceRepository = mock(TaskRunInstanceRepository.class);
     private final DatasetProductionService datasetProductionService = mock(DatasetProductionService.class);
+    private final TaskReleaseContractService contracts = mock(TaskReleaseContractService.class);
+    private final com.rtdwh.repository.TaskRunAttemptRepository attempts = mock(com.rtdwh.repository.TaskRunAttemptRepository.class);
+    private final WorkflowDependencyService bindings = new WorkflowDependencyService(mock(com.rtdwh.repository.TaskRunDependencyBindingRepository.class), instanceRepository,
+            mock(com.rtdwh.repository.DatasetProductionRepository.class), taskRepository, versionRepository, contracts, datasetProductionService);
+    @org.junit.jupiter.api.BeforeEach void setupAttempts() {
+        when(attempts.saveAndFlush(any())).thenAnswer(call -> { com.rtdwh.entity.TaskRunAttempt a = call.getArgument(0); a.setId(1L); return a; });
+        when(contracts.canReadVersion(any(), any())).thenReturn(true);
+    }
     private final WorkflowService service = new WorkflowService(taskRepository, dependencyRepository,
-            versionRepository, instanceRepository, new ObjectMapper().findAndRegisterModules(), datasetProductionService);
+            versionRepository, instanceRepository, new ObjectMapper().findAndRegisterModules(), datasetProductionService, contracts, bindings, attempts);
 
     @Test
     void rejectsDependencyCycle() {
@@ -85,15 +93,57 @@ class WorkflowServiceTest {
                 .createdAt(LocalDateTime.now()).build();
         when(instanceRepository.findByStatusOrderByCreatedAtAsc(eq(TaskRunInstance.RunStatus.waiting), any(Pageable.class)))
                 .thenReturn(List.of(waiting));
-        when(dependencyRepository.findByDownstreamTaskId(20L)).thenReturn(List.of(TaskDependency.builder()
+        when(contracts.dependencies(waiting)).thenReturn(List.of(TaskDependency.builder()
                 .upstreamTaskId(10L).downstreamTaskId(20L).build()));
-        when(instanceRepository.findFirstByTaskIdAndBusinessDateAndStatusOrderByCreatedAtDesc(
-                10L, waiting.getBusinessDate(), TaskRunInstance.RunStatus.success))
-                .thenReturn(Optional.of(TaskRunInstance.builder().id(2L).build()));
+        when(instanceRepository.findFirstByTaskIdAndBusinessDateOrderByCreatedAtDesc(
+                10L, waiting.getBusinessDate()))
+                .thenReturn(Optional.of(TaskRunInstance.builder().id(2L).status(TaskRunInstance.RunStatus.success).build()));
 
+        when(instanceRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(waiting));
+        assertEquals(0, service.promoteReadyInstances());
+        assertEquals(TaskRunInstance.RunStatus.waiting, waiting.getStatus());
+        verify(instanceRepository, never()).save(any());
+
+        when(datasetProductionService.isDeliveryAvailable(any())).thenReturn(true);
         assertEquals(1, service.promoteReadyInstances());
         assertEquals(TaskRunInstance.RunStatus.queued, waiting.getStatus());
         verify(instanceRepository).save(waiting);
+    }
+
+    @Test
+    void batchOnlyCreatesUpstreamPerDateWhileReuseCreatesOnlyRoot() {
+        SyncTask root = task(8L, SyncTask.TaskType.etl);
+        SyncTask upstream = task(7L, SyncTask.TaskType.etl); upstream.setPublishedVersionId(70L);
+        var rootVersion = TaskDefinitionVersion.builder().id(80L).taskId(8L).build();
+        var upstreamVersion = TaskDefinitionVersion.builder().id(70L).taskId(7L).build();
+        var dependency = TaskDependency.builder().id(1L).upstreamTaskId(7L).downstreamTaskId(8L).conditionType("execution_success").build();
+        when(taskRepository.findById(8L)).thenReturn(Optional.of(root));
+        when(taskRepository.findById(7L)).thenReturn(Optional.of(upstream));
+        when(versionRepository.findById(80L)).thenReturn(Optional.of(rootVersion));
+        when(versionRepository.findById(70L)).thenReturn(Optional.of(upstreamVersion));
+        when(contracts.dependencies(rootVersion)).thenReturn(List.of(dependency));
+        when(contracts.dependencies(any(TaskRunInstance.class))).thenAnswer(call -> {
+            TaskRunInstance run = call.getArgument(0); return run.getTaskId().equals(8L) ? List.of(dependency) : List.of();
+        });
+        java.util.ArrayList<TaskRunInstance> saved = new java.util.ArrayList<>();
+        when(instanceRepository.saveAll(any())).thenAnswer(call -> {
+            List<TaskRunInstance> result = call.getArgument(0);
+            for (TaskRunInstance run : result) { run.setId((long) saved.size() + 1); saved.add(run); }
+            return result;
+        });
+        when(instanceRepository.findByTaskIdAndBatchIdAndBusinessDate(anyLong(), anyString(), any())).thenAnswer(call -> saved.stream()
+                .filter(run -> run.getTaskId().equals(call.getArgument(0)) && run.getBatchId().equals(call.getArgument(1))
+                        && run.getBusinessDate().equals(call.getArgument(2))).findFirst());
+        WorkflowDTO.BackfillRequest request = new WorkflowDTO.BackfillRequest();
+        request.setStartDate(LocalDate.of(2026, 9, 1)); request.setEndDate(LocalDate.of(2026, 9, 2));
+        var batch = service.createBackfill(8L, request, 7L);
+        assertEquals(4, batch.size());
+        assertEquals(1, batch.stream().map(TaskRunInstance::getBatchId).distinct().count());
+        assertTrue(batch.stream().allMatch(run -> run.getWindowEnd().equals(run.getWindowStart().plusDays(1))));
+        assertTrue(batch.stream().filter(run -> run.getTaskId().equals(8L)).allMatch(run -> run.getStatus() == TaskRunInstance.RunStatus.waiting));
+        request.setBindingPolicy("reuse_available");
+        var reuse = service.createBackfill(8L, request, 7L);
+        assertEquals(2, reuse.size()); assertTrue(reuse.stream().allMatch(run -> run.getTaskId().equals(8L)));
     }
 
     @Test
@@ -131,35 +181,37 @@ class WorkflowServiceTest {
     @Test
     void retriesFailedExecutionWithBackoffBeforeTerminalFailure() {
         TaskRunInstance running = TaskRunInstance.builder().id(9L)
-                .status(TaskRunInstance.RunStatus.running).retryCount(0).build();
-        when(instanceRepository.findById(9L)).thenReturn(Optional.of(running));
+                .status(TaskRunInstance.RunStatus.running).retryCount(0).activeAttemptId(1L).executorId("runner").build();
+        when(attempts.findById(1L)).thenReturn(Optional.of(com.rtdwh.entity.TaskRunAttempt.builder().id(1L).instanceId(9L).status("claimed").build()));
+        when(instanceRepository.findByIdForUpdate(9L)).thenReturn(Optional.of(running));
         when(instanceRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         ReflectionTestUtils.setField(service, "maxRetries", 1);
         ReflectionTestUtils.setField(service, "retryBackoffSeconds", 10L);
 
-        TaskRunInstance retrying = service.failOrRetry(9L, "temporary error");
+        TaskRunInstance retrying = service.failOrRetry(9L, "temporary error", 1L, "runner");
 
         assertEquals(TaskRunInstance.RunStatus.queued, retrying.getStatus());
         assertEquals(1, retrying.getRetryCount());
         assertNotNull(retrying.getNextRetryAt());
 
-        retrying.setStatus(TaskRunInstance.RunStatus.running);
-        TaskRunInstance failed = service.failOrRetry(9L, "still broken");
+        retrying.setStatus(TaskRunInstance.RunStatus.running); retrying.setExecutorId("runner");
+        TaskRunInstance failed = service.failOrRetry(9L, "still broken", 1L, "runner");
         assertEquals(TaskRunInstance.RunStatus.failed, failed.getStatus());
         assertNotNull(failed.getFinishedAt());
     }
 
     @Test
-    void registersDatasetProductionAfterSuccessfulInstance() {
+    void computationSuccessQueuesIndependentDeliveryCheck() {
         TaskRunInstance running = TaskRunInstance.builder().id(12L).taskId(8L)
                 .businessDate(LocalDate.of(2026, 8, 22)).status(TaskRunInstance.RunStatus.running).build();
-        when(instanceRepository.findById(12L)).thenReturn(Optional.of(running));
+        when(instanceRepository.findByIdForUpdate(12L)).thenReturn(Optional.of(running));
         when(instanceRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         TaskRunInstance completed = service.complete(12L, true, null);
 
         assertEquals(TaskRunInstance.RunStatus.success, completed.getStatus());
-        verify(datasetProductionService).recordSuccess(completed);
+        assertEquals("checking", completed.getDeliveryStatus());
+        verify(datasetProductionService, never()).recordSuccess(any());
     }
 
     private SyncTask task(Long id, SyncTask.TaskType type) {

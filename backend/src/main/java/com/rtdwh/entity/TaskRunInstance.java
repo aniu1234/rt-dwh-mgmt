@@ -28,6 +28,16 @@ public class TaskRunInstance {
     @Column(nullable = false)
     private Long taskId;
     private Long definitionVersionId;
+    private Long activeAttemptId;
+    @Builder.Default private Integer attemptCount = 0;
+    @Column(length=16) @Builder.Default private String deliveryStatus = "pending";
+    @Column(length=256) private String deliveryError;
+    private LocalDate windowStart;
+    private LocalDate windowEnd;
+    @Column(length=24) private String bindingPolicy;
+    private Long scheduleRevisionId;
+    private java.time.Instant scheduledAt;
+    private LocalDateTime accessCheckedAt;
     @Column(nullable = false, length = 64)
     private String batchId;
     @Column(nullable = false)

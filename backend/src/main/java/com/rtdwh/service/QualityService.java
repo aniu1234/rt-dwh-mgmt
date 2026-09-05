@@ -65,6 +65,9 @@ public class QualityService {
         rule.setTargetColumn(input.getTargetColumn());
         rule.setThreshold(input.getThreshold());
         rule.setExpression(input.getExpression());
+        rule.setCheckScope(input.getCheckScope());
+        rule.setTimeColumn(input.getTimeColumn());
+        rule.setEmptyPolicy(input.getEmptyPolicy());
         if (input.getEnabled() != null) {
             rule.setEnabled(input.getEnabled());
         }
@@ -123,6 +126,10 @@ public class QualityService {
                 ? dorisConnectionService.getDatabase() : rule.getLayer();
         try {
             return accessScopeService.allowedReference(userId, rule.getTargetTable(),
+                    dorisConnectionService.getCatalog(), database)
+                    && accessScopeService.canAccessDorisSql(userId, "SELECT 1 FROM "
+                    + java.util.Arrays.stream(rule.getTargetTable().replace("`", "").split("\\."))
+                        .map(DorisConnectionService::quoteIdentifier).collect(java.util.stream.Collectors.joining(".")),
                     dorisConnectionService.getCatalog(), database);
         } catch (IllegalArgumentException invalidReference) {
             return false;
@@ -130,16 +137,26 @@ public class QualityService {
     }
 
     private boolean canAccessAlert(Long userId, QualityAlert alert) {
-        if (alert.getRuleId() != null) {
-            var rule = ruleRepository.findById(alert.getRuleId());
-            if (rule.isPresent()) return canAccess(userId, rule.get());
-        }
-        try {
-            return accessScopeService.allowedReference(userId, alert.getTargetTable(),
-                    dorisConnectionService.getCatalog(), dorisConnectionService.getDatabase());
-        } catch (IllegalArgumentException invalidReference) {
-            return false;
-        }
+        return canAccessSnapshot(userId, alert.getTargetTable(), alert.getLayer());
+    }
+
+    public boolean canAccessSnapshot(Long userId, String table, String layer) {
+        // Legacy one-part targets have no immutable database evidence. A migrated
+        // layer inferred from a mutable rule is not an authorization boundary.
+        if (table == null || !table.contains(".")) return false;
+        return canAccess(userId, QualityRule.builder().targetTable(table).layer(layer).build());
+    }
+
+    public void validateForPreview(QualityRule rule, Long userId) {
+        normalizeAndValidate(rule);
+        assertAccess(userId, rule);
+    }
+
+    public void validateCheckSql(Long userId, String sql) {
+        if (userId == null) accessScopeService.validateDorisSystem(sql,
+                dorisConnectionService.getCatalog(), dorisConnectionService.getDatabase());
+        else accessScopeService.validateDoris(userId, sql,
+                dorisConnectionService.getCatalog(), dorisConnectionService.getDatabase());
     }
 
     private void resolveOpenAlerts(Long ruleId, String reason) {
@@ -157,6 +174,17 @@ public class QualityService {
 
     private void normalizeAndValidate(QualityRule rule) {
         rule.setRuleName(requiredText(rule.getRuleName(), "规则名称", 100));
+        if (rule.getCheckScope() == null) rule.setCheckScope("full_table");
+        if (!Set.of("full_table", "business_window").contains(rule.getCheckScope()))
+            throw new IllegalArgumentException("检测范围必须为全表或业务窗口");
+        if ("business_window".equals(rule.getCheckScope())) {
+            String column = requiredText(rule.getTimeColumn(), "业务时间字段", 100);
+            if (!IDENTIFIER.matcher(column).matches()) throw new IllegalArgumentException("业务时间字段格式不正确");
+            rule.setTimeColumn(column);
+        } else rule.setTimeColumn(null);
+        if (rule.getEmptyPolicy() == null) rule.setEmptyPolicy("fail");
+        if (!Set.of("fail", "allow").contains(rule.getEmptyPolicy()))
+            throw new IllegalArgumentException("空数据策略必须为不通过或允许空数据");
 
         String ruleType = requiredText(rule.getRuleType(), "规则类型", 50).toLowerCase(Locale.ROOT);
         if (!RULE_TYPES.contains(ruleType)) throw new IllegalArgumentException("不支持的质量规则类型: " + ruleType);

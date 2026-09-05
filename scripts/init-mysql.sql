@@ -19,6 +19,8 @@ CREATE DATABASE IF NOT EXISTS rtdwh_paimon_meta
 -- The official MySQL image creates MYSQL_USER before executing init scripts.
 -- Keep the default deployment user able to initialize Paimon catalog tables.
 GRANT ALL PRIVILEGES ON rtdwh_paimon_meta.* TO 'rtdwh_admin'@'%';
+-- Flyway inspects session user variables before applying migrations.
+GRANT SELECT ON performance_schema.user_variables_by_thread TO 'rtdwh_admin'@'%';
 GRANT SELECT, RELOAD, SHOW DATABASES, REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'rtdwh_admin'@'%';
 FLUSH PRIVILEGES;
 

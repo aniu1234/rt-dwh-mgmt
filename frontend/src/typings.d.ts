@@ -30,6 +30,7 @@ declare namespace API {
 
   /** 同步任务 */
   interface SyncTask {
+    parameterSchemaJson?: string;
     id: number;
     name: string;
     description: string;
@@ -181,6 +182,7 @@ declare namespace API {
   }
 
   interface TaskDependency {
+    outputDatasetId?: number;
     id: number;
     upstreamTaskId: number;
     downstreamTaskId: number;
@@ -188,7 +190,24 @@ declare namespace API {
     createdAt: string | number[];
   }
 
+  interface TaskDeploymentRevision {
+    id: number;
+    taskId: number;
+    definitionVersionId: number;
+    requestedBy: number;
+    actionType: string;
+    status: string;
+    flinkJobId?: string;
+    contractHash?: string;
+    restorePath?: string;
+    desiredParallelism?: number;
+    errorMessage?: string;
+  }
+
   interface TaskDefinitionVersion {
+    contractJson?: string;
+    contractProvenance?: 'legacy-inferred' | 'frozen-v1';
+    contractHash?: string;
     id: number;
     taskId: number;
     versionNo: number;
@@ -198,6 +217,16 @@ declare namespace API {
   }
 
   interface TaskRunInstance {
+    activeAttemptId?: number;
+    attemptCount?: number;
+    windowStart?: string;
+    windowEnd?: string;
+    bindingPolicy?: string;
+    deliveryStatus?: string;
+    deliveryError?: string;
+    scheduleRevisionId?: number;
+    scheduledAt?: string;
+    accessCheckedAt?: string;
     id: number;
     taskId: number;
     batchId: string;
@@ -221,9 +250,14 @@ declare namespace API {
     dependencies: TaskDependency[];
   }
 
-  interface TaskSchedule { id: number; taskId: number; cronExpression: string; timezone: string; businessDateOffset: number; parametersJson?: string; enabled: boolean; nextRunAt?: string; lastRunAt?: string; }
+  interface TaskRunAttempt { id: number; instanceId: number; attemptNo: number; executorId: string; externalJobId?: string; status: string; errorMessage?: string; startedAt: string; submittedAt?: string; finishedAt?: string; }
+  interface TaskRunBinding { id: number; dependencyId: number; upstreamTaskId: number; upstreamVersionId: number; upstreamInstanceId?: number; outputDatasetId?: number; productionId?: number; conditionType: string; bindingPolicy: string; windowStart: string; windowEnd: string; boundAt?: string; }
+  interface ProductionCheck { id: number; productionId: number; qualityBatchId?: string; status: string; reason: string; checkedAt: string; }
+  interface TaskScheduleRevision { id: number; taskId: number; revisionNo: number; cronExpression: string; timezone: string; businessDateOffset: number; parametersJson?: string; enabled: boolean; action: string; createdBy: number; createdAt: string; }
+  interface TaskAccessCheck { id: number; definitionVersionId?: number; instanceId?: number; actorId?: number; action: string; allowed: boolean; reason: string; checkedAt: string; }
+  interface TaskSchedule { activeRevisionId?: number; lastError?: string; id: number; taskId: number; cronExpression: string; timezone: string; businessDateOffset: number; parametersJson?: string; enabled: boolean; nextRunAt?: string; lastRunAt?: string; }
   interface TaskOutputDataset { id: number; taskId: number; catalogName: string; databaseName: string; tableName: string; layer: string; owner?: string; businessDesc?: string; slaMinutes: number; qualityGateEnabled: boolean; lastProducedAt?: string; lastInstanceId?: number; }
-  interface DatasetProduction { id: number; outputDatasetId: number; taskId: number; instanceId: number; businessDate: string; status: string; producedAt: string; }
+  interface DatasetProduction { windowStart?: string; windowEnd?: string; definitionVersionId?: number; attemptId?: number; qualityBatchId?: string; reason?: string; checkedAt?: string; id: number; outputDatasetId: number; taskId: number; instanceId: number; businessDate: string; status: string; producedAt: string; }
 
   interface DataServiceDefinition { id: number; serviceCode: string; serviceName: string; description?: string; creatorId: number; sqlTemplate: string; parameterConfig?: string; catalogName: string; databaseName: string; maxRows: number; timeoutSeconds: number; rateLimitPerMinute: number; status: 'draft'|'published'|'offline'; apiVersion: number; publishedAt?: string; updatedAt: string; }
   interface DataServiceApp { id: number; appName: string; appKey: string; enabled: boolean; expiresAt?: string; createdAt: string; }
@@ -306,6 +340,13 @@ declare namespace API {
 
   /** 数仓表元数据 */
   interface DwhTableMeta {
+    assetId: string;
+    catalogName?: string;
+    assetType?: string;
+    discoveryStatus?: string;
+    schemaStatus?: string;
+    lastSeenAt?: string | number[];
+    schemaObservedAt?: string | number[];
     id: number;
     paimonDb: string;
     paimonTable: string;
@@ -338,6 +379,7 @@ declare namespace API {
 
   /** 数仓表列元数据 */
   interface DwhColumnMeta {
+    engineFieldId?: number;
     id: number;
     tableId: number;
     tableMetaId?: number;
@@ -593,7 +635,13 @@ declare namespace API {
   }
 
   /** 数据质量规则 */
-  interface QualityRule {
+  interface QualityScopeConfig {
+    checkScope?: 'full_table' | 'business_window';
+    timeColumn?: string;
+    emptyPolicy?: 'fail' | 'allow';
+  }
+
+  interface QualityRule extends QualityScopeConfig {
     id: number;
     ruleName: string;
     layer: string;
@@ -608,7 +656,7 @@ declare namespace API {
     updatedAt: string;
   }
 
-  interface QualityRuleInput {
+  interface QualityRuleInput extends QualityScopeConfig {
     ruleName: string;
     layer: string;
     ruleType: string;
@@ -620,7 +668,21 @@ declare namespace API {
   }
 
   /** 数据质量告警 */
-  interface QualityAlert {
+  interface QualityEvidence {
+    scopeKey?: string;
+    windowStart?: string;
+    windowEnd?: string;
+    layer?: string;
+  }
+
+  interface QualityPreview {
+    checkSql: string;
+    scopeKey: string;
+    window?: { start: string; end: string };
+    emptyPolicy: string;
+  }
+
+  interface QualityAlert extends QualityEvidence {
     id: number;
     ruleId: number;
     ruleType: string;
@@ -636,7 +698,11 @@ declare namespace API {
     resolutionReason?: 'recovered' | 'acknowledged' | 'suppressed' | string;
   }
 
-  interface QualityCheckRun {
+  interface QualityCheckRun extends QualityEvidence {
+    checkedRows?: number;
+    violationRows?: number;
+    timeColumn?: string;
+    emptyPolicy?: string;
     id: number;
     batchId: string;
     ruleId: number;
@@ -740,4 +806,19 @@ declare namespace API {
     paimonDb?: string;
     database?: string;
   }
+  interface AssetUsage {
+    kind: string; id: number; name: string; relation: string; versionId?: number; versionNo?: number; evidence: string; href: string;
+  }
+  interface AssetContext {
+    usages: AssetUsage[];
+    productions: DatasetProduction[];
+    relatedAssets: { assetId: string; name: string; direction: string }[];
+    coverage: string;
+  }
+  interface AssetSchemaRevision {
+    id: number; revisionNo: number; severity: string; evidenceSource: string;
+    fingerprint: string; beforeSchema?: string; afterSchema: string; changesJson: string;
+    observedAt: string | number[];
+  }
+
 }
