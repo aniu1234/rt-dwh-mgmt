@@ -139,6 +139,7 @@ public class QueryService {
 
         long started = System.currentTimeMillis();
         List<String> columns = new ArrayList<>();
+        List<DataServiceContractService.Column> columnSchema = new ArrayList<>();
         List<List<Object>> rows = new ArrayList<>();
         QueryStatus status = QueryStatus.success;
         String error = null;
@@ -149,7 +150,7 @@ public class QueryService {
                 () -> monitorRuntimeStats(requestId, monitorRunning, runtimeStats));
         try {
             truncated = executeViaDorisJdbc(
-                    sql, catalog, database, requestId, maxRows, timeout, query, columns, rows);
+                    sql, catalog, database, requestId, maxRows, timeout, query, columns, rows, columnSchema);
             if (query.cancelled.get()) status = QueryStatus.cancelled;
         } catch (Exception exception) {
             if (query.cancelled.get()
@@ -186,6 +187,7 @@ public class QueryService {
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("columns", columns);
+        result.put("columnSchema", columnSchema);
         result.put("rows", rows);
         result.put("rowCount", rows.size());
         result.put("durationMs", duration);
@@ -297,7 +299,8 @@ public class QueryService {
             int timeout,
             ActiveQuery query,
             List<String> columns,
-            List<List<Object>> rows
+            List<List<Object>> rows,
+            List<DataServiceContractService.Column> columnSchema
     ) throws SQLException {
         boolean truncated = false;
         try (Connection connection = dorisConnectionService.getConnection()) {
@@ -319,6 +322,7 @@ public class QueryService {
                 ensureNotCancelled(query);
                 try (ResultSet resultSet = statement.executeQuery(sql)) {
                     ResultSetMetaData metadata = resultSet.getMetaData();
+                    columnSchema.addAll(DataServiceContractService.readColumns(metadata));
                     for (int i = 1; i <= metadata.getColumnCount(); i++) columns.add(metadata.getColumnLabel(i));
                     while (resultSet.next()) {
                         ensureNotCancelled(query);

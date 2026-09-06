@@ -35,6 +35,7 @@ public class FoundationService {
     private final TaskDefinitionVersionRepository versionRepository;
     private final QueryAccessScopeService accessScopeService;
     private final ObjectMapper objectMapper;
+    private final DataServiceService dataServices;
 
     @Transactional(readOnly = true)
     public FoundationDTO.Summary summary(Long userId, boolean canViewReports, boolean canViewDataServices,
@@ -45,11 +46,7 @@ public class FoundationService {
         long reports = canViewReports ? reportRepository.findByIsPublished(true).stream()
                 .filter(report -> canAccessDoris(userId, report.getSqlQuery(), report.getFilterConfig(), DEFAULT_CATALOG, "ods"))
                 .count() : 0;
-        long services = canViewDataServices
-                ? dataServiceRepository.findAll().stream()
-                .filter(service -> service.getStatus() == DataServiceDefinition.ServiceStatus.published)
-                .filter(service -> canAccessDoris(userId, service.getSqlTemplate(), service.getParameterConfig(),
-                        service.getCatalogName(), service.getDatabaseName())).count() : 0;
+        long services = canViewDataServices ? dataServices.publishedDefinitions(userId).size() : 0;
         long unowned = tables.stream().filter(table -> table.getOwner() == null || table.getOwner().isBlank()).count();
         int assetScore = ratioScore(tables.size(), unowned);
 
@@ -126,8 +123,7 @@ public class FoundationService {
                 new FoundationDTO.SearchItem("report", report.getId(), report.getReportName(),
                         report.getReportType() + " 报表", Boolean.TRUE.equals(report.getIsPublished()) ? "published" : "draft", "/query/report")));
         if (canViewDataServices) dataServiceRepository.searchByKeyword(query, PageRequest.of(0, limit)).stream()
-                .filter(service -> canAccessDoris(userId, service.getSqlTemplate(), service.getParameterConfig(),
-                        service.getCatalogName(), service.getDatabaseName())).forEach(service -> items.add(
+                .filter(service -> dataServices.canReadDefinition(service, userId)).forEach(service -> items.add(
                 new FoundationDTO.SearchItem("data_service", service.getId(), service.getServiceName(),
                         service.getServiceCode() + optional(service.getDescription()), service.getStatus().name(), "/query/data-service")));
         return items.stream().limit(limit).toList();

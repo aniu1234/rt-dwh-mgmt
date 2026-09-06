@@ -14,6 +14,9 @@ public class DataServiceInvocationLog {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;
     private Long serviceId;
     private Long appId;
+    private Long versionId;
+    private Integer apiVersion;
+    private Long executionUserId;
     @Column(nullable = false, length = 64) private String serviceCode;
     @Column(nullable = false, length = 16) private String status;
     @Column(nullable = false) private Integer httpStatus;

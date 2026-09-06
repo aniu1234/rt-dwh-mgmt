@@ -59,6 +59,7 @@ public class SyncTaskService {
             throw new IllegalArgumentException("任务类型或同步策略不合法");
         }
         String scenarioCode = resolveScenarioCode(dto.getScenarioCode(), taskType);
+        TaskCapabilityPolicy.requireSupported(taskType, scenarioCode);
         ExecutionMode executionMode = resolveExecutionMode(dto.getExecutionMode(), scenarioCode, taskType);
         if (taskType == TaskType.cdc_sync) {
             if (dto.getSourceConfigId() == null) throw new IllegalArgumentException("CDC 任务必须选择业务源库");

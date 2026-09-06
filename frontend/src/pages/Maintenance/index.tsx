@@ -2,8 +2,10 @@ import React, { useState } from 'react';
 import { PageContainer } from '@ant-design/pro-components';
 import { Alert, Card, Table, Tag, Button, Space, Select, Input, Modal, InputNumber, Tabs, Statistic, Row, Col, message, Popconfirm, Progress, Badge } from 'antd';
 import { SearchOutlined, ReloadOutlined, ToolOutlined, DeleteOutlined } from '@ant-design/icons';
-import { useRequest } from '@umijs/max';
+import { useAccess, useRequest } from '@umijs/max';
 import { getDwhTables, triggerCompact, triggerExpireSnapshots, getMaintenanceLogs, batchCompact, batchExpireSnapshots, cleanOrphanFiles } from '@/api';
+import RecoveryDrawer, { cleanupStatus, maintenanceStatus } from './RecoveryDrawer';
+import { formatBackendDateTime } from '@/utils/backendDateTime';
 
 const layerColorMap: Record<string, string> = {
   ods: 'blue',
@@ -32,6 +34,10 @@ const showOperationResult = (result: any) => {
 };
 
 const Maintenance: React.FC = () => {
+  const access = useAccess();
+  const [recoveryId, setRecoveryId] = useState<number>();
+  const [logOperation, setLogOperation] = useState<string>();
+  const [logStatus, setLogStatus] = useState<string>();
   const [layerFilter, setLayerFilter] = useState<string | undefined>();
   const [keyword, setKeyword] = useState('');
   const [compactModal, setCompactModal] = useState<{ visible: boolean; tableId?: number; tableName?: string }>({ visible: false });
@@ -47,7 +53,7 @@ const Maintenance: React.FC = () => {
     getDwhTables({ layer: layerFilter, keyword }),
     { refreshDeps: [layerFilter, keyword] },
   );
-  const { data: logsData, loading: logsLoading, refresh: refreshLogs } = useRequest(getMaintenanceLogs, { pollingInterval: 5000 });
+  const { data: logsData, loading: logsLoading, refresh: refreshLogs } = useRequest(() => getMaintenanceLogs({ operation: logOperation, status: logStatus }), { pollingInterval: 5000, refreshDeps: [logOperation, logStatus] });
 
   const tables = (tablesData || []) as API.DwhTableMeta[];
   const logs = (logsData || []) as any[];
@@ -137,7 +143,7 @@ const Maintenance: React.FC = () => {
   };
 
   return (
-    <PageContainer
+    <PageContainer className="rtdwh-evidence-surface"
       title="Paimon 存储维护"
       subTitle="管理小文件合并、快照回溯窗口与孤立文件清理"
     >
@@ -273,15 +279,12 @@ const Maintenance: React.FC = () => {
             children: (
               <Card>
                 <Space style={{ marginBottom: 16 }}>
-                  <Select placeholder="操作类型" allowClear style={{ width: 160 }} options={[
+                  <Select placeholder="操作类型" allowClear value={logOperation} onChange={setLogOperation} style={{ width: 160 }} options={[
                     { label: 'Compact', value: 'compact' },
                     { label: '快照过期', value: 'expire_snapshots' },
-                    { label: '孤立文件清理', value: 'clean_orphan_files' },
+                    { label: '孤立文件清理', value: 'orphan_cleanup' },
                   ]} />
-                  <Select placeholder="触发方式" allowClear style={{ width: 140 }} options={[
-                    { label: '手动触发', value: 'manual' },
-                    { label: '定时任务', value: 'scheduled' },
-                  ]} />
+                  <Select placeholder="执行状态" allowClear value={logStatus} onChange={setLogStatus} style={{ width: 180 }} options={Object.entries(maintenanceStatus).map(([value, label]) => ({ value, label }))} />
                   <Button icon={<ReloadOutlined />} onClick={refreshLogs}>刷新</Button>
                 </Space>
 
@@ -290,13 +293,14 @@ const Maintenance: React.FC = () => {
                   rowKey="id"
                   loading={logsLoading}
                   size="small"
+                  scroll={{ x: 1200 }}
                   columns={[
                     { title: 'ID', dataIndex: 'id', key: 'id', width: 60 },
                     {
                       title: '表',
                       key: 'table',
                       width: 160,
-                      render: (_: any, r: any) => `${r.tableName || r.paimonTable || '—'}`,
+                      render: (_: any, r: any) => r.contractOrigin === 'bound_v1' ? `${r.databaseName}.${r.tableName}` : '历史目标未认证',
                     },
                     {
                       title: '操作',
@@ -320,10 +324,12 @@ const Maintenance: React.FC = () => {
                       dataIndex: 'status',
                       key: 'status',
                       width: 100,
-                      render: (v: string) => <Badge status={v === 'success' ? 'success' : v === 'failed' ? 'error' : v === 'running' ? 'processing' : 'warning'} text={({ success: '成功', running: '运行中', failed: '失败', pending: '待人工执行', unknown: '待协调', timed_out: '超时，仍在协调' } as Record<string, string>)[v] || '未知'} />,
+                      render: (v: string) => <Badge status={v === 'success' ? 'success' : v === 'failed' ? 'error' : v === 'running' ? 'processing' : 'warning'} text={maintenanceStatus[v] || '未知'} />,
                     },
-                    { title: '开始时间', dataIndex: 'createdAt', key: 'start', width: 160, render: (v: string) => v ? new Date(v).toLocaleString('zh-CN') : '—' },
+                    { title: '会话清理', dataIndex: 'cleanupStatus', width: 165, render: (v: string) => cleanupStatus[v] || v },
+                    { title: '开始时间', dataIndex: 'startedAt', key: 'start', width: 170, render: formatBackendDateTime },
                     { title: '耗时', dataIndex: 'durationMs', key: 'duration', width: 100, render: (v: number) => v ? `${(v / 1000).toFixed(1)}s` : '—' },
+                    { title: '恢复', key: 'recovery', width: 120, fixed: 'right', render: (_: any, r: any) => <Button size="small" onClick={() => setRecoveryId(r.id)}>证据与处置</Button> },
                   ]}
                 />
               </Card>
@@ -405,6 +411,7 @@ const Maintenance: React.FC = () => {
         ]}
       />
 
+      <RecoveryDrawer id={recoveryId} canManage={access.canManageDwh} onClose={() => setRecoveryId(undefined)} onChanged={refreshLogs} />
       {/* Compact Modal */}
       <Modal
         title={`触发 Compact: ${compactModal.tableName || ''}`}

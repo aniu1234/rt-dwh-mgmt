@@ -259,11 +259,14 @@ declare namespace API {
   interface TaskOutputDataset { id: number; taskId: number; catalogName: string; databaseName: string; tableName: string; layer: string; owner?: string; businessDesc?: string; slaMinutes: number; qualityGateEnabled: boolean; lastProducedAt?: string; lastInstanceId?: number; }
   interface DatasetProduction { windowStart?: string; windowEnd?: string; definitionVersionId?: number; attemptId?: number; qualityBatchId?: string; reason?: string; checkedAt?: string; id: number; outputDatasetId: number; taskId: number; instanceId: number; businessDate: string; status: string; producedAt: string; }
 
-  interface DataServiceDefinition { id: number; serviceCode: string; serviceName: string; description?: string; creatorId: number; sqlTemplate: string; parameterConfig?: string; catalogName: string; databaseName: string; maxRows: number; timeoutSeconds: number; rateLimitPerMinute: number; status: 'draft'|'published'|'offline'; apiVersion: number; publishedAt?: string; updatedAt: string; }
+  interface DataServiceDefinition { id: number; serviceCode: string; serviceName: string; description?: string; creatorId: number; sqlTemplate: string; parameterConfig?: string; catalogName: string; databaseName: string; maxRows: number; timeoutSeconds: number; rateLimitPerMinute: number; status: 'draft'|'published'|'offline'; apiVersion: number; publishedVersionId?: number; revision: number; hasDraftChanges?: boolean; manageable?: boolean; publishedAt?: string; updatedAt: string; }
+  interface DataServiceColumn { name: string; type: string; precision: number; scale: number; nullable: boolean; }
+  interface DataServiceVersion { id: number; serviceId: number; versionNo: number; serviceCode: string; serviceName: string; description?: string; creatorId: number; sqlTemplate: string; parameterConfig?: string; catalogName: string; databaseName: string; maxRows: number; timeoutSeconds: number; rateLimitPerMinute: number; resultColumnsJson?: string; dependenciesJson?: string; sourceRevision: number; origin: 'publish'|'rollback'|'legacy_capture'; sourceVersionId?: number; publishedBy?: number; changeSummary?: string; createdAt: string; }
+  interface DataServicePublicationPreview { revision: number; currentVersionId?: number; publishable: boolean; changes: string[]; breakingChanges: string[]; resultColumns: DataServiceColumn[]; dependencies: { catalog: string; database: string; table: string }[]; compatibilityBasis: string; }
   interface DataServiceApp { id: number; appName: string; appKey: string; enabled: boolean; expiresAt?: string; createdAt: string; }
   interface DataServiceCredential { id: number; appName: string; appKey: string; appSecret: string; enabled: boolean; expiresAt?: string; }
   interface DataServiceGrant { id: number; appId: number; serviceId: number; createdAt: string; }
-  interface DataServiceInvocationLog { id: number; serviceId?: number; appId?: number; serviceCode: string; status: string; httpStatus: number; rowCount?: number; durationMs?: number; clientIp?: string; errorMessage?: string; createdAt: string; }
+  interface DataServiceInvocationLog { id: number; serviceId?: number; appId?: number; versionId?: number; apiVersion?: number; executionUserId?: number; serviceCode: string; status: string; httpStatus: number; rowCount?: number; durationMs?: number; clientIp?: string; errorMessage?: string; createdAt: string; }
 
   interface FoundationCapability { key: 'asset'|'security'|'quality'|'observability'|'audit'; name: string; description: string; status: 'healthy'|'attention'|'risk'; score: number; riskCount: number; metrics: Record<string, number>; path: string; }
   interface FoundationSlaRisk { outputId: number; taskId: number; qualifiedName: string; layer: string; owner?: string; slaMinutes: number; lastProducedAt?: string; overdueMinutes: number; severity: 'warning'|'high'|'critical'; }
@@ -784,27 +787,51 @@ declare namespace API {
   /** 维护日志 */
   interface MaintenanceLog {
     id: number;
+    revision: number;
+    contractOrigin: string;
+    assetId?: string;
+    catalogName?: string;
+    databaseName?: string;
+    requestedBy?: number;
+    gatewayUrl?: string;
+    flinkUrl?: string;
+    correlationName?: string;
+    sessionId?: string;
+    operationId?: string;
+    flinkJobId?: string;
+    executionPhase?: string;
+    observedAt?: string | number[];
+    observedState?: string;
+    cleanupStatus: string;
+    cleanupAttempts: number;
+    cleanupNextAt?: string | number[];
+    cleanupError?: string;
+    cleanedAt?: string | number[];
     tableId?: number;
     tableMetaId?: number;
     tableName?: string;
-    operation: string; // compact | expire | clean
+    operation: 'compact' | 'expire_snapshots' | 'orphan_cleanup';
     triggerType: string; // manual | auto
-    status: string;
-    detail: string;
-    operator: string;
-    createdAt: string;
+    status: 'running' | 'success' | 'failed' | 'pending' | 'unknown' | 'timed_out';
+    detail?: string;
+    operator?: string;
+    createdAt?: string | number[];
     // Additional fields from backend entity
     operationType?: string;
     triggerTypeStr?: string;
     strategy?: string;
     retainLast?: number;
-    startedAt?: string;
-    finishedAt?: string;
+    startedAt?: string | number[];
+    finishedAt?: string | number[];
     durationMs?: number;
     errorMsg?: string;
     sqlContent?: string;
     paimonDb?: string;
     database?: string;
+  }
+  interface MaintenanceRecoveryDetail {
+    operation: MaintenanceLog;
+    events: { id: number; actorId?: number; action: string; reason?: string; evidenceJson: string; createdAt: string | number[] }[];
   }
   interface AssetUsage {
     kind: string; id: number; name: string; relation: string; versionId?: number; versionNo?: number; evidence: string; href: string;

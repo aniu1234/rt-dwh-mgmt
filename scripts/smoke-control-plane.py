@@ -91,7 +91,7 @@ try:
                      '/dwh/tables/' + str(other[1]) + '/snapshots', '/sync-tasks/' + str(other[2])]:
             api('GET', path, token=token, denied=True)
         api('POST', '/dwh/tables/' + str(other[1]) + '/compact', token=token, denied=True)
-        api('POST', '/data-services/' + str(other[3]) + '/publish', token=token, denied=True)
+        api('POST', '/data-services/' + str(other[3]) + '/publish', {'expectedRevision': 0}, token=token, denied=True)
         api('DELETE', '/data-services/' + str(other[3]), token=token, denied=True)
         for path in ['/dwh/tables', '/lineage/graph', '/data-services']:
             result = json.dumps(api('GET', path, token=token))
@@ -112,6 +112,11 @@ try:
     missing = api('POST', '/dwh/tables/' + str(table_id) + '/compact')['operationId']
     failed = wait_log(table_id, missing, {'failed', 'success'})
     assert failed['status'] == 'failed', 'CALL on a missing table falsely succeeded'
+    for _ in range(90):
+        recovery = api('GET', '/dwh/maintenance/' + str(missing))['operation']
+        if recovery['cleanupStatus'] == 'done': break
+        time.sleep(1)
+    assert recovery['cleanupStatus'] == 'done', 'Failed CALL session was not cleaned'
     print('PASS: real Paimon CALL failure is recorded as failed', flush=True)
 
     if '--gateway-fault' in sys.argv:
@@ -142,4 +147,6 @@ finally:
     for role_id in roles:
         api('DELETE', '/admin/roles/' + str(role_id))
     for table_id in tables:
-        sql(f"DELETE FROM table_maintenance_log WHERE table_meta_id={int(table_id)}; DELETE FROM dwh_table_meta WHERE id={int(table_id)} AND paimon_table LIKE '{PREFIX}%';")
+        sql(f"DELETE FROM maintenance_recovery_event WHERE maintenance_id IN (SELECT id FROM table_maintenance_log WHERE table_meta_id={int(table_id)}); "
+            f"DELETE FROM table_maintenance_log WHERE table_meta_id={int(table_id)}; DELETE FROM maintenance_coordination_lock WHERE table_meta_id={int(table_id)}; "
+            f"DELETE FROM dwh_table_meta WHERE id={int(table_id)} AND paimon_table LIKE '{PREFIX}%';")

@@ -25,6 +25,10 @@ public class DataServiceDefinition {
     @Enumerated(EnumType.STRING) @Column(nullable = false, length = 16) private ServiceStatus status;
     @Builder.Default @Column(nullable = false) private Integer apiVersion = 1;
     private LocalDateTime publishedAt;
+    private Long publishedVersionId;
+    @Builder.Default @Version @Column(nullable = false) private Long revision = 0L;
+    @Transient private Boolean hasDraftChanges;
+    @Transient private Boolean manageable;
     @CreationTimestamp @Column(updatable = false) private LocalDateTime createdAt;
     @UpdateTimestamp private LocalDateTime updatedAt;
     public enum ServiceStatus { draft, published, offline }

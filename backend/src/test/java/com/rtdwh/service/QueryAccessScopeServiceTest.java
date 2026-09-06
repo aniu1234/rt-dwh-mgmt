@@ -19,6 +19,21 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class QueryAccessScopeServiceTest {
+    @Test void disabledOwnerCannotKeepServingThroughApplicationCredentials() {
+        var admin = SysRole.builder().id(1L).roleCode("ADMIN").build();
+        when(userRepository.findById(1L)).thenReturn(Optional.of(SysUser.builder().id(1L)
+                .status(SysUser.UserStatus.disabled).roles(Set.of(admin)).build()));
+        assertThrows(IllegalArgumentException.class, () -> service.assertDataServiceExecutionIdentity(1L));
+    }
+    @Test void apiOwnerMustRetainTheServicePermission() {
+        var permission = com.rtdwh.entity.SysPermission.builder().permCode("data-service:manage").build();
+        var role = SysRole.builder().id(2L).roleCode("DEVELOPER").permissions(Set.of(permission)).build();
+        var owner = SysUser.builder().id(7L).status(SysUser.UserStatus.active).roles(Set.of(role)).build();
+        when(userRepository.findById(7L)).thenReturn(Optional.of(owner));
+        assertDoesNotThrow(() -> service.assertDataServiceExecutionIdentity(7L));
+        role.setPermissions(Set.of());
+        assertThrows(IllegalArgumentException.class, () -> service.assertDataServiceExecutionIdentity(7L));
+    }
     private final SysUserRepository userRepository = mock(SysUserRepository.class);
     private final RoleDataScopeRepository scopeRepository = mock(RoleDataScopeRepository.class);
     private final QueryAccessScopeService service = new QueryAccessScopeService(userRepository, scopeRepository, mock(ViewDependencyService.class));

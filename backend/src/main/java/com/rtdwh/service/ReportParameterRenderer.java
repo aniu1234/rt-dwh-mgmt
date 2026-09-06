@@ -61,7 +61,27 @@ public class ReportParameterRenderer {
 
     public String sqlForAccessCheck(String sql, String filterConfig) {
         validateTemplate(sql, filterConfig);
-        return PLACEHOLDER.matcher(sql).replaceAll("NULL");
+        Map<String, Definition> definitions = definitions(filterConfig);
+        return PLACEHOLDER.matcher(sql).replaceAll(match ->
+                "stringlist".equals(definitions.get(match.group(1)).type()) ? "(NULL)" : "NULL");
+    }
+
+    /** Representative values for LIMIT 0 metadata inspection; never a saved runtime default. */
+    public String sqlForContractCheck(String sql, String filterConfig) {
+        Map<String, Object> samples = new LinkedHashMap<>();
+        for (Definition definition : definitions(filterConfig).values()) {
+            Object sample = definition.defaultValue();
+            if (sample == null) sample = switch (definition.type()) {
+                case "number" -> 0;
+                case "boolean" -> false;
+                case "date" -> "2000-01-01";
+                case "datetime" -> "2000-01-01T00:00:00";
+                case "stringlist" -> List.of("contract");
+                default -> "contract";
+            };
+            samples.put(definition.name(), sample);
+        }
+        return render(sql, filterConfig, samples);
     }
 
     public void validateTemplate(String sql, String filterConfig) {

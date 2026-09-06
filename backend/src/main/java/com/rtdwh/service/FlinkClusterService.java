@@ -332,26 +332,11 @@ public class FlinkClusterService {
         }
         log.info("Submitting Flink SQL via SQL Gateway for task [{}]", task.getTaskName());
 
+        String boundGateway = SqlGatewayClient.endpoint(sqlGatewayUrl);
+        SqlGatewayClient gatewayClient = new SqlGatewayClient(restTemplate, objectMapper);
         String sessionHandle = null;
         try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-
-            // The SQL Gateway REST API uses sessionHandle/operationHandle. Do
-            // not send the old sessionConfig shape, which is not part of the API.
-            HttpEntity<Void> sessionReq = new HttpEntity<>(headers);
-
-            ResponseEntity<String> sessionResp = restTemplate.postForEntity(
-                sqlGatewayUrl + "/v1/sessions", sessionReq, String.class);
-
-            if (sessionResp.getStatusCode().is2xxSuccessful() && sessionResp.getBody() != null) {
-                JsonNode json = objectMapper.readTree(sessionResp.getBody());
-                sessionHandle = firstNonBlankText(json, "sessionHandle", "sessionId");
-            }
-
-            if (sessionHandle == null || sessionHandle.isBlank()) {
-                throw new IllegalStateException("SQL Gateway did not return a sessionHandle");
-            }
+            sessionHandle = gatewayClient.open(boundGateway, Map.of());
 
             List<String> statements = splitSqlStatements(task.getFlinkSql());
             if (statements.isEmpty()) {
@@ -374,29 +359,8 @@ public class FlinkClusterService {
             // database and table DDL must finish in the same session before INSERT.
             for (int index = 0; index < statements.size(); index++) {
                 String statement = statements.get(index);
-                Map<String, Object> statementPayload = new LinkedHashMap<>();
-                statementPayload.put("statement", statement);
-                statementPayload.put("executionConfig", executionConfig);
-
-                ResponseEntity<String> statementResponse = restTemplate.postForEntity(
-                        sqlGatewayUrl + "/v1/sessions/" + sessionHandle + "/statements",
-                        new HttpEntity<>(statementPayload, headers),
-                        String.class
-                );
-                if (!statementResponse.getStatusCode().is2xxSuccessful()
-                        || statementResponse.getBody() == null) {
-                    throw new IllegalStateException("SQL Gateway rejected statement " + (index + 1)
-                            + ": HTTP " + statementResponse.getStatusCode());
-                }
-
-                JsonNode operationResponse = objectMapper.readTree(statementResponse.getBody());
-                lastOperationHandle = firstNonBlankText(operationResponse, "operationHandle", "operationId");
-                if (lastOperationHandle == null || lastOperationHandle.isBlank()) {
-                    throw new IllegalStateException("SQL Gateway did not return operationHandle for statement "
-                            + (index + 1));
-                }
-
-                JsonNode operationResult = waitForSqlGatewayOperation(sessionHandle, lastOperationHandle);
+                lastOperationHandle = gatewayClient.submit(boundGateway, sessionHandle, statement, executionConfig);
+                JsonNode operationResult = waitForSqlGatewayOperation(boundGateway, sessionHandle, lastOperationHandle);
                 String resultJobId = extractFlinkJobId(operationResult);
                 if (resultJobId != null) {
                     submittedJobIds.add(resultJobId);
@@ -437,7 +401,7 @@ public class FlinkClusterService {
         } finally {
             if (sessionHandle != null) {
                 try {
-                    restTemplate.delete(sqlGatewayUrl + "/v1/sessions/" + sessionHandle);
+                    gatewayClient.close(boundGateway, sessionHandle);
                     log.debug("SQL Gateway session {} cleaned up", sessionHandle);
                 } catch (Exception cleanupEx) {
                     log.warn("Failed to clean up SQL Gateway session {}: {}",
@@ -447,23 +411,17 @@ public class FlinkClusterService {
         }
     }
 
-    private JsonNode waitForSqlGatewayOperation(String sessionHandle, String operationHandle) {
+    private JsonNode waitForSqlGatewayOperation(String boundGateway, String sessionHandle, String operationHandle) {
         for (int attempt = 0; attempt < 60; attempt++) {
             try {
-                ResponseEntity<String> statusResponse = restTemplate.getForEntity(
-                    sqlGatewayUrl + "/v1/sessions/" + sessionHandle
-                    + "/operations/" + operationHandle + "/status",
-                    String.class);
-
-                if (statusResponse.getStatusCode().is2xxSuccessful()
-                        && statusResponse.getBody() != null) {
-                    JsonNode statusJson = objectMapper.readTree(statusResponse.getBody());
+                JsonNode statusJson = new SqlGatewayClient(restTemplate, objectMapper).status(boundGateway, sessionHandle, operationHandle);
+                {
                     String status = statusJson.path("status").asText("");
                     if ("FINISHED".equalsIgnoreCase(status)) {
-                        return fetchSqlGatewayOperationResult(sessionHandle, operationHandle);
+                        return fetchSqlGatewayOperationResult(boundGateway, sessionHandle, operationHandle);
                     }
                     if (Set.of("ERROR", "FAILED", "CANCELED", "CLOSED").contains(status.toUpperCase())) {
-                        JsonNode errorResult = fetchSqlGatewayOperationResult(sessionHandle, operationHandle);
+                        JsonNode errorResult = fetchSqlGatewayOperationResult(boundGateway, sessionHandle, operationHandle);
                         String detail = extractSqlGatewayError(errorResult);
                         throw new IllegalStateException("SQL Gateway operation ended with status " + status
                                 + (detail == null ? "" : ": " + detail));
@@ -486,16 +444,9 @@ public class FlinkClusterService {
         throw new IllegalStateException("SQL Gateway operation timed out after 30 seconds");
     }
 
-    private JsonNode fetchSqlGatewayOperationResult(String sessionHandle, String operationHandle) {
+    private JsonNode fetchSqlGatewayOperationResult(String boundGateway, String sessionHandle, String operationHandle) {
         try {
-            ResponseEntity<String> resultResponse = restTemplate.getForEntity(
-                    sqlGatewayUrl + "/v1/sessions/" + sessionHandle
-                            + "/operations/" + operationHandle + "/result/0",
-                    String.class
-            );
-            return resultResponse.getBody() == null
-                    ? objectMapper.createObjectNode()
-                    : objectMapper.readTree(resultResponse.getBody());
+            return new SqlGatewayClient(restTemplate, objectMapper).result(boundGateway, sessionHandle, operationHandle, 0);
         } catch (RestClientResponseException exception) {
             try {
                 return objectMapper.readTree(exception.getResponseBodyAsString());

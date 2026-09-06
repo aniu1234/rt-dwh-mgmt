@@ -6,7 +6,7 @@ import {
 
 export type TaskType = 'cdc_sync' | 'etl' | 'materialized';
 export type ExecutionMode = 'continuous' | 'scheduled';
-export type TaskScenarioStatus = 'available' | 'planned';
+export type TaskScenarioStatus = 'available' | 'planned' | 'experimental';
 export type TaskScenarioCategory = 'ingest' | 'develop' | 'compute';
 
 export type TaskScenario = {
@@ -132,14 +132,14 @@ export const taskScenarios: TaskScenario[] = [
   {
     code: 'materialized_table',
     category: 'compute',
-    title: '物化表任务',
+    title: '原生物化表',
     description: 'Flink 2.x Materialized Table',
-    hint: '持续维护物化结果，适合实时聚合和宽表',
+    hint: '刷新与恢复能力尚未完成验收，暂不开放新建；实时聚合可使用 Flink SQL 加工',
     taskType: 'materialized',
     executionMode: 'continuous',
-    status: 'available',
+    status: 'experimental',
     icon: <ThunderboltOutlined />,
-    tags: ['持续计算'],
+    tags: ['实验能力 · 未开放'],
     inputMode: 'sql',
   },
 ];

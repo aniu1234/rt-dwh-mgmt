@@ -177,7 +177,12 @@ export async function getDatasetProductions(outputId: number) { return request<A
 export async function getDataServices() { return request<API.DataServiceDefinition[]>(`${API_PREFIX}/data-services`); }
 export async function createDataService(data: any) { return request<API.DataServiceDefinition>(`${API_PREFIX}/data-services`, { method: 'POST', data }); }
 export async function updateDataService(id: number, data: any) { return request<API.DataServiceDefinition>(`${API_PREFIX}/data-services/${id}`, { method: 'PUT', data }); }
-export async function publishDataService(id: number, published: boolean) { return request<API.DataServiceDefinition>(`${API_PREFIX}/data-services/${id}/publish`, { method: 'POST', params: { published } }); }
+export async function getDataService(id: number) { return request<API.DataServiceDefinition>(`${API_PREFIX}/data-services/${id}`); }
+export async function getDataServiceVersions(id: number) { return request<API.DataServiceVersion[]>(`${API_PREFIX}/data-services/${id}/versions`); }
+export async function getDataServicePublished(id: number) { return request<API.DataServiceVersion>(`${API_PREFIX}/data-services/${id}/published`); }
+export async function previewDataService(id: number, expectedRevision: number) { return request<API.DataServicePublicationPreview>(`${API_PREFIX}/data-services/${id}/preview`, { method: 'POST', data: { expectedRevision } }); }
+export async function publishDataService(id: number, published: boolean, expectedRevision: number, changeSummary?: string) { return request<API.DataServiceDefinition>(`${API_PREFIX}/data-services/${id}/publish`, { method: 'POST', params: { published }, data: { expectedRevision, changeSummary } }); }
+export async function rollbackDataService(id: number, versionId: number, expectedRevision: number, changeSummary?: string) { return request<API.DataServiceDefinition>(`${API_PREFIX}/data-services/${id}/rollback/${versionId}`, { method: 'POST', data: { expectedRevision, changeSummary } }); }
 export async function deleteDataService(id: number) { return request<void>(`${API_PREFIX}/data-services/${id}`, { method: 'DELETE' }); }
 export async function getDataServiceApps() { return request<API.DataServiceApp[]>(`${API_PREFIX}/data-services/apps`); }
 export async function createDataServiceApp(data: any) { return request<API.DataServiceCredential>(`${API_PREFIX}/data-services/apps`, { method: 'POST', data }); }
@@ -560,6 +565,9 @@ export async function getLineageGraph(params?: { layer?: string; keyword?: strin
 export async function getMaintenanceLogs(params?: { tableMetaId?: number; operation?: string; status?: string }) {
   return request<API.MaintenanceLog[]>(`${API_PREFIX}/dwh/maintenance/logs`, { params });
 }
+export const getMaintenanceRecovery = (id: number) => request<API.MaintenanceRecoveryDetail>(`${API_PREFIX}/dwh/maintenance/${id}`);
+export const recoverMaintenance = (id: number, data: { expectedRevision: number; action: string; reason: string; jobId?: string }) =>
+  request<API.MaintenanceRecoveryDetail>(`${API_PREFIX}/dwh/maintenance/${id}/recovery`, { method: 'POST', data });
 
 export async function batchCompact(data: { layer?: string; fileCountThreshold?: number }) {
   return request<{ triggered: number; failed: number; failures: { tableId: number; table: string; message: string }[] }>(`${API_PREFIX}/dwh/maintenance/batch-compact`, { method: 'POST', data });

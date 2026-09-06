@@ -203,18 +203,5 @@ declare namespace API {
     resolver?: string;
   }
 
-  interface MaintenanceLog {
-    id: number;
-    tableName: string;
-    paimonDb: string;
-    operation: 'compact' | 'expire_snapshots' | 'clean_orphan_files' | 'rollback';
-    triggerType: 'manual' | 'scheduled' | 'auto';
-    strategy?: string;
-    retainLast?: number;
-    status: 'running' | 'success' | 'failed';
-    startedAt: string;
-    finishedAt?: string;
-    durationMs?: number;
-    operator: string;
-  }
+  // MaintenanceLog is defined with the persisted recovery contract in src/typings.d.ts.
 }

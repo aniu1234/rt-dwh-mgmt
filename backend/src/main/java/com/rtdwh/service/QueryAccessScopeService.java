@@ -28,6 +28,15 @@ public class QueryAccessScopeService {
     private final ViewDependencyService viewDependencies;
 
     @Transactional(readOnly = true)
+    public void assertDataServiceExecutionIdentity(Long userId) {
+        SysUser user = userRepository.findById(userId).orElseThrow(() -> new IllegalArgumentException("数据 API 执行用户不存在"));
+        if (user.getStatus() != SysUser.UserStatus.active) throw new IllegalArgumentException("数据 API 执行用户已停用");
+        boolean permitted = user.getRoles().stream().anyMatch(role -> "ADMIN".equals(role.getRoleCode())
+                || role.getPermissions().stream().anyMatch(permission -> "data-service:manage".equals(permission.getPermCode())));
+        if (!permitted) throw new IllegalArgumentException("数据 API 执行用户已失去服务权限");
+    }
+
+    @Transactional(readOnly = true)
     public void validateDorisSystem(String sql, String catalog, String database) {
         viewDependencies.validateQuery(sql, catalog, database, ignored -> true);
     }

@@ -61,7 +61,7 @@ def cleanup():
   assert name.startswith('smoke_view_') and name.replace('_','').isalnum()
   execute('DROP TABLE IF EXISTS ods.'+name)
  for sid in state['services']:
-  db(f'DELETE FROM data_service_invocation_log WHERE service_id={int(sid)}; DELETE FROM data_service_grant WHERE service_id={int(sid)}; DELETE FROM data_service_definition WHERE id={int(sid)};')
+  db(f'DELETE FROM data_service_invocation_log WHERE service_id={int(sid)}; DELETE FROM data_service_version WHERE service_id={int(sid)}; DELETE FROM data_service_grant WHERE service_id={int(sid)}; DELETE FROM data_service_definition WHERE id={int(sid)};')
  for aid in state['apps']:db(f'DELETE FROM data_service_app WHERE id={int(aid)};')
  for rid in state['reports']:db(f'DELETE FROM report_run WHERE report_id={int(rid)}; DELETE FROM report_template WHERE id={int(rid)};')
  for uid in state['users']:db(f'DELETE FROM query_history WHERE user_id={int(uid)}; DELETE FROM sys_user_role WHERE user_id={int(uid)}; DELETE FROM sys_user WHERE id={int(uid)};')
@@ -139,18 +139,47 @@ try:
  reportbody['isPublished']=True;api('PUT','/reports/'+str(report['id']),reportbody,a['token'])
  assert api('GET','/reports/'+str(report['id'])+'/data',token=a['token'])['rows']==[[31]]
  service=api('POST','/data-services',{'serviceCode':prefix,'serviceName':prefix,'sqlTemplate':reportbody['sqlQuery'],'parameterConfig':'[]','catalogName':'rtdwh_paimon','databaseName':'ods'},a['token']);state['services'].append(service['id']);save()
- api('POST','/data-services/'+str(service['id'])+'/publish',token=a['token'])
+ service=api('POST','/data-services/'+str(service['id'])+'/publish',{'expectedRevision':service['revision']},token=a['token'])
  app=api('POST','/data-services/apps',{'appName':prefix},a['token']);state['apps'].append(app['id']);save()
  api('POST','/data-services/apps/'+str(app['id'])+'/grants',{'serviceId':service['id']},a['token'])
  creds={'X-App-Key':app['appKey'],'X-App-Secret':app['appSecret']}
  assert api('POST','/open/data/'+prefix,{},token='',headers=creds)['rows']==[[31]]
  print('PASS: real nested View, draft isolation, immutable versions, compatible republish, contract rejection, report and API reuse',flush=True)
+ # Retarget only the API draft as admin. Frozen history, consumption and lineage must remain with A.
+ servicepath='/data-services/'+str(service['id'])
+ changed={'serviceCode':prefix,'serviceName':prefix,'sqlTemplate':'SELECT amount FROM internal.rtdwh_views.'+b['name'],
+          'parameterConfig':'[]','catalogName':'rtdwh_paimon','databaseName':'ods','expectedRevision':service['revision']}
+ service=api('PUT',servicepath,changed)
+ assert api('POST','/open/data/'+prefix,{},token='',headers=creds)['rows']==[[31]]
+ assert len(api('GET',servicepath+'/versions',token=a['token']))==1
+ assert not api('GET',servicepath+'/versions',token=b['token'])
+ assert not any(log['serviceId']==service['id'] for log in api('GET','/data-services/logs',token=b['token']))
+ assert not any(item['id']==service['id'] for item in api('GET','/data-services',token=b['token']))
+ context=api('GET','/dwh/assets/'+nested['asset']['assetId']+'/context',token=a['token'])
+ assert any(u['kind']=='service' and u['id']==service['id'] and u['versionId']==service['publishedVersionId']
+            and u['evidence']=='published_service_sql_ast' for u in context['usages'])
+ api('POST',servicepath+'/publish',{'expectedRevision':service['revision']},reject=['无权','权限'])
+ changed['sqlTemplate']=reportbody['sqlQuery'];changed['expectedRevision']=service['revision'];service=api('PUT',servicepath,changed)
+ # App credentials must not keep a disabled or deauthorized owner's API running.
+ api('POST','/admin/users/'+str(state['users'][0])+'/toggle-status')
+ try: api('POST','/open/data/'+prefix,{},token='',headers=creds,reject=['停用'])
+ finally: api('POST','/admin/users/'+str(state['users'][0])+'/toggle-status')
+ original_permissions=a['body']['permissionIds']
+ manage_id=next(p['id'] for p in perms if p['permCode']=='data-service:manage')
+ a['body']['permissionIds']=[p for p in original_permissions if p!=manage_id];api('PUT','/admin/roles/'+str(a['role']),a['body'])
+ try: api('POST','/open/data/'+prefix,{},token='',headers=creds,reject=['权限'])
+ finally:
+  a['body']['permissionIds']=original_permissions;api('PUT','/admin/roles/'+str(a['role']),a['body'])
+ assert api('POST','/open/data/'+prefix,{},token='',headers=creds)['rows']==[[31]]
+ print('PASS: API published lineage, retargeted draft/history isolation, disabled owner and permission revocation',flush=True)
  # Keep top/nested View permission but revoke the underlying table on an existing token.
  scopes=a['body']['dataScopes'];a['body']['dataScopes']=scopes[1:];api('PUT','/admin/roles/'+str(a['role']),a['body'])
  api('POST','/query/execute',{'sql':reportbody['sqlQuery']},a['token'],reject=['无权','权限'])
  api('GET','/reports/'+str(report['id'])+'/data',token=a['token'],reject=['无权','权限'])
- api('POST','/data-services/'+str(service['id'])+'/publish',token=a['token'],reject=['无权','权限'])
+ api('POST','/data-services/'+str(service['id'])+'/publish',{'expectedRevision':service['revision']},token=a['token'],reject=['无权','权限'])
  api('POST','/open/data/'+prefix,{},token='',headers=creds,reject=['无权','权限'])
+ assert not api('GET',servicepath+'/versions',token=a['token'])
+ assert not any(log['serviceId']==service['id'] for log in api('GET','/data-services/logs',token=a['token']))
  a['body']['dataScopes']=scopes;api('PUT','/admin/roles/'+str(a['role']),a['body'])
  # Remove a physical dependency, then restore and refresh only its external metadata.
  execute('ALTER TABLE ods.'+a['name']+' RENAME TO ods.'+a['name']+'_hidden')

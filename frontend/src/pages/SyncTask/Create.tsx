@@ -118,7 +118,7 @@ const SyncTaskCreate: React.FC = () => {
 
   const changeScenario = (scenario: TaskScenario) => {
     if (scenario.status !== 'available') {
-      message.info(`${scenario.title}正在规划中，场景注册位已预留`);
+      message.info(scenario.status === 'experimental' ? '该能力尚未完成验收，暂不开放新建' : `${scenario.title}正在规划中`);
       return;
     }
     const switchingWithinCdc = formData.taskType === 'cdc_sync' && scenario.taskType === 'cdc_sync';
@@ -417,7 +417,7 @@ const SyncTaskCreate: React.FC = () => {
                     <div className="task-type-grid">
                       {scenarios.map((scenario) => {
                         const selected = formData.scenarioCode === scenario.code;
-                        const planned = scenario.status === 'planned';
+                        const planned = scenario.status !== 'available';
                         return (
                           <button
                             type="button"

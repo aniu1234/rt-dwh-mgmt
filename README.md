@@ -98,6 +98,10 @@ RT-DWH 后端通过 Flink REST API、Flink SQL Gateway、Doris MySQL 协议和 P
 
 ## 产品能力
 
+当前菜单、已落地能力、使用流程与未完成边界见 [产品能力全景](docs/product-capability-map.md)（2026-09-05，基线 `0046f3c`）；下文为产品领域概述，具体成熟度以该清单和实施验收记录为准。
+
+剩余功能与优化项的开发顺序、阶段排期、依赖及验收标准见 [未完成能力与优化开发计划](docs/v2.0-remaining-development-plan.md)。
+
 RT-DWH 不是 Flink、Paimon 或 Doris 的替代品，而是位于三者之上的实时数仓控制面。平台围绕“数据进入湖仓以后，如何持续运行、被发现、被查询、被治理”组织产品能力。
 
 完整的用户角色、领域对象、产品闭环、技术架构和部署决策见 [`docs/product-design-and-technical-solution.md`](docs/product-design-and-technical-solution.md)。
@@ -188,7 +192,7 @@ CDC 是常驻流任务，不参与按日期补数；除内置 Flink SQL Runner �
 
 物理层级为 `JDBC Catalog → Warehouse → Database → Table → Partition/Bucket → Snapshot/Manifest/Data File`。Catalog 保存表结构和文件指针，Warehouse 保存业务数据及快照文件。
 
-生命周期分成两套策略：`Expire Snapshots` 控制回溯／恢复窗口并释放不再被保留快照引用的旧文件，不等同于业务数据保留天数；业务数据到期需要独立的分区生命周期策略。需要长期审计的节点应先创建 Tag，再执行快照清理。当前平台已提供 Compact、快照清理和孤立文件清理，分区生命周期与 Tag 自动化列入后续建设。
+生命周期分成两套策略：`Expire Snapshots` 控制回溯／恢复窗口并释放不再被保留快照引用的旧文件，不等同于业务数据保留天数；业务数据到期需要独立的分区生命周期策略。需要长期审计的节点应先创建 Tag，再执行快照清理。当前平台已提供 Compact、快照清理和孤立文件清理，分区生命周期与 Tag 自动化列入后续建设。维护恢复详情现可查看原端点、提交证据、会话清理重试与人工处置记录；结果未知时阻止重复维护。V29／V30 升级与限制见 [维护恢复契约](docs/maintenance-recovery-contract.md)。
 
 ### 4. 查询与数据服务
 
@@ -202,6 +206,7 @@ CDC 是常驻流任务，不参与按日期补数；除内置 Flink SQL Runner �
 - 采集 Doris 扫描量、CPU、峰值内存和 Query Profile，展示排队耗时、成本软预算及高成本查询排行；
 - 基于安全的类型化参数 SQL 模板配置表格、折线、柱状、饼图和混合图报表，支持手动／定时参数、快照与订阅分发。
 - 将只读 Doris SQL 发布为参数化数据 API，为外部系统分配 AppKey／AppSecret，并按应用授权具体服务；
+- API 草稿与线上版本隔离，发布预检固定参数及结果契约；支持并发修订校验、不可变历史、重新校验后的回退，调用日志记录实际发布版本，详见 [API 发布契约](docs/data-api-publication-contract.md)；
 - 对开放接口实施最大行数、超时、每分钟限流和数据访问范围校验，记录来源 IP、耗时、行数、状态与错误；应用密钥只在创建或轮换时返回一次。
 
 这里的“实时可见”由两部分组成：Flink 在 Checkpoint 时提交 Paimon Snapshot，Doris 查询最新 Snapshot。端到端可见延迟通常不超过一个 Checkpoint 周期加查询时间。
@@ -582,7 +587,7 @@ curl -X POST 'https://rtdwh.example.com/api/v1/open/data/order-summary' \
   -d '{"start_date":"2026-08-21","region":"华东"}'
 ```
 
-开放接口只接受已发布的只读 SQL 服务。服务端会执行应用授权、有效期、限流、参数类型、数据访问范围、最大行数与超时校验。生产环境必须启用 HTTPS；多副本部署建议在 API Gateway 或 Redis 中实现共享限流，并按安全要求增加 HMAC 防重放或 OAuth2。
+开放接口只执行当前发布快照，编辑草稿不会影响调用。服务端会执行应用授权、有效期、限流、参数类型、执行人当前权限、数据范围、结果契约、最大行数与超时校验，响应和日志包含实际版本。V28 管理端更新／发布／下线／回退请求需携带 `expectedRevision`，升级说明见 [API 发布契约](docs/data-api-publication-contract.md)。生产环境必须启用 HTTPS；多副本部署建议在 API Gateway 或 Redis 中实现共享限流，并按安全要求增加 HMAC 防重放或 OAuth2。
 
 ## 构建与验证
 
@@ -691,6 +696,8 @@ rt-dwh-mgmt/
 
 | 内容 | 文件 |
 |---|---|
+| 当前产品能力、成熟度与后续重点 | [产品能力全景](docs/product-capability-map.md) |
+| 未完成能力、优化任务与实施顺序 | [剩余开发计划](docs/v2.0-remaining-development-plan.md) |
 | 产品设计与技术方案 | [`docs/product-design-and-technical-solution.md`](docs/product-design-and-technical-solution.md) |
 | Paimon＋Flink＋Doris 核心架构 | [`docs/diagrams/paimon-flink-doris-lightweight-architecture.svg`](docs/diagrams/paimon-flink-doris-lightweight-architecture.svg) |
 | 系统能力总览 | [`docs/diagrams/arch-part1-capability.svg`](docs/diagrams/arch-part1-capability.svg) |

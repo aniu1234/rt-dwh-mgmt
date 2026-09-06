@@ -848,6 +848,10 @@ public class DwhMetaService {
         return maintenanceLogRepository.searchLogs(operation, status, tableMetaId);
     }
 
+    public List<TableMaintenanceLog> getMaintenanceLogs(Long tableMetaId, Operation operation, Status status, Long actor) {
+        return maintenanceService.logs(tableMetaId, operation, status, actor);
+    }
+
     // Helper class for Paimon table info from metastore
     private static class PaimonTableInfo {
         String tableId;

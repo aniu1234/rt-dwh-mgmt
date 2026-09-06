@@ -21,16 +21,19 @@ class DataServiceServiceTest {
     private final QueryService queryService = mock(QueryService.class);
     private final PasswordEncoder encoder = mock(PasswordEncoder.class);
     private final QueryAccessScopeService access = mock(QueryAccessScopeService.class);
-    private final DataServiceService service = new DataServiceService(definitions, apps, grants, logs, renderer, queryService, encoder, access);
+    private final DataServiceVersionRepository versions = mock(DataServiceVersionRepository.class);
+    private final DataServiceContractService contracts = mock(DataServiceContractService.class);
+    private final DataServiceService service = new DataServiceService(definitions, apps, grants, logs, renderer, queryService, encoder, access, versions, contracts);
 
     @Test
     void hiddenDefinitionCannotBePublishedUpdatedDeletedOrListed() {
         DataServiceDefinition definition = DataServiceDefinition.builder().id(2L).serviceCode("private-data")
                 .sqlTemplate("select * from payroll").catalogName("rtdwh_paimon").databaseName("ads").build();
         when(definitions.findById(2L)).thenReturn(Optional.of(definition));
+        when(definitions.findByIdForUpdate(2L)).thenReturn(Optional.of(definition));
         when(definitions.findAll()).thenReturn(java.util.List.of(definition));
         assertTrue(service.definitions(7L).isEmpty());
-        assertThrows(org.springframework.security.access.AccessDeniedException.class, () -> service.publish(2L, true, 7L));
+        assertThrows(org.springframework.security.access.AccessDeniedException.class, () -> service.publish(2L, true, 7L, null));
         assertThrows(org.springframework.security.access.AccessDeniedException.class, () -> service.updateDefinition(2L, null, 7L));
         assertThrows(org.springframework.security.access.AccessDeniedException.class, () -> service.deleteDefinition(2L, 7L));
         verify(definitions, never()).save(any());
@@ -59,6 +62,11 @@ class DataServiceServiceTest {
                 .maxRows(100).timeoutSeconds(30).rateLimitPerMinute(10)
                 .status(DataServiceDefinition.ServiceStatus.published).apiVersion(3).build();
         DataServiceApp app = DataServiceApp.builder().id(5L).appKey("key").secretHash("hash").enabled(true).build();
+        definition.setPublishedVersionId(10L);
+        when(versions.findById(10L)).thenReturn(Optional.of(DataServiceVersion.builder().id(10L).serviceId(2L)
+                .versionNo(3).creatorId(7L).serviceCode("order-summary").sqlTemplate(definition.getSqlTemplate())
+                .parameterConfig("[]").catalogName("rtdwh_paimon").databaseName("ads")
+                .maxRows(100).timeoutSeconds(30).rateLimitPerMinute(10).build()));
         when(definitions.findByServiceCode("order-summary")).thenReturn(Optional.of(definition));
         when(apps.findByAppKey("key")).thenReturn(Optional.of(app));
         when(encoder.matches("secret", "hash")).thenReturn(true);

@@ -79,11 +79,11 @@ public class AssetContextService {
                     usages.add(new Usage("report", report.getId(), report.getReportName(), "consumer", null, null, "current_report_sql_ast", "/query/report"));
             } catch (IllegalArgumentException unsupported) { /* Partial parsing is not evidence. */ }
         }
-        if (security.hasAuthority("data-service:view")) for (var service : services.definitions(actor)) {
+        if (security.hasAuthority("data-service:view")) for (var service : services.publishedDefinitions(actor)) {
             try {
                 var refs = references.inspect(reportParameters.sqlForAccessCheck(service.getSqlTemplate(), service.getParameterConfig()), service.getCatalogName(), service.getDatabaseName());
                 if (refs.references().stream().anyMatch(r -> r.input() && matches(asset, catalog, r.catalog(), r.database(), r.table())))
-                    usages.add(new Usage("service", service.getId(), service.getServiceName(), "consumer", null, service.getApiVersion(), "current_service_sql_ast", "/query/data-service"));
+                    usages.add(new Usage("service", service.getId(), service.getServiceName(), "consumer", service.getPublishedVersionId(), service.getApiVersion(), "published_service_sql_ast", "/query/data-service"));
             } catch (IllegalArgumentException unsupported) { /* Partial parsing is not evidence. */ }
         }
         for (var view : managedViews.findAll()) {

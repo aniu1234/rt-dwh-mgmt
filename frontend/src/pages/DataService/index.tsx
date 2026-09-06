@@ -7,7 +7,10 @@ import {
   createDataService, createDataServiceApp, deleteDataService, getDataServiceApps, getDataServiceGrants,
   getDataServiceLogs, getDataServices, grantDataService, publishDataService, revokeDataService,
   rotateDataServiceSecret, toggleDataServiceApp, updateDataService,
+  getDataServicePublished,
 } from '@/api';
+import ReleaseDrawer from './ReleaseDrawer';
+import { formatBackendDateTime } from '@/utils/backendDateTime';
 import './index.less';
 
 const parameterTemplate = JSON.stringify({ parameters: [
@@ -37,6 +40,14 @@ const DataService: React.FC = () => {
   const [serviceStatus, setServiceStatus] = useState<string>();
   const [logStatus, setLogStatus] = useState<string>();
   const [exampleService, setExampleService] = useState<API.DataServiceDefinition>();
+  const [releaseServiceId, setReleaseServiceId] = useState<number>();
+
+  const showExample = async (value: API.DataServiceDefinition) => {
+    if (value.publishedVersionId) {
+      const published = await getDataServicePublished(value.id);
+      setExampleService({ ...value, ...published, id: value.id, apiVersion: published.versionNo });
+    } else setExampleService(value);
+  };
 
   const editService = (value?: API.DataServiceDefinition) => {
     setEditing(value); setServiceOpen(true); form.resetFields();
@@ -95,12 +106,12 @@ const DataService: React.FC = () => {
         </div>
         <Table className="data-service-table" size="small" rowKey="id" dataSource={visibleServices} loading={servicesRequest.loading} scroll={{x:1200}} locale={{emptyText:<Empty className="data-service-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description={serviceKeyword.trim() || serviceStatus ? '未找到匹配的数据服务' : '暂无数据服务，创建后即可安全发布接口'}>{access.canManageDataService && !serviceKeyword.trim() && !serviceStatus && <Button type="link" icon={<PlusOutlined/>} onClick={()=>editService()}>新建数据服务</Button>}</Empty>}} columns={[
           {title:'服务',key:'name',width:220,render:(_,r)=><div><b>{r.serviceName}</b><div><Typography.Text code>{r.serviceCode}</Typography.Text></div></div>},
-          {title:'数据源',key:'source',width:220,render:(_,r)=>`${r.catalogName}.${r.databaseName}`},
-          {title:'版本',dataIndex:'apiVersion',width:80,render:v=>`v${v}`},
-          {title:'限制',key:'limit',width:210,render:(_,r)=>`${r.maxRows} 行 · ${r.timeoutSeconds}s · ${r.rateLimitPerMinute}次/分`},
+          {title:'草稿查询环境',key:'source',width:220,render:(_,r)=>`${r.catalogName}.${r.databaseName}`},
+          {title:'发布版本',key:'version',width:150,render:(_,r)=><Space direction="vertical" size={0}><span>{r.publishedVersionId?`v${r.apiVersion}`:'未发布'}</span>{r.publishedVersionId&&r.hasDraftChanges&&<Tag color="orange">有未发布修改</Tag>}</Space>},
+          {title:'草稿运行限制',key:'limit',width:210,render:(_,r)=>`${r.maxRows} 行 · ${r.timeoutSeconds}s · ${r.rateLimitPerMinute}次/分`},
           {title:'状态',dataIndex:'status',width:100,render:v=><Tag color={v==='published'?'success':v==='offline'?'warning':'default'}>{serviceStatusLabels[v] || v}</Tag>},
           {title:'接口',dataIndex:'serviceCode',ellipsis:true,render:v=><Typography.Text copyable code>{`/api/v1/open/data/${v}`}</Typography.Text>},
-          {title:'操作',width:320,fixed:'right' as const,render:(_,r)=><Space><Button size="small" icon={<CodeOutlined/>} onClick={()=>setExampleService(r)}>调用示例</Button>{access.canManageDataService&&<><Button size="small" onClick={()=>editService(r)}>编辑</Button><Button size="small" type="primary" ghost={r.status==='published'} onClick={async()=>{await publishDataService(r.id,r.status!=='published');message.success(r.status==='published'?'已下线':'已发布');servicesRequest.refresh();}}>{r.status==='published'?'下线':'发布'}</Button><Popconfirm title="确认删除？" onConfirm={async()=>{await deleteDataService(r.id);message.success('已删除');servicesRequest.refresh();}}><Button size="small" danger>删除</Button></Popconfirm></>}</Space>},
+          {title:'操作',width:420,fixed:'right' as const,render:(_,r)=><Space wrap><Button size="small" icon={<CodeOutlined/>} onClick={()=>showExample(r)}>调用示例</Button><Button size="small" type="primary" ghost onClick={()=>setReleaseServiceId(r.id)}>版本与发布</Button>{access.canManageDataService&&r.manageable&&<><Button size="small" onClick={()=>editService(r)}>编辑草稿</Button>{r.status==='published'&&<Popconfirm title="下线后外部调用将被拒绝，确认下线？" onConfirm={async()=>{await publishDataService(r.id,false,r.revision);message.success('已下线');servicesRequest.refresh();}}><Button size="small">下线</Button></Popconfirm>}<Popconfirm title="确认删除已下线的服务？版本及调用证据会保留。" onConfirm={async()=>{await deleteDataService(r.id);message.success('已删除');servicesRequest.refresh();}}><Button size="small" danger disabled={r.status==='published'}>删除</Button></Popconfirm></>}</Space>},
         ]}/>
       </>},
       {key:'apps',label:`调用应用（${apps.length}）`,children:<>
@@ -114,11 +125,12 @@ const DataService: React.FC = () => {
         ]}/>
       </>},
       {key:'logs',label:'调用日志',children:<><div className="rtdwh-page-toolbar data-service-toolbar"><Select className="data-service-status" allowClear value={logStatus} onChange={setLogStatus} placeholder="全部调用结果" options={[{value:'success',label:'成功'},{value:'failed',label:'失败'}]}/><Typography.Text className="data-service-toolbar-note" type="secondary">展示最近 200 次调用</Typography.Text></div><Table className="data-service-table" size="small" rowKey="id" dataSource={logs} loading={logsRequest.loading} scroll={{x:1100}} locale={{emptyText:'暂无接口调用日志'}} columns={[
-        {title:'时间',dataIndex:'createdAt',width:180},{title:'服务',dataIndex:'serviceCode',width:180},{title:'应用ID',dataIndex:'appId',width:90},{title:'状态',dataIndex:'status',width:90,render:v=><Tag color={v==='success'?'success':'error'}>{invocationStatusLabels[v] || v}</Tag>},{title:'HTTP',dataIndex:'httpStatus',width:80},{title:'行数',dataIndex:'rowCount',width:80},{title:'耗时',dataIndex:'durationMs',width:100,render:v=>v==null?'—':`${v}ms`},{title:'来源IP',dataIndex:'clientIp',width:140},{title:'错误',dataIndex:'errorMessage',ellipsis:true},
+        {title:'时间',dataIndex:'createdAt',width:180,render:formatBackendDateTime},{title:'服务',dataIndex:'serviceCode',width:180},{title:'实际版本',dataIndex:'apiVersion',width:100,render:v=>v==null?'未记录':`v${v}`},{title:'执行用户',dataIndex:'executionUserId',width:100,render:v=>v??'—'},{title:'应用ID',dataIndex:'appId',width:90},{title:'状态',dataIndex:'status',width:90,render:v=><Tag color={v==='success'?'success':'error'}>{invocationStatusLabels[v] || v}</Tag>},{title:'HTTP',dataIndex:'httpStatus',width:80},{title:'行数',dataIndex:'rowCount',width:80},{title:'耗时',dataIndex:'durationMs',width:100,render:v=>v==null?'—':`${v}ms`},{title:'来源IP',dataIndex:'clientIp',width:140},{title:'错误',dataIndex:'errorMessage',ellipsis:true},
       ]}/></>} ]}/></Card>
 
-    <Modal title={editing?'编辑数据服务':'新建数据服务'} width={820} open={serviceOpen} onCancel={()=>setServiceOpen(false)} onOk={()=>form.submit()} destroyOnClose>
-      <Form form={form} layout="vertical" onFinish={async values=>{if(editing)await updateDataService(editing.id,values);else await createDataService(values);message.success(editing?'服务已更新':'服务已创建');setServiceOpen(false);servicesRequest.refresh();}}>
+    <Modal title={editing?'编辑 API 草稿':'新建数据 API'} width={820} open={serviceOpen} onCancel={()=>setServiceOpen(false)} onOk={()=>form.submit()} okText="保存草稿" destroyOnClose>
+      <Alert type="info" showIcon message="保存仅更新草稿，需在“版本与发布”中校验发布后才能更新线上接口。" style={{marginBottom:16}} />
+      <Form form={form} layout="vertical" onFinish={async values=>{if(editing)await updateDataService(editing.id,{...values,expectedRevision:editing.revision});else await createDataService(values);message.success(editing?'草稿已保存，线上版本保持不变':'草稿已创建');setServiceOpen(false);servicesRequest.refresh();}}>
         <Row gutter={16}><Col xs={24} md={10}><Form.Item name="serviceCode" label="服务编码" rules={[{required:true},{pattern:/^[a-z][a-z0-9_-]{2,63}$/}]}><Input disabled={!!editing} placeholder="order-summary"/></Form.Item></Col><Col xs={24} md={14}><Form.Item name="serviceName" label="服务名称" rules={[{required:true}]}><Input/></Form.Item></Col></Row>
         <Form.Item name="description" label="说明"><Input/></Form.Item>
         <Row gutter={16}><Col xs={24} md={8}><Form.Item name="catalogName" label="Catalog" rules={[{required:true}]}><Input/></Form.Item></Col><Col xs={24} md={8}><Form.Item name="databaseName" label="Database" rules={[{required:true}]}><Input/></Form.Item></Col><Col xs={12} md={8}><Form.Item name="maxRows" label="最大行数"><InputNumber style={{width:'100%'}} min={1} max={50000}/></Form.Item></Col><Col xs={12} md={8}><Form.Item name="timeoutSeconds" label="超时秒数"><InputNumber style={{width:'100%'}} min={1} max={1800}/></Form.Item></Col><Col xs={24} md={8}><Form.Item name="rateLimitPerMinute" label="每分钟限流"><InputNumber style={{width:'100%'}} min={1}/></Form.Item></Col></Row>
@@ -135,12 +147,13 @@ const DataService: React.FC = () => {
     </Modal>
     <Modal title={`接口调用示例：${exampleService?.serviceName||''}`} width={760} open={!!exampleService} onCancel={()=>setExampleService(undefined)} footer={<Button type="primary" onClick={()=>setExampleService(undefined)}>关闭</Button>}>
       {exampleService?.status!=='published'&&<Alert className="data-service-warning-alert" type="warning" showIcon message="该服务尚未发布，发布后外部系统才能调用"/>}
-      <Typography.Paragraph type="secondary">将占位符替换为调用应用的凭证。请求体已根据参数定义生成，可直接复制后修改。</Typography.Paragraph>
+      <Typography.Paragraph type="secondary">将占位符替换为调用应用的凭证。{exampleService?.publishedVersionId?`请求体依据已发布 v${exampleService.apiVersion} 的参数生成。`:'当前示例使用未发布草稿的参数。'}</Typography.Paragraph>
       <Typography.Text strong>cURL</Typography.Text>
       <pre className="rtdwh-code-panel"><Typography.Text copyable={{text:curlCommand}} style={{color:'inherit'}}>{curlCommand}</Typography.Text></pre>
       <Typography.Text strong>请求体</Typography.Text>
       <pre className="rtdwh-code-panel"><Typography.Text copyable={{text:JSON.stringify(exampleBody,null,2)}} style={{color:'inherit'}}>{JSON.stringify(exampleBody,null,2)}</Typography.Text></pre>
     </Modal>
+    <ReleaseDrawer serviceId={releaseServiceId} canManage={access.canManageDataService} onClose={()=>setReleaseServiceId(undefined)} onChanged={refresh}/>
   </PageContainer>;
 };
 

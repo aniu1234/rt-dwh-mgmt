@@ -121,11 +121,7 @@ public class DwhMetaController {
         Operation opEnum = operation != null ? Operation.valueOf(operation) : null;
         Status statusEnum = status != null ? Status.valueOf(status) : null;
         if (tableMetaId != null) assertTableAccess(tableMetaId);
-        java.util.Set<Long> visible = access.filterAllowed(security.getCurrentUserId(),
-                dwhMetaService.listTables(null, null, null), this::catalogFor, DwhTableMeta::getPaimonDb, DwhTableMeta::getPaimonTable)
-                .stream().map(DwhTableMeta::getId).collect(java.util.stream.Collectors.toSet());
-        return ApiResponse.success(dwhMetaService.getMaintenanceLogs(tableMetaId, opEnum, statusEnum)
-                .stream().filter(item -> visible.contains(item.getTableMetaId())).toList());
+        return ApiResponse.success(dwhMetaService.getMaintenanceLogs(tableMetaId, opEnum, statusEnum, security.getCurrentUserId()));
     }
 
     @PostMapping("/maintenance/batch-compact")

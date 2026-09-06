@@ -28,6 +28,7 @@ public class TaskReleaseContractService {
     private String platformCatalog = "rtdwh_paimon";
 
     public void preparePublication(SyncTask definition) {
+        TaskCapabilityPolicy.requireSupported(definition.getTaskType(), definition.getScenarioCode());
         if (definition.getTaskType() != SyncTask.TaskType.cdc_sync) {
             definition.setParameterSchemaJson(parameters.validateTemplate(definition.getFlinkSql(), definition.getParameterSchemaJson()));
         }
